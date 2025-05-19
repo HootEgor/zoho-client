@@ -1,0 +1,22 @@
+---
+
+env: local               # Environment for logging
+sql:
+  enabled: false         # Enable or disable SQL connection
+  driver: mysqli         # Database driver
+  hostname: localhost    # Database hostname
+  username: username     # Database username
+  password: password     # Database password
+  database: db           # Database name
+  port: 8080             # Database port
+  prefix: prefix_        # Database table prefix
+## Telegram bot configuration
+telegram:
+  enabled: false
+  api_key: telegram-api-key
+zoho:
+  client_id: zoho_client_id
+  client_secret: zoho_client_secret
+  refresh_token: zoho_refresh_token
+  refresh_url: zoho_refresh_url
+  crm_url: zoho_crm_url

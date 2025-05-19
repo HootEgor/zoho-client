@@ -1,0 +1,21 @@
+---
+
+env: ${LOG_ENV}
+sql:
+  enabled: true
+  driver: ${SQL_DRIVER}
+  hostname: ${SQL_HOSTNAME}
+  username: ${SQL_USERNAME}
+  password: ${SQL_PASSWORD}
+  database: ${SQL_DATABASE}
+  port: ${SQL_PORT}
+  prefix: ${SQL_PREFIX}
+telegram:
+  enabled: false
+  api_key: ${TELEGRAM_API_KEY}
+zoho:
+  client_id: ${ZOHO_CLIENT_ID}
+  client_secret: ${ZOHO_CLIENT_SECRET}
+  refresh_token: ${ZOHO_REFRESH_TOKEN}
+  refresh_url: ${ZOHO_REFRESH_URL}
+  crm_url: ${ZOHO_CRM_URL}

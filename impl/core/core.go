@@ -1,0 +1,101 @@
+package core
+
+import (
+	"fmt"
+	"log/slog"
+	"time"
+	"zohoapi/entity"
+	"zohoapi/internal/lib/sl"
+)
+
+type Repository interface {
+	GetNewOrders() ([]entity.OCOrder, error)
+	ChangeOrderStatus(orderId, orderStatusId int) error
+
+	GetOrderProducts(orderId int) ([]entity.Product, error)
+}
+
+type Zoho interface {
+	RefreshToken() error
+	CreateContact(contactData entity.Contact) (string, error)
+	CreateOrder(orderData entity.ZohoOrder) (string, error)
+}
+
+type MessageService interface {
+	SendEventMessage(msg *entity.EventMessage) error
+}
+
+type Core struct {
+	repo       Repository
+	zoho       Zoho
+	ms         MessageService
+	orderQueue []entity.OCOrder
+	log        *slog.Logger
+}
+
+func New(log *slog.Logger) *Core {
+	return &Core{
+		log: log.With(sl.Module("core")),
+	}
+}
+
+func (c *Core) SetRepository(repo Repository) {
+	c.repo = repo
+}
+
+func (c *Core) SetZoho(zoho Zoho) {
+	c.zoho = zoho
+}
+
+func (c *Core) SetMessageService(ms MessageService) {
+	c.ms = ms
+}
+
+func (c *Core) SendEvent(message *entity.EventMessage) (interface{}, error) {
+	if c.ms == nil {
+		return nil, fmt.Errorf("not set MessageService")
+	}
+	return nil, c.ms.SendEventMessage(message)
+}
+
+func (c *Core) Start() {
+	if c.zoho == nil {
+		c.log.Error("Zoho service not set")
+		return
+	}
+
+	if c.repo == nil {
+		c.log.Error("Repository service not set")
+		return
+	}
+
+	err := c.zoho.RefreshToken()
+	if err != nil {
+		c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
+	}
+
+	// Refresh token every 55 minutes
+	go func() {
+		ticker := time.NewTicker(55 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			err := c.zoho.RefreshToken()
+			if err != nil {
+				c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
+			}
+			<-ticker.C
+		}
+	}()
+
+	// Process orders every 1 minute
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			c.ProcessOrders()
+			<-ticker.C
+		}
+	}()
+}

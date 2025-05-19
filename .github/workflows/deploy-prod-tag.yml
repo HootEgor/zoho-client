@@ -1,0 +1,99 @@
+name: Deploy to wattbrews.me with tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to deploy'
+        required: true
+
+jobs:
+  build:
+    name: Build and Deploy
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Check if tag exists
+        run: |
+          git fetch --all --tags
+          if ! git tag | grep -q "^${{ github.event.inputs.tag }}$"; then
+            echo "error: Tag '${{ github.event.inputs.tag }}' not found"
+            exit 1
+          fi
+
+      - name: Prepare configuration file
+        run: |
+          sed -i 's|${LOG_ENV}|'"$LOG_ENV"'|g' zohoapi-config.yml
+          sed -i 's|${LISTEN_PORT}|'"$LISTEN_PORT"'|g' zohoapi-config.yml
+          sed -i 's|${MONGO_HOST}|'"$MONGO_HOST"'|g' zohoapi-config.yml
+          sed -i 's|${MONGO_PORT}|'"$MONGO_PORT"'|g' zohoapi-config.yml
+          sed -i 's|${MONGO_USER}|'"$MONGO_USER"'|g' zohoapi-config.yml
+          sed -i 's|${MONGO_PASSWORD}|'"$MONGO_PASSWORD"'|g' zohoapi-config.yml
+          sed -i 's|${MONGO_DATABASE}|'"$MONGO_DATABASE"'|g' zohoapi-config.yml
+          sed -i 's|${SQL_DRIVER}|'"SQL_DRIVER"'|g' zohoapi-config.yml
+          sed -i 's|${SQL_HOSTNAME}|'"SQL_HOSTNAME"'|g' zohoapi-config.yml
+          sed -i 's|${SQL_USERNAME}|'"SQL_USERNAME"'|g' zohoapi-config.yml
+          sed -i 's|${SQL_PASSWORD}|'"SQL_PASSWORD"'|g' zohoapi-config.yml
+          sed -i 's|${SQL_DATABASE}|'"SQL_DATABASE"'|g' zohoapi-config.yml
+          sed -i 's|${SQL_PORT}|'"SQL_PORT"'|g' zohoapi-config.yml
+          sed -i 's|${SQL_PREFIX}|'"SQL_PREFIX"'|g' zohoapi-config.yml
+          sed -i 's|${TELEGRAM_API_KEY}|'"$TELEGRAM_API_KEY"'|g' zohoapi-config.yml
+        env:
+          LOG_ENV: ${{ vars.ENV }}
+          LISTEN_PORT: ${{ vars.LISTEN_PORT }}
+          MONGO_HOST: ${{ vars.MONGO_HOST }}
+          MONGO_PORT: ${{ vars.MONGO_PORT }}
+          MONGO_USER: ${{ vars.MONGO_USER }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          MONGO_DATABASE: ${{ vars.MONGO_DATABASE }}
+          SQL_DRIVER: ${{ vars.SQL_DRIVER }}
+          SQL_HOSTNAME: ${{ vars.SQL_HOSTNAME }}
+          SQL_USERNAME: ${{ vars.SQL_USERNAME }}
+          SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+          SQL_DATABASE: ${{ vars.SQL_DATABASE }}
+          SQL_PORT: ${{ vars.SQL_PORT }}
+          SQL_PREFIX: ${{ vars.SQL_PREFIX }}
+          TELEGRAM_API_KEY: ${{ secrets.TELEGRAM_API_KEY }}
+
+      - name: Copy Configuration to Server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "zohoapi-config.yml"
+          target: "/etc/conf"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build Go application
+        run: |
+          go build -v -o zohoapi ./cmd/zohoapi
+
+      - name: Deploy to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          source: "zohoapi"
+          target: "/usr/local/bin/"
+
+      - name: Restart Application
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            systemctl restart zohoapi.service
