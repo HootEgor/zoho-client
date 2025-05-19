@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 	"zohoapi/entity"
+	"zohoapi/internal/lib/sl"
 )
 
 func (c *Core) ProcessOrders() {
@@ -40,14 +41,20 @@ func (c *Core) ProcessOrders() {
 
 		contactID, err := c.zoho.CreateContact(contact)
 		if err != nil {
-			c.log.Error("failed to create contact", slog.String("order_id", fmt.Sprint(ocOrder.OrderID)), slog.String("error", err.Error()))
+			c.log.With(
+				slog.Int("order_id", ocOrder.OrderID),
+				sl.Err(err),
+			).Error("create contact")
 			remainingOrders = append(remainingOrders, ocOrder)
 			continue
 		}
 
 		orderProducts, err := c.repo.GetOrderProducts(ocOrder.OrderID)
 		if err != nil {
-			c.log.Error("failed to get order products", slog.String("order_id", fmt.Sprint(ocOrder.OrderID)), slog.String("error", err.Error()))
+			c.log.With(
+				slog.Int("order_id", ocOrder.OrderID),
+				sl.Err(err),
+			).Error("get order products")
 			remainingOrders = append(remainingOrders, ocOrder)
 			continue
 		}

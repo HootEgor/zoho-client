@@ -120,7 +120,7 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Zoho-oauthtoken "+s.refreshToken)
+	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -166,7 +166,7 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Zoho-oauthtoken "+s.refreshToken)
+	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Execute request
