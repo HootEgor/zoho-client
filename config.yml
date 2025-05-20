@@ -20,3 +20,5 @@ zoho:
   refresh_token: zoho_refresh_token
   refresh_url: zoho_refresh_url
   crm_url: zoho_crm_url
+  scope: crm
+  api_version: v6

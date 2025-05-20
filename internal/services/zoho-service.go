@@ -6,36 +6,15 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"zohoapi/entity"
 	"zohoapi/internal/config"
+	"zohoapi/internal/lib/sl"
 )
-
-type ZohoAPIResponse struct {
-	Data []ZohoResponseItem `json:"data"`
-}
-
-type ZohoResponseItem struct {
-	Status  string         `json:"status"`
-	Message string         `json:"message"`
-	Code    string         `json:"code"`
-	Details ZohoRecordInfo `json:"details"`
-}
-
-type ZohoRecordInfo struct {
-	ID           string       `json:"id"`
-	CreatedBy    ZohoUserInfo `json:"Created_By"`
-	CreatedTime  string       `json:"Created_Time"`
-	ModifiedBy   ZohoUserInfo `json:"Modified_By"`
-	ModifiedTime string       `json:"Modified_Time"`
-}
-
-type ZohoUserInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
 
 type ZohoService struct {
 	clientID     string
@@ -43,9 +22,12 @@ type ZohoService struct {
 	refreshToken string
 	refreshUrl   string
 	crmUrl       string
+	scope        string
+	apiVersion   string
+	log          *slog.Logger
 }
 
-func NewZohoService(conf *config.Config) (*ZohoService, error) {
+func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error) {
 
 	service := &ZohoService{
 		clientID:     conf.Zoho.ClientId,
@@ -53,6 +35,9 @@ func NewZohoService(conf *config.Config) (*ZohoService, error) {
 		refreshToken: conf.Zoho.RefreshToken,
 		refreshUrl:   conf.Zoho.RefreshUrl,
 		crmUrl:       conf.Zoho.CrmUrl,
+		scope:        conf.Zoho.Scope,
+		apiVersion:   conf.Zoho.ApiVersion,
+		log:          log.With(sl.Module("zoho")),
 	}
 
 	return service, nil
@@ -76,24 +61,17 @@ func (s *ZohoService) RefreshToken() error {
 		return fmt.Errorf("refresh token failed: %s", string(bodyBytes))
 	}
 
-	var response ZohoAPIResponse
+	var response entity.TokenResponse
 	if err = json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	for _, item := range response.Data {
-		fmt.Printf("Status: %s, Record ID: %s, Created By: %s\n",
-			item.Status,
-			item.Details.ID,
-			item.Details.CreatedBy.Name,
-		)
-	}
+	s.log.With(
+		slog.Any("response", response),
+	).Debug("refresh token succeeded")
 
-	if len(response.Data) == 0 && response.Data[0].Status != "success" {
-		return fmt.Errorf("failed to refresh token: %s", response.Data[0].Message)
-	}
-
-	s.refreshToken = response.Data[0].Details.CreatedBy.ID
+	s.refreshToken = response.AccessToken
+	s.crmUrl = response.ApiDomain
 
 	return nil
 }
@@ -112,9 +90,14 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
+	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Contacts")
+	if err != nil {
+		return "", err
+	}
+
 	req, err := http.NewRequest(
 		http.MethodPost,
-		s.crmUrl+"/Contacts",
+		fullURL,
 		bytes.NewBuffer(body),
 	)
 	if err != nil {
@@ -129,20 +112,51 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var apiResp ZohoAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	s.log.With(
+		slog.String("response", string(bodyBytes)),
+	).Debug("create contact response")
+
+	var apiResp entity.ZohoAPIResponse
+	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 
-	if len(apiResp.Data) == 0 || apiResp.Data[0].Status != "success" {
-		return "", fmt.Errorf("contact not created or failed: %+v", apiResp.Data)
+	if len(apiResp.Data) == 0 {
+		return "", fmt.Errorf("empty response data")
 	}
 
-	return apiResp.Data[0].Details.CreatedBy.ID, nil
+	item := apiResp.Data[0]
+
+	// Handle DUPLICATE_DATA gracefully
+	if item.Status == "error" {
+		if item.Code == "DUPLICATE_DATA" {
+			var dup entity.DuplicateDetails
+			if err := json.Unmarshal(item.Details, &dup); err != nil {
+				return "", fmt.Errorf("failed to parse duplicate details: %w", err)
+			}
+			s.log.With(
+				slog.String("duplicate_id", dup.DuplicateRecord.ID),
+				slog.String("owner", dup.DuplicateRecord.Owner.Name),
+				slog.String("module", dup.DuplicateRecord.Module.APIName),
+			).Debug("duplicate record detected")
+			return dup.DuplicateRecord.ID, nil
+		}
+		return "", fmt.Errorf("zoho error [%s]: %s", item.Code, item.Message)
+	}
+
+	// Success path: extract the record ID
+	var successDetails entity.SuccessContactDetails
+	if err := json.Unmarshal(item.Details, &successDetails); err != nil {
+		return "", fmt.Errorf("failed to parse success ID: %w", err)
+	}
+
+	return successDetails.ID, nil
+
 }
 
 func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
@@ -155,10 +169,14 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	// Build HTTP request
+	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders")
+	if err != nil {
+		return "", err
+	}
+
 	req, err := http.NewRequest(
 		http.MethodPost,
-		s.crmUrl+"/Sales_Orders",
+		fullURL,
 		bytes.NewBuffer(body),
 	)
 	if err != nil {
@@ -176,20 +194,146 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("unexpected status code: %d - %s", resp.StatusCode, respBody)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Parse response
-	var apiResp ZohoAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	s.log.With(
+		slog.String("response", string(bodyBytes)),
+	).Debug("create order response")
+
+	var apiResp entity.ZohoAPIResponse
+	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 
-	if len(apiResp.Data) == 0 || apiResp.Data[0].Status != "success" {
-		return "", fmt.Errorf("order not created or failed: %+v", apiResp.Data)
+	if len(apiResp.Data) == 0 {
+		return "", fmt.Errorf("empty response data")
 	}
 
-	return apiResp.Data[0].Details.CreatedBy.ID, nil
+	item := apiResp.Data[0]
+
+	if item.Status != "success" {
+		// Decode error details
+		var errDetails entity.ErrorDetails
+		_ = json.Unmarshal(item.Details, &errDetails)
+
+		return "", fmt.Errorf(
+			"order not created: [%s] %s (field: %s, path: %s)",
+			item.Code,
+			item.Message,
+			errDetails.APIName,
+			errDetails.JSONPath,
+		)
+	}
+
+	// Decode success
+	var success entity.SuccessOrderDetails
+	if err := json.Unmarshal(item.Details, &success); err != nil {
+		return "", fmt.Errorf("failed to parse order ID: %w", err)
+	}
+
+	s.log.With(
+		slog.Any("order response", success),
+	).Debug("order created successfully")
+
+	return success.ID, nil
+
+}
+
+func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
+	// Prepare payload
+	payload := map[string]interface{}{
+		"data": []entity.ZohoOrder{orderData},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
+	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders", id)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(
+		http.MethodPut,
+		fullURL,
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	s.log.With(
+		slog.String("response", string(bodyBytes)),
+	).Debug("create order response")
+
+	var apiResp entity.ZohoAPIResponse
+	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+
+	if len(apiResp.Data) == 0 {
+		return fmt.Errorf("empty response data")
+	}
+
+	item := apiResp.Data[0]
+
+	if item.Status != "success" {
+		// Decode error details
+		var errDetails entity.ErrorDetails
+		_ = json.Unmarshal(item.Details, &errDetails)
+
+		return fmt.Errorf(
+			"order not created: [%s] %s (field: %s, path: %s)",
+			item.Code,
+			item.Message,
+			errDetails.APIName,
+			errDetails.JSONPath,
+		)
+	}
+
+	// Decode success
+	var success entity.SuccessOrderDetails
+	if err := json.Unmarshal(item.Details, &success); err != nil {
+		return fmt.Errorf("failed to parse order ID: %w", err)
+	}
+
+	s.log.With(
+		slog.Any("order response", success),
+	).Debug("order created successfully")
+
+	return nil
+
+}
+
+func buildURL(base string, paths ...string) (string, error) {
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	// Join additional path segments cleanly
+	allPaths := append([]string{u.Path}, paths...)
+	u.Path = path.Join(allPaths...)
+
+	return u.String(), nil
 }

@@ -26,9 +26,12 @@ type ContactName struct {
 }
 
 type OrderedItem struct {
-	Product  ZohoProduct `json:"Product_Name"`
-	Quantity int         `json:"Quantity"`
-	Discount float64     `json:"Discount"`
+	Product   ZohoProduct `json:"Product_Name"`
+	Quantity  int         `json:"Quantity"`
+	Discount  float64     `json:"Discount"`
+	DiscountP float64     `json:"DiscountP"`
+	ListPrice float64     `json:"List_Price"`
+	Total     float64     `json:"Total"`
 }
 
 type ZohoProduct struct {

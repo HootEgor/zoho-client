@@ -10,15 +10,16 @@ import (
 
 type Repository interface {
 	GetNewOrders() ([]entity.OCOrder, error)
-	ChangeOrderStatus(orderId, orderStatusId int) error
+	ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) error
 
-	GetOrderProducts(orderId int) ([]entity.Product, error)
+	GetOrderProducts(orderId int64) ([]entity.Product, error)
 }
 
 type Zoho interface {
 	RefreshToken() error
 	CreateContact(contactData entity.Contact) (string, error)
 	CreateOrder(orderData entity.ZohoOrder) (string, error)
+	UpdateOrder(orderData entity.ZohoOrder, id string) error
 }
 
 type MessageService interface {
@@ -30,12 +31,16 @@ type Core struct {
 	zoho       Zoho
 	ms         MessageService
 	orderQueue []entity.OCOrder
+	statuses   map[int]string
 	log        *slog.Logger
 }
 
 func New(log *slog.Logger) *Core {
 	return &Core{
 		log: log.With(sl.Module("core")),
+		statuses: map[int]string{
+			entity.OrderStatusNew: "Нове",
+		},
 	}
 }
 
@@ -69,6 +74,7 @@ func (c *Core) Start() {
 		return
 	}
 
+	c.log.Info("Starting core service")
 	err := c.zoho.RefreshToken()
 	if err != nil {
 		c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))

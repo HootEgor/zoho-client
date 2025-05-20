@@ -26,7 +26,7 @@ func main() {
 
 	handler := core.New(lg)
 
-	db, err := database.NewSQLClient(conf)
+	db, err := database.NewSQLClient(conf, lg)
 	if err != nil {
 		lg.Error("mysql client", sl.Err(err))
 	}
@@ -54,7 +54,7 @@ func main() {
 		}()
 	}
 
-	zoho, err := services.NewZohoService(conf)
+	zoho, err := services.NewZohoService(conf, lg)
 	if err != nil {
 		lg.Error("zoho service", sl.Err(err))
 	}
@@ -66,7 +66,7 @@ func main() {
 		lg.Error("zoho service not initialized")
 	}
 
-	go handler.Start()
+	handler.Start()
 
 	//if conf.Telegram.Enabled {
 	//	tg, e := telegram.New(conf.Telegram.ApiKey, lg)

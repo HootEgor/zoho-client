@@ -42,7 +42,7 @@ func (c *Core) ProcessOrders() {
 		contactID, err := c.zoho.CreateContact(contact)
 		if err != nil {
 			c.log.With(
-				slog.Int("order_id", ocOrder.OrderID),
+				slog.Int64("order_id", ocOrder.OrderID),
 				sl.Err(err),
 			).Error("create contact")
 			remainingOrders = append(remainingOrders, ocOrder)
@@ -52,7 +52,7 @@ func (c *Core) ProcessOrders() {
 		orderProducts, err := c.repo.GetOrderProducts(ocOrder.OrderID)
 		if err != nil {
 			c.log.With(
-				slog.Int("order_id", ocOrder.OrderID),
+				slog.Int64("order_id", ocOrder.OrderID),
 				sl.Err(err),
 			).Error("get order products")
 			remainingOrders = append(remainingOrders, ocOrder)
@@ -60,23 +60,31 @@ func (c *Core) ProcessOrders() {
 		}
 
 		if hasEmptyZohoID(orderProducts) {
-			c.log.Warn("order has product(s) without Zoho ID, skipping", slog.Int("order_id", ocOrder.OrderID))
+			c.log.With(
+				slog.Int64("order_id", ocOrder.OrderID),
+			).Warn("order has product(s) without Zoho ID, skipping")
 			remainingOrders = append(remainingOrders, ocOrder)
 			continue // leave in queue
 		}
 
-		zohoOrder := buildZohoOrder(ocOrder, orderProducts, contactID)
+		zohoOrder := c.buildZohoOrder(ocOrder, orderProducts, contactID)
 
-		_, err = c.zoho.CreateOrder(zohoOrder)
+		orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
-			c.log.Error("failed to create Zoho order", slog.Int("order_id", ocOrder.OrderID), slog.String("error", err.Error()))
+			c.log.With(
+				slog.Int64("order_id", ocOrder.OrderID),
+				sl.Err(err),
+			).Error("create Zoho order")
 			remainingOrders = append(remainingOrders, ocOrder)
 			continue
 		}
 
-		err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved)
+		err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved, orderZohoId)
 		if err != nil {
-			c.log.Error("failed to update order status", slog.Int("order_id", ocOrder.OrderID), slog.String("error", err.Error()))
+			c.log.With(
+				slog.Int64("order_id", ocOrder.OrderID),
+				sl.Err(err),
+			).Error("update order status")
 		}
 	}
 
@@ -102,7 +110,7 @@ func filterDigitsOnly(phone string) string {
 	return string(result)
 }
 
-func buildZohoOrder(oc entity.OCOrder, products []entity.Product, contactID string) entity.ZohoOrder {
+func (c *Core) buildZohoOrder(oc entity.OCOrder, products []entity.Product, contactID string) entity.ZohoOrder {
 	var productDetails []entity.ProductDetail
 
 	for _, p := range products {
@@ -111,16 +119,18 @@ func buildZohoOrder(oc entity.OCOrder, products []entity.Product, contactID stri
 			Quantity:    p.Quantity,
 			Discount:    0, // set appropriately if discount info available
 			ProductDesc: p.Model,
-			UnitPrice:   0, // set price if available
+			UnitPrice:   float64(p.Price), // set price if available
 			LineTax: []entity.LineTax{
-				{Name: "Default Tax", Percentage: 0},
+				{Name: "Common Tax", Percentage: 0},
 			},
 		})
 	}
 
+	orderedItems := convertToOrderedItems(productDetails)
+
 	return entity.ZohoOrder{
 		ContactName:        entity.ContactName{ID: contactID},
-		OrderedItems:       []entity.OrderedItem{}, // Optional
+		OrderedItems:       orderedItems,
 		Discount:           0,
 		Description:        oc.Comment,
 		CustomerNo:         fmt.Sprint(oc.CustomerID),
@@ -128,14 +138,35 @@ func buildZohoOrder(oc entity.OCOrder, products []entity.Product, contactID stri
 		Tax:                0,
 		BillingCountry:     oc.PaymentCountry,
 		Carrier:            oc.ShippingMethod,
-		Status:             "Pending",
+		Status:             c.statuses[entity.OrderStatusNew],
 		SalesCommission:    0,
 		DueDate:            time.Now().Format("2006-01-02"),
 		BillingStreet:      oc.PaymentAddress1,
 		Adjustment:         0,
 		TermsAndConditions: "Standard terms apply.",
 		BillingCode:        oc.PaymentPostcode,
-		ProductDetails:     productDetails,
+		ProductDetails:     nil,
 		Subject:            fmt.Sprintf("Order #%d", oc.OrderID),
 	}
+}
+
+func convertToOrderedItems(details []entity.ProductDetail) []entity.OrderedItem {
+	var orderedItems []entity.OrderedItem
+
+	for _, d := range details {
+		item := entity.OrderedItem{
+			Product: entity.ZohoProduct{
+				ID:   d.Product.ID,
+				Name: d.ProductDesc, // using ProductDesc as the name
+			},
+			Quantity:  d.Quantity,
+			Discount:  d.Discount,
+			DiscountP: 0,
+			ListPrice: d.UnitPrice,
+			Total:     d.UnitPrice * float64(d.Quantity),
+		}
+		orderedItems = append(orderedItems, item)
+	}
+
+	return orderedItems
 }

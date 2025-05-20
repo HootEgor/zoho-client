@@ -2,12 +2,15 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
+	"log/slog"
 	"sync"
 	"time"
 	"zohoapi/entity"
 	"zohoapi/internal/config"
+	"zohoapi/internal/lib/sl"
 )
 
 type MySql struct {
@@ -16,9 +19,10 @@ type MySql struct {
 	structure  map[string]map[string]Column
 	statements map[string]*sql.Stmt
 	mu         sync.Mutex
+	log        *slog.Logger
 }
 
-func NewSQLClient(conf *config.Config) (*MySql, error) {
+func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 	if !conf.SQL.Enabled {
 		return nil, nil
 	}
@@ -49,9 +53,13 @@ func NewSQLClient(conf *config.Config) (*MySql, error) {
 		prefix:     conf.SQL.Prefix,
 		structure:  make(map[string]map[string]Column),
 		statements: make(map[string]*sql.Stmt),
+		log:        log,
 	}
 
 	if err = sdb.addColumnIfNotExists("product", "zoho_id", "VARCHAR(64) NOT NULL"); err != nil {
+		return nil, err
+	}
+	if err = sdb.addColumnIfNotExists("order", "zoho_id", "VARCHAR(64) NOT NULL"); err != nil {
 		return nil, err
 	}
 
@@ -73,77 +81,158 @@ func (s *MySql) Stats() string {
 		len(s.structure))
 }
 
-func (s *MySql) GetNewOrders() ([]entity.OCOrder, error) {
-	query := fmt.Sprintf(`
-		SELECT 
-			accept_language, addressLocker, affiliate_id, build_price, build_price_prefix, build_price_yes_no,
-			calculated_summ, comment, comment_manager, commission, currency_code, currency_id, currency_value,
-			custom_field, customer_group_id, customer_id, date_added, date_modified, delivery_price, email, fax,
-			firstname, forwarded_ip, invoice_no, invoice_prefix, ip, language_id, lastname, manager_process_orders,
-			marketing_id, order_id, order_status_id, parcelLocker, payment_address_1, payment_address_2,
-			payment_address_format, payment_city, payment_code, payment_company, payment_country,
-			payment_country_id, payment_custom_field, payment_firstname, payment_lastname, payment_method,
-			payment_postcode, payment_zone, payment_zone_id, rise_product_price, rise_product_price_prefix,
-			rise_product_yes_no, shipping_address_1, shipping_address_2, shipping_address_format, shipping_city,
-			shipping_code, shipping_company, shipping_country, shipping_country_id, shipping_custom_field,
-			shipping_firstname, shipping_lastname, shipping_method, shipping_postcode, shipping_zone,
-			shipping_zone_id, store_id, store_name, store_url, telephone, text_ttn, total, tracking, user_agent
-		FROM %sorder
-		WHERE order_status_id IN (?, ?)
-	`, s.prefix)
+func (s *MySql) OrderSearchId(orderId int64) (*entity.OCOrder, error) {
+	stmt, err := s.stmtSelectOrder()
+	if err != nil {
+		return nil, err
+	}
+	var order entity.OCOrder
+	err = stmt.QueryRow(orderId).Scan(
+		&order.OrderID,
+		&order.InvoiceNo,
+		&order.InvoicePrefix,
+		&order.StoreID,
+		&order.StoreName,
+		&order.StoreURL,
+		&order.CustomerID,
+		&order.CustomerGroupID,
+		&order.Firstname,
+		&order.Lastname,
+		&order.Email,
+		&order.Telephone,
+		&order.CustomField,
+		&order.PaymentFirstname,
+		&order.PaymentLastname,
+		&order.PaymentCompany,
+		&order.PaymentAddress1,
+		&order.PaymentAddress2,
+		&order.PaymentCity,
+		&order.PaymentPostcode,
+		&order.PaymentCountry,
+		&order.PaymentCountryID,
+		&order.PaymentZone,
+		&order.PaymentZoneID,
+		&order.PaymentAddressFormat,
+		&order.PaymentCustomField,
+		&order.PaymentMethod,
+		&order.PaymentCode,
+		&order.ShippingFirstname,
+		&order.ShippingLastname,
+		&order.ShippingCompany,
+		&order.ShippingAddress1,
+		&order.ShippingAddress2,
+		&order.ShippingCity,
+		&order.ShippingPostcode,
+		&order.ShippingCountry,
+		&order.ShippingCountryID,
+		&order.ShippingZone,
+		&order.ShippingZoneID,
+		&order.ShippingAddressFormat,
+		&order.ShippingCustomField,
+		&order.ShippingMethod,
+		&order.ShippingCode,
+		&order.Comment,
+		&order.Total,
+		&order.OrderStatusID,
+		&order.AffiliateID,
+		&order.Commission,
+		&order.MarketingID,
+		&order.Tracking,
+		&order.LanguageID,
+		&order.CurrencyID,
+		&order.CurrencyCode,
+		&order.CurrencyValue,
+		&order.IP,
+		&order.ForwardedIP,
+		&order.UserAgent,
+		&order.AcceptLanguage,
+		&order.DateAdded,
+		&order.DateModified,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // no order found
+		}
+		return nil, fmt.Errorf("scan order: %w", err)
+	}
+	return &order, nil
+}
 
-	rows, err := s.db.Query(query, entity.OrderStatusPending, entity.OrderStatusNew)
+func (s *MySql) OrderSearchStatus(statusId int64) ([]int64, error) {
+	stmt, err := s.stmtSelectOrderStatus()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query(statusId)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
 	defer rows.Close()
 
-	var orders []entity.OCOrder
-
+	var orderIds []int64
 	for rows.Next() {
-		var order entity.OCOrder
-		err := rows.Scan(
-			&order.AcceptLanguage, &order.AddressLocker, &order.AffiliateID, &order.BuildPrice, &order.BuildPricePrefix, &order.BuildPriceYesNo,
-			&order.CalculatedSumm, &order.Comment, &order.CommentManager, &order.Commission, &order.CurrencyCode, &order.CurrencyID, &order.CurrencyValue,
-			&order.CustomField, &order.CustomerGroupID, &order.CustomerID, &order.DateAdded, &order.DateModified, &order.DeliveryPrice, &order.Email, &order.Fax,
-			&order.Firstname, &order.ForwardedIP, &order.InvoiceNo, &order.InvoicePrefix, &order.IP, &order.LanguageID, &order.Lastname, &order.ManagerProcessOrders,
-			&order.MarketingID, &order.OrderID, &order.OrderStatusID, &order.ParcelLocker, &order.PaymentAddress1, &order.PaymentAddress2,
-			&order.PaymentAddressFormat, &order.PaymentCity, &order.PaymentCode, &order.PaymentCompany, &order.PaymentCountry,
-			&order.PaymentCountryID, &order.PaymentCustomField, &order.PaymentFirstname, &order.PaymentLastname, &order.PaymentMethod,
-			&order.PaymentPostcode, &order.PaymentZone, &order.PaymentZoneID, &order.RiseProductPrice, &order.RiseProductPricePrefix,
-			&order.RiseProductYesNo, &order.ShippingAddress1, &order.ShippingAddress2, &order.ShippingAddressFormat, &order.ShippingCity,
-			&order.ShippingCode, &order.ShippingCompany, &order.ShippingCountry, &order.ShippingCountryID, &order.ShippingCustomField,
-			&order.ShippingFirstname, &order.ShippingLastname, &order.ShippingMethod, &order.ShippingPostcode, &order.ShippingZone,
-			&order.ShippingZoneID, &order.StoreID, &order.StoreName, &order.StoreURL, &order.Telephone, &order.TextTTN, &order.Total, &order.Tracking, &order.UserAgent,
-		)
-		if err != nil {
+		var orderId int64
+		if err = rows.Scan(&orderId); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
-		orders = append(orders, order)
+		orderIds = append(orderIds, orderId)
 	}
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows: %w", err)
 	}
 
+	return orderIds, nil
+}
+
+func (s *MySql) GetNewOrders() ([]entity.OCOrder, error) {
+	statuses := []int64{
+		entity.OrderStatusNew,
+		entity.OrderStatusPending,
+	}
+
+	var orders []entity.OCOrder
+	for _, status := range statuses {
+		orderIds, err := s.OrderSearchStatus(status)
+		if err != nil {
+			s.log.With(
+				sl.Err(err),
+			).Debug("order search status")
+			continue
+		}
+
+		for _, orderId := range orderIds {
+			order, err := s.OrderSearchId(orderId)
+			if err != nil {
+				s.log.With(
+					sl.Err(err),
+				).Debug("order search id")
+				continue
+			}
+			if order != nil {
+				orders = append(orders, *order)
+			}
+		}
+	}
+
 	return orders, nil
 }
 
-func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int) error {
+func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) error {
 	stmt, err := s.stmtUpdateOrderStatus()
 	if err != nil {
 		return err
 	}
 
 	dateModified := time.Now()
-	_, err = stmt.Exec(orderStatusId, dateModified, orderId)
+	_, err = stmt.Exec(orderStatusId, dateModified, zohoId, orderId)
 	if err != nil {
 		return fmt.Errorf("update: %v", err)
 	}
 	return nil
 }
 
-func (s *MySql) GetOrderProducts(orderId int) ([]entity.Product, error) {
+func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 		    p.model,

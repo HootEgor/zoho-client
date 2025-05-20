@@ -29,6 +29,8 @@ type Config struct {
 		RefreshToken string `yaml:"refresh_token" env-default:""`
 		RefreshUrl   string `yaml:"refresh_url" env-default:""`
 		CrmUrl       string `yaml:"crm_url" env-default:""`
+		Scope        string `yaml:"scope" env-default:""`
+		ApiVersion   string `yaml:"api_version" env-default:""`
 	}
 }
 
