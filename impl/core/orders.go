@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-	"zohoapi/entity"
-	"zohoapi/internal/lib/sl"
+	"zohoclient/entity"
+	"zohoclient/internal/lib/sl"
 )
 
 func (c *Core) ProcessOrders() {
@@ -60,11 +60,24 @@ func (c *Core) ProcessOrders() {
 		}
 
 		if hasEmptyZohoID(orderProducts) {
-			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
-			).Warn("order has product(s) without Zoho ID, skipping")
-			remainingOrders = append(remainingOrders, ocOrder)
-			continue // leave in queue
+			// Try to fetch Zoho IDs for products without them
+			updatedProducts, updated := c.processProductsWithoutZohoID(orderProducts)
+			orderProducts = updatedProducts
+
+			if updated {
+				c.log.With(
+					slog.Int64("order_id", ocOrder.OrderID),
+				).Info("updated Zoho IDs for some products")
+			}
+
+			// Check if there are still products without Zoho IDs
+			if hasEmptyZohoID(orderProducts) {
+				c.log.With(
+					slog.Int64("order_id", ocOrder.OrderID),
+				).Warn("order still has product(s) without Zoho ID, skipping")
+				remainingOrders = append(remainingOrders, ocOrder)
+				continue // leave in queue
+			}
 		}
 
 		zohoOrder := c.buildZohoOrder(ocOrder, orderProducts, contactID)
@@ -100,6 +113,46 @@ func hasEmptyZohoID(products []entity.Product) bool {
 	return false
 }
 
+func (c *Core) processProductsWithoutZohoID(products []entity.Product) ([]entity.Product, bool) {
+	var productsUpdated bool
+
+	for i, p := range products {
+		if p.ZohoId == "" {
+			zohoID, err := c.prodRepo.GetProductZohoID(p.UID)
+			if err != nil {
+				c.log.With(
+					slog.String("product_uid", p.UID),
+					sl.Err(err),
+				).Error("failed to get product Zoho ID")
+				continue
+			}
+
+			if zohoID != "" {
+				err = c.repo.UpdateProductZohoId(p.UID, zohoID)
+				if err != nil {
+					c.log.With(
+						slog.String("product_uid", p.UID),
+						slog.String("zoho_id", zohoID),
+						sl.Err(err),
+					).Error("failed to update product Zoho ID")
+					continue
+				}
+
+				// Update the product in the slice
+				products[i].ZohoId = zohoID
+				productsUpdated = true
+
+				c.log.With(
+					slog.String("product_uid", p.UID),
+					slog.String("zoho_id", zohoID),
+				).Info("product Zoho ID updated")
+			}
+		}
+	}
+
+	return products, productsUpdated
+}
+
 func filterDigitsOnly(phone string) string {
 	var result []rune
 	for _, ch := range phone {
@@ -118,7 +171,7 @@ func (c *Core) buildZohoOrder(oc entity.OCOrder, products []entity.Product, cont
 			Product:     entity.ProductID{ID: p.ZohoId},
 			Quantity:    p.Quantity,
 			Discount:    0, // set appropriately if discount info available
-			ProductDesc: p.Model,
+			ProductDesc: p.UID,
 			UnitPrice:   float64(p.Price), // set price if available
 			LineTax: []entity.LineTax{
 				{Name: "Common Tax", Percentage: 0},

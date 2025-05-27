@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-	"zohoapi/entity"
-	"zohoapi/internal/config"
-	"zohoapi/internal/lib/sl"
+	"zohoclient/entity"
+	"zohoclient/internal/config"
+	"zohoclient/internal/lib/sl"
 )
 
 type MySql struct {
@@ -24,7 +24,7 @@ type MySql struct {
 
 func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 	if !conf.SQL.Enabled {
-		return nil, nil
+		return nil, fmt.Errorf("SQL client is disabled in configuration")
 	}
 	connectionURI := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
 		conf.SQL.UserName, conf.SQL.Password, conf.SQL.HostName, conf.SQL.Port, conf.SQL.Database)
@@ -187,7 +187,6 @@ func (s *MySql) OrderSearchStatus(statusId int64) ([]int64, error) {
 
 func (s *MySql) GetNewOrders() ([]entity.OCOrder, error) {
 	statuses := []int64{
-		entity.OrderStatusNew,
 		entity.OrderStatusPending,
 	}
 
@@ -235,7 +234,7 @@ func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) e
 func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
 	query := fmt.Sprintf(`
 		SELECT 
-		    p.model,
+		    p.product_uid,
 			p.zoho_id,
 			op.quantity,
 			p.price
@@ -257,7 +256,7 @@ func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
 	for rows.Next() {
 		var product entity.Product
 		if err = rows.Scan(
-			&product.Model,
+			&product.UID,
 			&product.ZohoId,
 			&product.Quantity,
 			&product.Price,
@@ -272,4 +271,17 @@ func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
 	}
 
 	return products, nil
+}
+
+func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
+	stmt, err := s.stmtUpdateProductZohoId()
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.Exec(zohoId, productUID)
+	if err != nil {
+		return fmt.Errorf("update product zoho_id: %w", err)
+	}
+	return nil
 }

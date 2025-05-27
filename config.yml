@@ -22,3 +22,7 @@ zoho:
   crm_url: zoho_crm_url
   scope: crm
   api_version: v6
+prod_repo:
+  login: repo_login
+  password: repo_password
+  prod_url: repo_base_url

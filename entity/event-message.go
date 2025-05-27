@@ -3,7 +3,7 @@ package entity
 import (
 	"net/http"
 	"time"
-	"zohoapi/internal/lib/validate"
+	"zohoclient/internal/lib/validate"
 )
 
 type EventMessage struct {

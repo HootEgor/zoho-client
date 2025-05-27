@@ -1,4 +1,4 @@
-module zohoapi
+module zohoclient
 
 go 1.24
 

@@ -2,7 +2,7 @@ package entity
 
 import (
 	"net/http"
-	"zohoapi/internal/lib/validate"
+	"zohoclient/internal/lib/validate"
 )
 
 type User struct {

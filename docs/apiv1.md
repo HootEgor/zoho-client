@@ -2,7 +2,7 @@
 
 ### Authentication
 To make requests to the API, you need to provide Bearer token in the `Authorization` header.
-ZOHOAPI supports two ways of token storage: in the configuration file, `listen` section, and in the OpenCart API section inside the admin panel.
+zohoclient supports two ways of token storage: in the configuration file, `listen` section, and in the OpenCart API section inside the admin panel.
 ```yaml
 listen:
   bind_ip: 127.0.0.1

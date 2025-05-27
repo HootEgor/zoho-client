@@ -4,12 +4,12 @@ import (
 	"flag"
 	"log/slog"
 	"time"
-	"zohoapi/impl/core"
-	"zohoapi/internal/config"
-	"zohoapi/internal/database"
-	"zohoapi/internal/lib/logger"
-	"zohoapi/internal/lib/sl"
-	"zohoapi/internal/services"
+	"zohoclient/impl/core"
+	"zohoclient/internal/config"
+	"zohoclient/internal/database"
+	"zohoclient/internal/lib/logger"
+	"zohoclient/internal/lib/sl"
+	"zohoclient/internal/services"
 )
 
 func main() {
@@ -21,23 +21,25 @@ func main() {
 	conf := config.MustLoad(*configPath)
 	lg := logger.SetupLogger(conf.Env, *logPath)
 
-	lg.Info("starting zohoapi", slog.String("config", *configPath), slog.String("env", conf.Env))
+	lg.Info("starting zohoclient", slog.String("config", *configPath), slog.String("env", conf.Env))
 	lg.Debug("debug messages enabled")
 
 	handler := core.New(lg)
 
 	db, err := database.NewSQLClient(conf, lg)
 	if err != nil {
-		lg.Error("mysql client", sl.Err(err))
+		lg.With(
+			sl.Err(err),
+		).Error("mysql client")
 	}
 	if db != nil {
 		handler.SetRepository(db)
-		lg.Info("mysql client initialized",
+		lg.With(
 			slog.String("host", conf.SQL.HostName),
 			slog.String("port", conf.SQL.Port),
 			slog.String("user", conf.SQL.UserName),
 			slog.String("database", conf.SQL.Database),
-		)
+		).Info("mysql client initialized")
 		defer db.Close()
 
 		lg.Info("mysql stats", slog.String("connections", db.Stats()))
@@ -57,6 +59,18 @@ func main() {
 	zoho, err := services.NewZohoService(conf, lg)
 	if err != nil {
 		lg.Error("zoho service", sl.Err(err))
+	}
+
+	prodRepo, err := services.NewProductRepo(conf, lg)
+	if err != nil {
+		lg.With(
+			sl.Err(err),
+		).Error("product repository")
+	} else {
+		handler.SetProductRepository(prodRepo)
+		lg.With(
+			slog.String("url", conf.ProdRepo.ProdUrl),
+		).Info("product repository initialized")
 	}
 
 	if zoho != nil {

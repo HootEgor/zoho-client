@@ -11,9 +11,9 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"zohoapi/entity"
-	"zohoapi/internal/config"
-	"zohoapi/internal/lib/sl"
+	"zohoclient/entity"
+	"zohoclient/internal/config"
+	"zohoclient/internal/lib/sl"
 )
 
 type ZohoService struct {

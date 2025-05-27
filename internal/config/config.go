@@ -31,7 +31,12 @@ type Config struct {
 		CrmUrl       string `yaml:"crm_url" env-default:""`
 		Scope        string `yaml:"scope" env-default:""`
 		ApiVersion   string `yaml:"api_version" env-default:""`
-	}
+	} `yaml:"zoho"`
+	ProdRepo struct {
+		Login    string `yaml:"login" env-default:""`
+		Password string `yaml:"password" env-default:""`
+		ProdUrl  string `yaml:"prod_url" env-default:""`
+	} `yaml:"prod_repo"`
 }
 
 var instance *Config

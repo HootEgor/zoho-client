@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-	"zohoapi/entity"
-	"zohoapi/internal/lib/sl"
+	"zohoclient/entity"
+	"zohoclient/internal/lib/sl"
 )
 
 type Repository interface {
@@ -13,6 +13,11 @@ type Repository interface {
 	ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) error
 
 	GetOrderProducts(orderId int64) ([]entity.Product, error)
+	UpdateProductZohoId(productUID string, zohoId string) error
+}
+
+type ProductRepository interface {
+	GetProductZohoID(productUID string) (string, error)
 }
 
 type Zoho interface {
@@ -28,6 +33,7 @@ type MessageService interface {
 
 type Core struct {
 	repo       Repository
+	prodRepo   ProductRepository
 	zoho       Zoho
 	ms         MessageService
 	orderQueue []entity.OCOrder
@@ -46,6 +52,10 @@ func New(log *slog.Logger) *Core {
 
 func (c *Core) SetRepository(repo Repository) {
 	c.repo = repo
+}
+
+func (c *Core) SetProductRepository(prodRepo ProductRepository) {
+	c.prodRepo = prodRepo
 }
 
 func (c *Core) SetZoho(zoho Zoho) {
@@ -74,6 +84,11 @@ func (c *Core) Start() {
 		return
 	}
 
+	if c.prodRepo == nil {
+		c.log.Error("ProductRepository service not set")
+		return
+	}
+
 	c.log.Info("Starting core service")
 	err := c.zoho.RefreshToken()
 	if err != nil {
@@ -94,14 +109,16 @@ func (c *Core) Start() {
 		}
 	}()
 
-	// Process orders every 1 minute
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
+	c.ProcessOrders()
 
-		for {
-			c.ProcessOrders()
-			<-ticker.C
-		}
-	}()
+	// Process orders every 1 minute
+	//go func() {
+	//	ticker := time.NewTicker(1 * time.Minute)
+	//	defer ticker.Stop()
+	//
+	//	for {
+	//		c.ProcessOrders()
+	//		<-ticker.C
+	//	}
+	//}()
 }

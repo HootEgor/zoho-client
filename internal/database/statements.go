@@ -52,7 +52,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			order_id
 		 FROM %sorder
 		 WHERE order_status_id = ?
-		 LIMIT 100`,
+		 LIMIT 1`,
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrderStatus", query)
@@ -127,4 +127,12 @@ func (s *MySql) stmtSelectOrder() (*sql.Stmt, error) {
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrder", query)
+}
+
+func (s *MySql) stmtUpdateProductZohoId() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sproduct SET zoho_id = ? WHERE product_uid = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateProductZohoId", query)
 }

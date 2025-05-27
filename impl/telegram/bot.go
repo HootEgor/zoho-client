@@ -4,8 +4,8 @@ import (
 	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"log/slog"
-	"zohoapi/entity"
-	"zohoapi/internal/lib/sl"
+	"zohoclient/entity"
+	"zohoclient/internal/lib/sl"
 )
 
 type Repository interface {
