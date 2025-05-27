@@ -89,12 +89,6 @@ func (c *Core) Start() {
 		return
 	}
 
-	c.log.Info("Starting core service")
-	err := c.zoho.RefreshToken()
-	if err != nil {
-		c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
-	}
-
 	// Refresh token every 55 minutes
 	go func() {
 		ticker := time.NewTicker(55 * time.Minute)
