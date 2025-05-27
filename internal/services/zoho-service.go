@@ -71,7 +71,12 @@ func (s *ZohoService) RefreshToken() error {
 	).Debug("refresh token succeeded")
 
 	s.refreshToken = response.AccessToken
-	s.crmUrl = response.ApiDomain
+	if response.ApiDomain != "" {
+		s.log.With(
+			slog.String("api_domain", response.ApiDomain),
+		).Debug("new crm URL")
+		//s.crmUrl = response.ApiDomain
+	}
 
 	return nil
 }
