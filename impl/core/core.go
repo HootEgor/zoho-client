@@ -89,29 +89,33 @@ func (c *Core) Start() {
 		return
 	}
 
+	c.log.Info("Starting core service")
+	err := c.zoho.RefreshToken()
+	if err != nil {
+		c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
+	}
+
 	// Refresh token every 55 minutes
 	go func() {
 		ticker := time.NewTicker(55 * time.Minute)
 		defer ticker.Stop()
 
 		for {
-			err := c.zoho.RefreshToken()
+			<-ticker.C
+			err = c.zoho.RefreshToken()
 			if err != nil {
 				c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
 			}
-			<-ticker.C
 		}
 	}()
 
-	c.ProcessOrders()
-
 	//Process orders every 1 minute
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
+	func() {
+		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 
 		for {
-			//c.ProcessOrders()
+			c.ProcessOrders()
 			<-ticker.C
 		}
 	}()
