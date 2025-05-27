@@ -192,8 +192,10 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	if err != nil {
 		s.log.With(
 			slog.Any("data", req),
+			slog.Any("body", req.Body),
+			sl.Err(err),
 		).Debug("request")
-		return "", fmt.Errorf("send request: %w", err)
+		return "", err
 	}
 	defer resp.Body.Close()
 
