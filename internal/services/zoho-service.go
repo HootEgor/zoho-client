@@ -169,10 +169,6 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	s.log.With(
-		slog.String("payload", string(body)),
-	).Debug("create order body")
-
 	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders")
 	if err != nil {
 		return "", err
@@ -195,8 +191,6 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.log.With(
-			slog.Any("data", req),
-			slog.Any("body", req.Body),
 			sl.Err(err),
 		).Debug("request")
 		return "", err

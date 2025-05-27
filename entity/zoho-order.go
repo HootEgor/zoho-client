@@ -17,7 +17,7 @@ type ZohoOrder struct {
 	Adjustment         float64         `json:"Adjustment"`
 	TermsAndConditions string          `json:"Terms_and_Conditions"`
 	BillingCode        string          `json:"Billing_Code"`
-	ProductDetails     []ProductDetail `json:"Product_Details"`
+	ProductDetails     []ProductDetail `json:"Product_Details,omitempty"`
 	Subject            string          `json:"Subject"`
 }
 
