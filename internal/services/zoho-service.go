@@ -75,7 +75,7 @@ func (s *ZohoService) RefreshToken() error {
 		s.log.With(
 			slog.String("api_domain", response.ApiDomain),
 		).Debug("new crm URL")
-		//s.crmUrl = response.ApiDomain
+		s.crmUrl = response.ApiDomain
 	}
 
 	return nil
@@ -196,8 +196,10 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.log.With(
+			slog.String("url", fullURL),
+			slog.String("body", string(body)),
 			sl.Err(err),
-		).Debug("request")
+		).Debug("req data")
 		return "", err
 	}
 	defer resp.Body.Close()
