@@ -111,14 +111,14 @@ func (c *Core) Start() {
 
 	c.ProcessOrders()
 
-	// Process orders every 1 minute
-	//go func() {
-	//	ticker := time.NewTicker(1 * time.Minute)
-	//	defer ticker.Stop()
-	//
-	//	for {
-	//		c.ProcessOrders()
-	//		<-ticker.C
-	//	}
-	//}()
+	//Process orders every 1 minute
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			//c.ProcessOrders()
+			<-ticker.C
+		}
+	}()
 }

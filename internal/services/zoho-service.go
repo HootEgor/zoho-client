@@ -190,6 +190,9 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	// Execute request
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		s.log.With(
+			slog.Any("data", req),
+		).Debug("request")
 		return "", fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
