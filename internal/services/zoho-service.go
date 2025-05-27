@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
 	"zohoclient/internal/lib/sl"
@@ -72,9 +73,6 @@ func (s *ZohoService) RefreshToken() error {
 
 	s.refreshToken = response.AccessToken
 	if response.ApiDomain != "" {
-		s.log.With(
-			slog.String("api_domain", response.ApiDomain),
-		).Debug("new crm URL")
 		s.crmUrl = response.ApiDomain
 	}
 
@@ -192,14 +190,26 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
 	req.Header.Set("Content-Type", "application/json")
 
+	log := s.log.With(
+		slog.String("url", fullURL),
+		slog.String("method", req.Method),
+		slog.String("payload", string(body)))
+	t := time.Now()
+	defer func() {
+		log = log.With(slog.Duration("duration", time.Since(t)))
+		if err != nil {
+			log.Error("create order", sl.Err(err))
+		} else {
+			log.Debug("create order")
+		}
+	}()
+
 	// Execute request
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.log.With(
-			slog.String("url", fullURL),
-			slog.String("body", string(body)),
 			sl.Err(err),
-		).Debug("req data")
+		).Debug("response")
 		return "", err
 	}
 	defer resp.Body.Close()
