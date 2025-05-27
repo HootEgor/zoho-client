@@ -37,7 +37,6 @@ func (s *MySql) closeStmt() {
 func (s *MySql) stmtUpdateOrderStatus() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`UPDATE %sorder SET 
-                   order_status_id = ?, 
                    date_modified = ?,  
                    zoho_id = ?
                    WHERE order_id = ?`,

@@ -224,7 +224,7 @@ func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) e
 	}
 
 	dateModified := time.Now()
-	_, err = stmt.Exec(orderStatusId, dateModified, zohoId, orderId)
+	_, err = stmt.Exec(dateModified, zohoId, orderId)
 	if err != nil {
 		return fmt.Errorf("update: %v", err)
 	}
