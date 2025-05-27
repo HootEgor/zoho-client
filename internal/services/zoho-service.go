@@ -155,6 +155,19 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 			).Debug("duplicate record detected")
 			return dup.DuplicateRecord.ID, nil
 		}
+
+		if item.Code == "MULTIPLE_OR_MULTI_ERRORS" {
+			var multiErr entity.MultipleErrors
+			if err := json.Unmarshal(item.Details, &multiErr); err != nil {
+				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
+			}
+			s.log.With(
+				slog.String("error_message", multiErr.Message),
+				slog.String("status", multiErr.Status),
+				slog.String("code", multiErr.Code),
+			).Debug("multiple errors detected")
+			return multiErr.Details[0].DuplicateRecord.ID, nil
+		}
 		return "", fmt.Errorf("zoho error [%s]: %s", item.Code, item.Message)
 	}
 

@@ -21,6 +21,15 @@ type ZohoResponseItem struct {
 	Details json.RawMessage `json:"details,omitempty"`
 }
 
+type MultipleErrors struct {
+	Message string `json:"message"`
+	Status  string `json:"status"`
+	Code    string `json:"code"`
+	Details struct {
+		Errors []DuplicateDetails `json:"errors"`
+	} `json:"details"`
+}
+
 type DuplicateDetails struct {
 	APIName         string          `json:"api_name"`
 	JSONPath        string          `json:"json_path"`
