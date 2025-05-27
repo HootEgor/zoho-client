@@ -111,7 +111,7 @@ func (c *Core) Start() {
 
 	//Process orders every 1 minute
 	func() {
-		ticker := time.NewTicker(10 * time.Minute)
+		ticker := time.NewTicker(100 * time.Minute)
 		defer ticker.Stop()
 
 		for {
