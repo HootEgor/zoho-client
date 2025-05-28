@@ -68,7 +68,11 @@ func (c *Core) ProcessOrders() {
 			//		sl.Err(err),
 			//	).Error("update order status")
 			//}
-			continue // leave in queue
+			c.log.With(
+				slog.Int64("order_id", ocOrder.OrderID),
+				slog.Any("products", orderProducts),
+			).Warn("order has product(s) without UID, skipping")
+			continue
 		}
 
 		if hasEmptyZohoID(orderProducts) {
