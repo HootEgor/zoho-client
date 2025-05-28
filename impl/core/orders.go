@@ -29,6 +29,7 @@ func (c *Core) ProcessOrders() {
 	}
 
 	var remainingOrders []entity.OCOrder
+	ordersProcessed := 0
 
 	for _, ocOrder := range c.orderQueue {
 		contact := entity.Contact{
@@ -102,14 +103,14 @@ func (c *Core) ProcessOrders() {
 			remainingOrders = append(remainingOrders, ocOrder)
 			continue
 		}
-
-		err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved)
-		if err != nil {
-			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
-				sl.Err(err),
-			).Error("update order status")
-		}
+		//
+		//err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved)
+		//if err != nil {
+		//	c.log.With(
+		//		slog.Int64("order_id", ocOrder.OrderID),
+		//		sl.Err(err),
+		//	).Error("update order status")
+		//}
 
 		err = c.repo.ChangeOrderZohoId(ocOrder.OrderID, orderZohoId)
 		if err != nil {
@@ -118,7 +119,14 @@ func (c *Core) ProcessOrders() {
 				sl.Err(err),
 			).Error("update order zohoid")
 		}
+
+		ordersProcessed += 1
 	}
+
+	c.log.With(
+		slog.Int("processed_orders", ordersProcessed),
+		slog.Int("remaining_orders", len(remainingOrders)),
+	).Info("processed orders")
 
 	c.orderQueue = remainingOrders
 }

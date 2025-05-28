@@ -62,7 +62,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			order_id
 		 FROM %sorder
 		 WHERE order_status_id = ?
-		 LIMIT 10`,
+		 LIMIT 1`,
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrderStatus", query)

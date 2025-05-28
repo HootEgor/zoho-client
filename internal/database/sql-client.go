@@ -249,9 +249,9 @@ func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 		    ifnull(p.product_uid, "") as uid,
-			p.zoho_id,
+			ifnull(p.zoho_id, "") as zoho_id,
 			op.quantity,
-			p.price
+			op.price
 		FROM 
 			%[1]sorder_product op
 		LEFT JOIN 
