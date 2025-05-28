@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"regexp"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
@@ -87,9 +86,6 @@ func (s *ZohoService) RefreshToken() error {
 }
 
 func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) {
-	// Ensure phone is numeric only
-	re := regexp.MustCompile(`\D`)
-	contactData.Phone = re.ReplaceAllString(contactData.Phone, "")
 
 	email, err := util.ValidateEmail(contactData.Email)
 	if err != nil {
@@ -99,6 +95,10 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 	}
 
 	contactData.Email = email
+
+	if contactData.Email == "" && contactData.Phone == "" {
+		return "", fmt.Errorf("email and phone are empty")
+	}
 
 	// Prepare request body
 	payload := map[string]interface{}{

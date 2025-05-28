@@ -66,9 +66,9 @@ type OCOrder struct {
 }
 
 const (
-	OrderStatusPending    = 0
-	OrderStatusNew        = 1
-	OrderStatusApproved   = 2
-	OrderStatusProcessing = 3
+	OrderStatusNew        = 0
+	OrderStatusPending    = 1
+	OrderStatusProcessing = 2
+	OrderStatusApproved   = 3
 	OrderStatusShipped    = 4
 )
