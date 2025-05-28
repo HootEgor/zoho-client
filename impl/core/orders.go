@@ -253,13 +253,17 @@ func convertToOrderedItems(details []entity.ProductDetail) []entity.OrderedItem 
 				Name: d.ProductDesc, // using ProductDesc as the name
 			},
 			Quantity:  d.Quantity,
-			Discount:  d.Discount,
+			Discount:  roundToTwoDecimalPlaces(d.Discount),
 			DiscountP: 0,
-			ListPrice: d.UnitPrice,
-			Total:     d.UnitPrice * float64(d.Quantity),
+			ListPrice: roundToTwoDecimalPlaces(d.UnitPrice),
+			Total:     roundToTwoDecimalPlaces(d.UnitPrice * float64(d.Quantity)),
 		}
 		orderedItems = append(orderedItems, item)
 	}
 
 	return orderedItems
+}
+
+func roundToTwoDecimalPlaces(value float64) float64 {
+	return float64(int(value*100)) / 100.0
 }

@@ -61,7 +61,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 		`SELECT
 			order_id
 		 FROM %sorder
-		 WHERE order_status_id = ?
+		 WHERE order_status_id = ? AND (zoho_id = '' OR zoho_id IS NULL)
 		 LIMIT 5`,
 		s.prefix,
 	)
