@@ -38,11 +38,22 @@ func (s *MySql) stmtUpdateOrderStatus() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`UPDATE %sorder SET 
                    date_modified = ?,  
-                   zoho_id = ?
+                   order_status_id = ?
                    WHERE order_id = ?`,
 		s.prefix,
 	)
 	return s.prepareStmt("updateOrderStatus", query)
+}
+
+func (s *MySql) stmtUpdateOrderZohoId() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET 
+                   date_modified = ?,  
+                   zoho_id = ?
+                   WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateOrderZohoId", query)
 }
 
 func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
@@ -51,7 +62,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			order_id
 		 FROM %sorder
 		 WHERE order_status_id = ?
-		 LIMIT 1`,
+		 LIMIT 10`,
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrderStatus", query)

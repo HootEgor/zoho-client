@@ -56,10 +56,10 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 		log:        log,
 	}
 
-	if err = sdb.addColumnIfNotExists("product", "zoho_id", "VARCHAR(64) NOT NULL"); err != nil {
+	if err = sdb.addColumnIfNotExists("product", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
 		return nil, err
 	}
-	if err = sdb.addColumnIfNotExists("order", "zoho_id", "VARCHAR(64) NOT NULL"); err != nil {
+	if err = sdb.addColumnIfNotExists("order", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
 		return nil, err
 	}
 
@@ -217,8 +217,22 @@ func (s *MySql) GetNewOrders() ([]entity.OCOrder, error) {
 	return orders, nil
 }
 
-func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) error {
+func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64) error {
 	stmt, err := s.stmtUpdateOrderStatus()
+	if err != nil {
+		return err
+	}
+
+	dateModified := time.Now()
+	_, err = stmt.Exec(dateModified, orderStatusId, orderId)
+	if err != nil {
+		return fmt.Errorf("update: %v", err)
+	}
+	return nil
+}
+
+func (s *MySql) ChangeOrderZohoId(orderId int64, zohoId string) error {
+	stmt, err := s.stmtUpdateOrderZohoId()
 	if err != nil {
 		return err
 	}
@@ -226,7 +240,7 @@ func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) e
 	dateModified := time.Now()
 	_, err = stmt.Exec(dateModified, zohoId, orderId)
 	if err != nil {
-		return fmt.Errorf("update: %v", err)
+		return fmt.Errorf("update zoho_id: %w", err)
 	}
 	return nil
 }
@@ -234,7 +248,7 @@ func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) e
 func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
 	query := fmt.Sprintf(`
 		SELECT 
-		    p.product_uid,
+		    ifnull(p.product_uid, "") as uid,
 			p.zoho_id,
 			op.quantity,
 			p.price

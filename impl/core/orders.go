@@ -59,6 +59,17 @@ func (c *Core) ProcessOrders() {
 			continue
 		}
 
+		if hasEmptyUid(orderProducts) {
+			//err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved)
+			//if err != nil {
+			//	c.log.With(
+			//		slog.Int64("order_id", ocOrder.OrderID),
+			//		sl.Err(err),
+			//	).Error("update order status")
+			//}
+			continue // leave in queue
+		}
+
 		if hasEmptyZohoID(orderProducts) {
 			// Try to fetch Zoho IDs for products without them
 			updatedProducts, updated := c.processProductsWithoutZohoID(orderProducts)
@@ -92,12 +103,20 @@ func (c *Core) ProcessOrders() {
 			continue
 		}
 
-		err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved, orderZohoId)
+		err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved)
 		if err != nil {
 			c.log.With(
 				slog.Int64("order_id", ocOrder.OrderID),
 				sl.Err(err),
 			).Error("update order status")
+		}
+
+		err = c.repo.ChangeOrderZohoId(ocOrder.OrderID, orderZohoId)
+		if err != nil {
+			c.log.With(
+				slog.Int64("order_id", ocOrder.OrderID),
+				sl.Err(err),
+			).Error("update order zohoid")
 		}
 	}
 
@@ -107,6 +126,15 @@ func (c *Core) ProcessOrders() {
 func hasEmptyZohoID(products []entity.Product) bool {
 	for _, p := range products {
 		if p.ZohoId == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEmptyUid(products []entity.Product) bool {
+	for _, p := range products {
+		if p.UID == "" {
 			return true
 		}
 	}

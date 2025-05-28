@@ -10,7 +10,8 @@ import (
 
 type Repository interface {
 	GetNewOrders() ([]entity.OCOrder, error)
-	ChangeOrderStatus(orderId, orderStatusId int64, zohoId string) error
+	ChangeOrderStatus(orderId, orderStatusId int64) error
+	ChangeOrderZohoId(orderId int64, zohoId string) error
 
 	GetOrderProducts(orderId int64) ([]entity.Product, error)
 	UpdateProductZohoId(productUID string, zohoId string) error
