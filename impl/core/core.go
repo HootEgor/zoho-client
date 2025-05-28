@@ -33,13 +33,12 @@ type MessageService interface {
 }
 
 type Core struct {
-	repo       Repository
-	prodRepo   ProductRepository
-	zoho       Zoho
-	ms         MessageService
-	orderQueue []entity.OCOrder
-	statuses   map[int]string
-	log        *slog.Logger
+	repo     Repository
+	prodRepo ProductRepository
+	zoho     Zoho
+	ms       MessageService
+	statuses map[int]string
+	log      *slog.Logger
 }
 
 func New(log *slog.Logger) *Core {

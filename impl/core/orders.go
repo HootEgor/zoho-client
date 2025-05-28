@@ -15,23 +15,9 @@ func (c *Core) ProcessOrders() {
 		return
 	}
 
-	for _, newOrder := range newOrders {
-		exists := false
-		for _, queuedOrder := range c.orderQueue {
-			if newOrder.OrderID == queuedOrder.OrderID {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			c.orderQueue = append(c.orderQueue, newOrder)
-		}
-	}
-
-	var remainingOrders []entity.OCOrder
 	ordersProcessed := 0
 
-	for _, ocOrder := range c.orderQueue {
+	for _, ocOrder := range newOrders {
 		contact := entity.Contact{
 			FirstName: ocOrder.Firstname,
 			LastName:  ocOrder.Lastname,
@@ -46,7 +32,6 @@ func (c *Core) ProcessOrders() {
 				slog.Int64("order_id", ocOrder.OrderID),
 				sl.Err(err),
 			).Error("create contact")
-			remainingOrders = append(remainingOrders, ocOrder)
 			continue
 		}
 
@@ -56,7 +41,6 @@ func (c *Core) ProcessOrders() {
 				slog.Int64("order_id", ocOrder.OrderID),
 				sl.Err(err),
 			).Error("get order products")
-			remainingOrders = append(remainingOrders, ocOrder)
 			continue
 		}
 
@@ -91,7 +75,6 @@ func (c *Core) ProcessOrders() {
 				c.log.With(
 					slog.Int64("order_id", ocOrder.OrderID),
 				).Warn("order still has product(s) without Zoho ID, skipping")
-				remainingOrders = append(remainingOrders, ocOrder)
 				continue // leave in queue
 			}
 		}
@@ -104,7 +87,6 @@ func (c *Core) ProcessOrders() {
 				slog.Int64("order_id", ocOrder.OrderID),
 				sl.Err(err),
 			).Error("create Zoho order")
-			remainingOrders = append(remainingOrders, ocOrder)
 			continue
 		}
 
@@ -129,10 +111,8 @@ func (c *Core) ProcessOrders() {
 
 	c.log.With(
 		slog.Int("processed_orders", ordersProcessed),
-		slog.Int("remaining_orders", len(remainingOrders)),
+		slog.Int("remaining_orders", len(newOrders)-ordersProcessed),
 	).Info("processed orders")
-
-	c.orderQueue = remainingOrders
 }
 
 func hasEmptyZohoID(products []entity.Product) bool {
