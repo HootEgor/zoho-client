@@ -15,6 +15,7 @@ import (
 	"zohoclient/entity"
 	"zohoclient/internal/config"
 	"zohoclient/internal/lib/sl"
+	"zohoclient/internal/lib/util"
 )
 
 type ZohoService struct {
@@ -89,6 +90,15 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 	// Ensure phone is numeric only
 	re := regexp.MustCompile(`\D`)
 	contactData.Phone = re.ReplaceAllString(contactData.Phone, "")
+
+	email, err := util.ValidateEmail(contactData.Email)
+	if err != nil {
+		s.log.With(
+			sl.Err(err),
+		).Debug("invalid email")
+	}
+
+	contactData.Email = email
 
 	// Prepare request body
 	payload := map[string]interface{}{
