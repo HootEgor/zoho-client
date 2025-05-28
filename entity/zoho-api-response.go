@@ -22,12 +22,14 @@ type ZohoResponseItem struct {
 }
 
 type MultipleErrors struct {
-	Message string `json:"message"`
-	Status  string `json:"status"`
-	Code    string `json:"code"`
-	Details struct {
-		Errors []DuplicateDetails `json:"errors"`
-	} `json:"details"`
+	Errors []Error `json:"errors"`
+}
+
+type Error struct {
+	Status  string           `json:"status,omitempty"`
+	Message string           `json:"message,omitempty"`
+	Code    string           `json:"code,omitempty"`
+	Details DuplicateDetails `json:"details,omitempty"`
 }
 
 type DuplicateDetails struct {

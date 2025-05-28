@@ -162,11 +162,9 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
 			}
 			s.log.With(
-				slog.String("error_message", multiErr.Message),
-				slog.String("status", multiErr.Status),
-				slog.String("code", multiErr.Code),
+				slog.Any("error_message", multiErr.Errors[0].Message),
 			).Debug("multiple errors detected")
-			return multiErr.Details[0].DuplicateRecord.ID, nil
+			return multiErr.Errors[0].Details.DuplicateRecord.ID, nil
 		}
 		return "", fmt.Errorf("zoho error [%s]: %s", item.Code, item.Message)
 	}
