@@ -85,14 +85,17 @@ func (s *ZohoService) RefreshToken() error {
 
 func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) {
 
-	email, err := util.ValidateEmail(contactData.Email)
-	if err != nil {
-		s.log.With(
-			sl.Err(err),
-		).Debug("invalid email")
-	}
+	log := s.log.With(
+		slog.String("email", contactData.Email),
+		slog.String("phone", contactData.Phone),
+		slog.String("name", fmt.Sprintf("%s %s", contactData.FirstName, contactData.LastName)),
+	)
 
-	contactData.Email = email
+	err := util.ValidateEmail(contactData.Email)
+	if err != nil {
+		log.Debug("invalid email")
+		contactData.Email = ""
+	}
 
 	if contactData.Email == "" && contactData.Phone == "" {
 		return "", fmt.Errorf("email and phone are empty")
@@ -158,7 +161,7 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 			if err = json.Unmarshal(item.Details, &dup); err != nil {
 				return "", fmt.Errorf("failed to parse duplicate details: %w", err)
 			}
-			s.log.With(
+			log.With(
 				slog.String("duplicate_id", dup.DuplicateRecord.ID),
 				slog.String("owner", dup.DuplicateRecord.Owner.Name),
 				slog.String("module", dup.DuplicateRecord.Module.APIName),
@@ -172,7 +175,7 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
 			}
 			id := multiErr.Errors[0].Details.DuplicateRecord.ID
-			s.log.With(
+			log.With(
 				slog.Any("error_message", multiErr.Errors[0].Message),
 				slog.String("duplicate_id", id),
 			).Debug("multiple errors detected")
@@ -183,7 +186,7 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 
 	// Success path: extract the record ID
 	var successDetails entity.SuccessContactDetails
-	if err := json.Unmarshal(item.Details, &successDetails); err != nil {
+	if err = json.Unmarshal(item.Details, &successDetails); err != nil {
 		return "", fmt.Errorf("failed to parse success ID: %w", err)
 	}
 
