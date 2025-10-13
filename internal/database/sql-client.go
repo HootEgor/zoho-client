@@ -197,6 +197,7 @@ func (s *MySql) OrderSearchStatus(statusId int) ([]*entity.CheckoutParams, error
 			&order.Currency,
 			&order.CurrencyValue,
 			&total,
+			&order.Comment,
 		); err != nil {
 			return nil, err
 		}
@@ -263,6 +264,7 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 			&order.Currency,
 			&order.CurrencyValue,
 			&total,
+			&order.Comment,
 		); err != nil {
 			return nil, err
 		}

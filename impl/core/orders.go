@@ -194,7 +194,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
 		Discount:           0,
-		Description:        "", //oc.Comment,
+		Description:        oc.Comment,
 		CustomerNo:         "", //fmt.Sprint(oc.CustomerID),
 		ShippingState:      "",
 		Tax:                0,

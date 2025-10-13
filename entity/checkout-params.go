@@ -42,6 +42,7 @@ type CheckoutParams struct {
 	ProformaFile  string         `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
 	Paid          bool           `json:"paid,omitempty" bson:"paid"`
 	Source        Source         `json:"source,omitempty" bson:"source"`
+	Comment       string         `json:"comment,omitempty" bson:"comment,omitempty"`
 	Payload       interface{}    `json:"payload,omitempty" bson:"payload,omitempty"`
 }
 

@@ -72,7 +72,8 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			shipping_address_1,
 			currency_code,
 			currency_value,
-			total
+			total,
+			comment
 		 FROM %sorder
 		 WHERE order_status_id = ? AND (zoho_id = '' OR zoho_id IS NULL)
 		 LIMIT 5`,
@@ -105,7 +106,8 @@ func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 			shipping_address_1,
 			currency_code,
 			currency_value,
-			total
+			total,
+			comment
 		 FROM %sorder
 		 WHERE order_id = ?`,
 		s.prefix,
