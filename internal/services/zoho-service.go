@@ -163,17 +163,21 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 
 	// Handle DUPLICATE_DATA gracefully
 	if item.Status == "error" {
+		id := ""
 		if item.Code == "DUPLICATE_DATA" {
 			var dup entity.DuplicateDetails
 			if err = json.Unmarshal(item.Details, &dup); err != nil {
 				return "", fmt.Errorf("failed to parse duplicate details: %w", err)
 			}
-			log.With(
-				slog.String("duplicate_id", dup.DuplicateRecord.ID),
-				slog.String("owner", dup.DuplicateRecord.Owner.Name),
-				slog.String("module", dup.DuplicateRecord.Module.APIName),
-			).Debug("duplicate record detected")
-			return dup.DuplicateRecord.ID, nil
+			id = dup.DuplicateRecord.ID
+			//log.With(
+			//	slog.String("duplicate_id", dup.DuplicateRecord.ID),
+			//	slog.String("owner", dup.DuplicateRecord.Owner.Name),
+			//	slog.String("module", dup.DuplicateRecord.Module.APIName),
+			//).Debug("duplicate record detected")
+			if id != "" {
+				return id, nil
+			}
 		}
 
 		if item.Code == "MULTIPLE_OR_MULTI_ERRORS" {
@@ -181,12 +185,14 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 			if err = json.Unmarshal(item.Details, &multiErr); err != nil {
 				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
 			}
-			id := multiErr.Errors[0].Details.DuplicateRecord.ID
-			log.With(
-				slog.Any("error_message", multiErr.Errors[0].Message),
-				slog.String("duplicate_id", id),
-			).Debug("multiple errors detected")
-			return id, nil
+			id = multiErr.Errors[0].Details.DuplicateRecord.ID
+			//log.With(
+			//	slog.Any("error_message", multiErr.Errors[0].Message),
+			//	slog.String("duplicate_id", id),
+			//).Debug("multiple errors detected")
+			if id != "" {
+				return id, nil
+			}
 		}
 		return "", fmt.Errorf("zoho error [%s]: %s", item.Code, item.Message)
 	}

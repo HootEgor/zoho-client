@@ -208,7 +208,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		TermsAndConditions: "Standard terms apply.",
 		BillingCode:        oc.ClientDetails.ZipCode,
 		ProductDetails:     nil,
-		Subject:            fmt.Sprintf("Order #%s", oc.OrderId),
+		Subject:            fmt.Sprintf("Order #%d", oc.OrderId),
 		Location:           ZohoLocation,
 		OrderSource:        ZohoOrderSource,
 	}
