@@ -8,6 +8,11 @@ import (
 	"zohoclient/internal/lib/sl"
 )
 
+const (
+	ZohoLocation    = "Польша"
+	ZohoOrderSource = "OpenCart"
+)
+
 func (c *Core) ProcessOrders() {
 	newOrders, err := c.repo.GetNewOrders()
 	if err != nil {
@@ -230,6 +235,8 @@ func (c *Core) buildZohoOrder(oc entity.OCOrder, products []entity.Product, cont
 		BillingCode:        oc.PaymentPostcode,
 		ProductDetails:     nil,
 		Subject:            fmt.Sprintf("Order #%d", oc.OrderID),
+		Location:           ZohoLocation,
+		OrderSource:        ZohoOrderSource,
 	}
 }
 

@@ -19,6 +19,8 @@ type ZohoOrder struct {
 	BillingCode        string          `json:"Billing_Code"`
 	ProductDetails     []ProductDetail `json:"Product_Details,omitempty"`
 	Subject            string          `json:"Subject"`
+	Location           string          `json:"Location_DR"`
+	OrderSource        string          `json:"Order_Source"`
 }
 
 type ContactName struct {

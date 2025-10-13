@@ -254,12 +254,12 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	s.log.With(
-		slog.String("response", string(bodyBytes)),
-	).Debug("create order response")
+	//s.log.With(
+	//	slog.String("response", string(bodyBytes)),
+	//).Debug("create order response")
 
 	var apiResp entity.ZohoAPIResponse
-	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
+	if err = json.Unmarshal(bodyBytes, &apiResp); err != nil {
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 
