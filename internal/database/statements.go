@@ -59,18 +59,6 @@ func (s *MySql) stmtUpdateOrderZohoId() (*sql.Stmt, error) {
 func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-			order_id
-		 FROM %sorder
-		 WHERE order_status_id = ? AND (zoho_id = '' OR zoho_id IS NULL)
-		 LIMIT 5`,
-		s.prefix,
-	)
-	return s.prepareStmt("selectOrderStatus", query)
-}
-
-func (s *MySql) stmtSelectOrder() (*sql.Stmt, error) {
-	query := fmt.Sprintf(
-		`SELECT
 			order_id,
 			date_added,
 			firstname,
@@ -90,7 +78,7 @@ func (s *MySql) stmtSelectOrder() (*sql.Stmt, error) {
 		 LIMIT 5`,
 		s.prefix,
 	)
-	return s.prepareStmt("selectOrder", query)
+	return s.prepareStmt("selectOrderStatus", query)
 }
 
 func (s *MySql) stmtUpdateProductZohoId() (*sql.Stmt, error) {
