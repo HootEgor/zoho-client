@@ -2,9 +2,9 @@ package database
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 	"zohoclient/entity"
@@ -14,8 +14,18 @@ import (
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
+const (
+	totalCodeShipping = "shipping"
+	//totalCodeDiscount = "discount"
+	totalCodeTax = "tax"
+	//totalCodeTotal    = "total"
+	customFieldNip = "2"
+	locationCode   = "Europe/Warsaw"
+)
+
 type MySql struct {
 	db         *sql.DB
+	loc        *time.Location
 	prefix     string
 	structure  map[string]map[string]Column
 	statements map[string]*sql.Stmt
@@ -64,6 +74,12 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 		return nil, err
 	}
 
+	loc, err := time.LoadLocation(locationCode)
+	if err != nil {
+		return nil, fmt.Errorf("load location: %w", err)
+	}
+	sdb.loc = loc
+
 	return sdb, nil
 }
 
@@ -82,120 +98,14 @@ func (s *MySql) Stats() string {
 		len(s.structure))
 }
 
-func (s *MySql) OrderSearchId(orderId int64) (*entity.OCOrder, error) {
-	stmt, err := s.stmtSelectOrder()
-	if err != nil {
-		return nil, err
-	}
-	var order entity.OCOrder
-	err = stmt.QueryRow(orderId).Scan(
-		&order.OrderID,
-		&order.InvoiceNo,
-		&order.InvoicePrefix,
-		&order.StoreID,
-		&order.StoreName,
-		&order.StoreURL,
-		&order.CustomerID,
-		&order.CustomerGroupID,
-		&order.Firstname,
-		&order.Lastname,
-		&order.Email,
-		&order.Telephone,
-		&order.CustomField,
-		&order.PaymentFirstname,
-		&order.PaymentLastname,
-		&order.PaymentCompany,
-		&order.PaymentAddress1,
-		&order.PaymentAddress2,
-		&order.PaymentCity,
-		&order.PaymentPostcode,
-		&order.PaymentCountry,
-		&order.PaymentCountryID,
-		&order.PaymentZone,
-		&order.PaymentZoneID,
-		&order.PaymentAddressFormat,
-		&order.PaymentCustomField,
-		&order.PaymentMethod,
-		&order.PaymentCode,
-		&order.ShippingFirstname,
-		&order.ShippingLastname,
-		&order.ShippingCompany,
-		&order.ShippingAddress1,
-		&order.ShippingAddress2,
-		&order.ShippingCity,
-		&order.ShippingPostcode,
-		&order.ShippingCountry,
-		&order.ShippingCountryID,
-		&order.ShippingZone,
-		&order.ShippingZoneID,
-		&order.ShippingAddressFormat,
-		&order.ShippingCustomField,
-		&order.ShippingMethod,
-		&order.ShippingCode,
-		&order.Comment,
-		&order.Total,
-		&order.OrderStatusID,
-		&order.AffiliateID,
-		&order.Commission,
-		&order.MarketingID,
-		&order.Tracking,
-		&order.LanguageID,
-		&order.CurrencyID,
-		&order.CurrencyCode,
-		&order.CurrencyValue,
-		&order.IP,
-		&order.ForwardedIP,
-		&order.UserAgent,
-		&order.AcceptLanguage,
-		&order.DateAdded,
-		&order.DateModified,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil // no order found
-		}
-		return nil, fmt.Errorf("scan order: %w", err)
-	}
-	return &order, nil
-}
-
-func (s *MySql) OrderSearchStatus(statusId int64) ([]int64, error) {
-	stmt, err := s.stmtSelectOrderStatus()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := stmt.Query(statusId)
-	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close()
-	}(rows)
-
-	var orderIds []int64
-	for rows.Next() {
-		var orderId int64
-		if err = rows.Scan(&orderId); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		orderIds = append(orderIds, orderId)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows: %w", err)
-	}
-
-	return orderIds, nil
-}
-
-func (s *MySql) GetNewOrders() ([]entity.OCOrder, error) {
-	statuses := []int64{
+func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {
+	statuses := []int{
 		entity.OrderStatusPending,
 	}
 
-	var orders []entity.OCOrder
+	var orders []*entity.CheckoutParams
 	for _, status := range statuses {
-		orderIds, err := s.OrderSearchStatus(status)
+		params, err := s.OrderSearchStatus(status)
 		if err != nil {
 			s.log.With(
 				sl.Err(err),
@@ -203,17 +113,8 @@ func (s *MySql) GetNewOrders() ([]entity.OCOrder, error) {
 			continue
 		}
 
-		for _, orderId := range orderIds {
-			order, err := s.OrderSearchId(orderId)
-			if err != nil {
-				s.log.With(
-					sl.Err(err),
-				).Debug("order search id")
-				continue
-			}
-			if order != nil {
-				orders = append(orders, *order)
-			}
+		for _, order := range params {
+			orders = append(orders, order)
 		}
 	}
 
@@ -248,50 +149,6 @@ func (s *MySql) ChangeOrderZohoId(orderId int64, zohoId string) error {
 	return nil
 }
 
-func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
-	query := fmt.Sprintf(`
-		SELECT 
-		    ifnull(p.product_uid, "") as uid,
-			ifnull(p.zoho_id, "") as zoho_id,
-			op.quantity,
-			op.price
-		FROM 
-			%[1]sorder_product op
-		LEFT JOIN 
-			%[1]sproduct p ON op.product_id = p.product_id
-		WHERE 
-			op.order_id = ?
-	`, s.prefix)
-
-	rows, err := s.db.Query(query, orderId)
-	if err != nil {
-		return nil, fmt.Errorf("query products: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close()
-	}(rows)
-
-	var products []entity.Product
-	for rows.Next() {
-		var product entity.Product
-		if err = rows.Scan(
-			&product.UID,
-			&product.ZohoId,
-			&product.Quantity,
-			&product.Price,
-		); err != nil {
-			return nil, fmt.Errorf("scan zoho_id: %w", err)
-		}
-		products = append(products, product)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows error: %w", err)
-	}
-
-	return products, nil
-}
-
 func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
 	stmt, err := s.stmtUpdateProductZohoId()
 	if err != nil {
@@ -303,4 +160,236 @@ func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
 		return fmt.Errorf("update product zoho_id: %w", err)
 	}
 	return nil
+}
+
+func (s *MySql) OrderSearchStatus(statusId int) ([]*entity.CheckoutParams, error) {
+	stmt, err := s.stmtSelectOrderStatus()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query(statusId)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []*entity.CheckoutParams
+	for rows.Next() {
+
+		var order entity.CheckoutParams
+		var client entity.ClientDetails
+		var customField string
+		var firstName, lastName string
+		var total float64
+
+		if err = rows.Scan(
+			&order.OrderId,
+			&order.Created, // replaced by Now()
+			&firstName,
+			&lastName,
+			&client.Email,
+			&client.Phone,
+			&customField,
+			&client.Country,
+			&client.ZipCode,
+			&client.City,
+			&client.Street,
+			&order.Currency,
+			&order.CurrencyValue,
+			&total,
+		); err != nil {
+			return nil, err
+		}
+
+		// client data
+		_ = client.ParseTaxId(customFieldNip, customField)
+		client.FirstName = firstName
+		client.LastName = lastName
+		order.ClientDetails = &client
+		// order summary
+		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
+		order.Source = entity.SourceOpenCart
+		order.Created = time.Now().In(s.loc)
+
+		orders = append(orders, &order)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// add line items and shipping costs to each order
+	for _, order := range orders {
+		_, err = s.addOrderData(order.OrderId, order)
+		if err != nil {
+			return nil, fmt.Errorf("add order data: %w", err)
+		}
+	}
+
+	return orders, nil
+}
+
+func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
+	stmt, err := s.stmtSelectOrderId()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query(orderId)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	var order entity.CheckoutParams
+	if rows.Next() {
+
+		var client entity.ClientDetails
+		var customField string
+		var firstName, lastName string
+		var total float64
+
+		if err = rows.Scan(
+			&order.OrderId,
+			&order.Created, // replaced by Now()
+			&firstName,
+			&lastName,
+			&client.Email,
+			&client.Phone,
+			&customField,
+			&client.Country,
+			&client.ZipCode,
+			&client.City,
+			&client.Street,
+			&order.Currency,
+			&order.CurrencyValue,
+			&total,
+		); err != nil {
+			return nil, err
+		}
+
+		// client data
+		_ = client.ParseTaxId(customFieldNip, customField)
+		client.FirstName = firstName
+		client.LastName = lastName
+		order.ClientDetails = &client
+		// order summary
+		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
+		order.Source = entity.SourceOpenCart
+		order.Created = time.Now().In(s.loc)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return s.addOrderData(orderId, &order)
+}
+
+func (s *MySql) OrderProducts(orderId int64, currencyValue float64, ignoreTax bool) ([]*entity.LineItem, error) {
+	stmt, err := s.stmtSelectOrderProducts()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query(orderId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var products []*entity.LineItem
+	for rows.Next() {
+		var product entity.LineItem
+		var total float64
+		var tax float64
+		var price float64
+		if err = rows.Scan(
+			&product.Name,
+			&product.Id,
+			&product.Uid,
+			&product.ZohoId,
+			&total,
+			&price,
+			&tax,
+			&product.Qty,
+			&product.Sku,
+		); err != nil {
+			return nil, err
+		}
+		if ignoreTax {
+			tax = 0
+		}
+		if product.Qty > 0 && price > 0 {
+			// standard OpenCart logic
+			priceVAT := price + tax
+			// OpenCart module 'OrderPRO' contains defected logic of tax calculation, so try to detect variants
+			vatCheck := tax / price
+			if vatCheck > 0.25 {
+				// 'tax' contains row total VAT
+				priceVAT = price + tax/float64(product.Qty)
+			}
+			product.Price = int64(math.Round(priceVAT * currencyValue * 100))
+			products = append(products, &product)
+		}
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return products, nil
+}
+
+func (s *MySql) OrderTotal(orderId int64, code string, currencyValue float64) (string, int64, error) {
+	stmt, err := s.stmtSelectOrderTotals()
+	if err != nil {
+		return "", 0, err
+	}
+	rows, err := stmt.Query(orderId, code)
+	if err != nil {
+		return "", 0, err
+	}
+	defer rows.Close()
+
+	var title string
+	var value float64
+	for rows.Next() {
+		if err = rows.Scan(
+			&title,
+			&value,
+		); err != nil {
+			return "", 0, err
+		}
+	}
+
+	if err = rows.Err(); err != nil {
+		return "", 0, err
+	}
+
+	return title, int64(math.Round(value * currencyValue * 100)), nil
+}
+
+// addOrderData retrieves and calculates tax, line items, and shipping costs for a specific order and updates its details.
+func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*entity.CheckoutParams, error) {
+	var err error
+	// before adding line items and shipping costs to each order, get order tax
+	order.TaxTitle, order.TaxValue, err = s.OrderTotal(orderId, totalCodeTax, order.CurrencyValue)
+	if err != nil {
+		return nil, fmt.Errorf("get order tax: %w", err)
+	}
+
+	// add line items and shipping costs to each order
+	order.LineItems, err = s.OrderProducts(orderId, order.CurrencyValue, order.TaxValue == 0)
+	if err != nil {
+		return nil, fmt.Errorf("get order products: %w", err)
+	}
+	title, value, err := s.OrderTotal(orderId, totalCodeShipping, order.CurrencyValue)
+	if err != nil {
+		return nil, fmt.Errorf("get order shipping: %w", err)
+	}
+	if value > 0 {
+		order.AddShipping(title, value)
+	}
+	order.RecalcWithDiscount()
+
+	return order, nil
 }

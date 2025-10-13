@@ -9,11 +9,10 @@ import (
 )
 
 type Repository interface {
-	GetNewOrders() ([]entity.OCOrder, error)
+	GetNewOrders() ([]*entity.CheckoutParams, error)
 	ChangeOrderStatus(orderId, orderStatusId int64) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
 
-	GetOrderProducts(orderId int64) ([]entity.Product, error)
 	UpdateProductZohoId(productUID string, zohoId string) error
 }
 
@@ -23,7 +22,7 @@ type ProductRepository interface {
 
 type Zoho interface {
 	RefreshToken() error
-	CreateContact(contactData entity.Contact) (string, error)
+	CreateContact(contactData *entity.ClientDetails) (string, error)
 	CreateOrder(orderData entity.ZohoOrder) (string, error)
 	UpdateOrder(orderData entity.ZohoOrder, id string) error
 }

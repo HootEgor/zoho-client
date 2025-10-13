@@ -71,69 +71,23 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 func (s *MySql) stmtSelectOrder() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-            order_id,
-            invoice_no,
-            invoice_prefix,
-            store_id,
-            store_name,
-            store_url,
-            customer_id,
-            customer_group_id,
-            firstname,
-            lastname,
-            email,
-            telephone,
-            custom_field,
-            payment_firstname,
-            payment_lastname,
-            payment_company,
-            payment_address_1,
-            payment_address_2,
-            payment_city,
-            payment_postcode,
-            payment_country,
-            payment_country_id,
-            payment_zone,
-            payment_zone_id,
-            payment_address_format,
-            payment_custom_field,
-            payment_method,
-            payment_code,
-            shipping_firstname,
-            shipping_lastname,
-            shipping_company,
-            shipping_address_1,
-            shipping_address_2,
-            shipping_city,
-            shipping_postcode,
-            shipping_country,
-            shipping_country_id,
-            shipping_zone,
-            shipping_zone_id,
-            shipping_address_format,
-            shipping_custom_field,
-            shipping_method,
-            shipping_code,
-            comment,
-            total,
-            order_status_id,
-            affiliate_id,
-            commission,
-            marketing_id,
-            tracking,
-            language_id,
-            currency_id,
-            currency_code,
-            currency_value,
-            ip,
-            forwarded_ip,
-            user_agent,
-            accept_language,
-            date_added,
-            date_modified
-         FROM %sorder
-         WHERE order_id = ?
-         LIMIT 1`,
+			order_id,
+			date_added,
+			firstname,
+			lastname,
+			email,
+			telephone,
+			custom_field,
+			shipping_country,
+			shipping_postcode,
+			shipping_city,
+			shipping_address_1,
+			currency_code,
+			currency_value,
+			total
+		 FROM %sorder
+		 WHERE order_status_id = ? AND (zoho_id = '' OR zoho_id IS NULL)
+		 LIMIT 5`,
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrder", query)
@@ -145,4 +99,61 @@ func (s *MySql) stmtUpdateProductZohoId() (*sql.Stmt, error) {
 		s.prefix,
 	)
 	return s.prepareStmt("updateProductZohoId", query)
+}
+
+func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT
+			order_id,
+			date_added,
+			firstname,
+			lastname,
+			email,
+			telephone,
+			custom_field,
+			shipping_country,
+			shipping_postcode,
+			shipping_city,
+			shipping_address_1,
+			currency_code,
+			currency_value,
+			total
+		 FROM %sorder
+		 WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("stmtSelectOrderId", query)
+}
+
+func (s *MySql) stmtSelectOrderTotals() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT
+			op.title,
+			op.value
+		 FROM %sorder_total op
+		 WHERE op.order_id = ? AND op.code=?`,
+		s.prefix,
+	)
+	return s.prepareStmt("selectOrderTotals", query)
+}
+
+func (s *MySql) stmtSelectOrderProducts() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT
+			pd.name,
+			op.product_id,
+			ifnull(pr.product_uid, "") as uid,
+			ifnull(pr.zoho_id, "") as zoho_id,
+			op.total,
+			op.price,
+			op.tax,
+			op.quantity,
+			op.model
+		 FROM %sorder_product op
+		 JOIN %sproduct_description pd ON op.product_id = pd.product_id 
+		 JOIN %sproduct pr ON op.product_id = pr.product_id
+		 WHERE op.order_id = ? AND pd.language_id = 2`,
+		s.prefix, s.prefix, s.prefix,
+	)
+	return s.prepareStmt("selectOrderProducts", query)
 }

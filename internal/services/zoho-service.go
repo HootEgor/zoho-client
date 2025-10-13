@@ -83,27 +83,34 @@ func (s *ZohoService) RefreshToken() error {
 	return nil
 }
 
-func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) {
+func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, error) {
 
 	log := s.log.With(
-		slog.String("email", contactData.Email),
-		slog.String("phone", contactData.Phone),
-		slog.String("name", fmt.Sprintf("%s %s", contactData.FirstName, contactData.LastName)),
+		slog.String("email", contact.Email),
+		slog.String("phone", contact.Phone),
+		slog.String("name", fmt.Sprintf("%s %s", contact.FirstName, contact.LastName)),
 	)
 
-	err := util.ValidateEmail(contactData.Email)
+	err := util.ValidateEmail(contact.Email)
 	if err != nil {
 		log.Debug("invalid email")
-		contactData.Email = ""
+		contact.Email = ""
 	}
 
-	if contactData.Email == "" && contactData.Phone == "" {
+	if contact.Email == "" && contact.Phone == "" {
 		return "", fmt.Errorf("email and phone are empty")
 	}
 
-	// Prepare request body
 	payload := map[string]interface{}{
-		"data": []entity.Contact{contactData},
+		"data": []*entity.Contact{
+			{
+				Email:     contact.Email,
+				Phone:     contact.Phone,
+				FirstName: contact.FirstName,
+				LastName:  contact.LastName,
+				Field2:    contact.City,
+			},
+		},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

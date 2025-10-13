@@ -14,7 +14,7 @@ const (
 )
 
 func (c *Core) ProcessOrders() {
-	newOrders, err := c.repo.GetNewOrders()
+	orders, err := c.repo.GetNewOrders()
 	if err != nil {
 		c.log.Error("failed to get new orders", slog.String("error", err.Error()))
 		return
@@ -22,66 +22,57 @@ func (c *Core) ProcessOrders() {
 
 	ordersProcessed := 0
 
-	for _, ocOrder := range newOrders {
-		contact := entity.Contact{
-			FirstName: ocOrder.Firstname,
-			LastName:  ocOrder.Lastname,
-			Email:     ocOrder.Email,
-			Field2:    ocOrder.ShippingCity,
-			Phone:     filterDigitsOnly(ocOrder.Telephone),
+	for _, order := range orders {
+
+		if order.ClientDetails == nil {
+			c.log.With(
+				slog.Int64("order_id", order.OrderId),
+			).Warn("order has no client details, skipping")
+			continue
+		}
+		if order.LineItems == nil || len(order.LineItems) == 0 {
+			c.log.With(
+				slog.Int64("order_id", order.OrderId),
+			).Warn("order has no line items, skipping")
+			continue
 		}
 
-		contactID, err := c.zoho.CreateContact(contact)
+		contactID, err := c.zoho.CreateContact(order.ClientDetails)
 		if err != nil {
 			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
+				slog.Int64("order_id", order.OrderId),
 				sl.Err(err),
 			).Error("create contact")
 			continue
 		}
 
-		orderProducts, err := c.repo.GetOrderProducts(ocOrder.OrderID)
-		if err != nil {
+		if e := hasEmptyUid(order.LineItems); e != nil {
 			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
-				sl.Err(err),
-			).Error("get order products")
-			continue
-		}
-
-		if hasEmptyUid(orderProducts) {
-			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
-				slog.Any("products", orderProducts),
+				slog.Int64("order_id", order.OrderId),
+				sl.Err(e),
 			).Warn("order has product(s) without UID, skipping")
 			continue
 		}
 
-		if hasEmptyZohoID(orderProducts) {
+		if e := hasEmptyZohoID(order.LineItems); e != nil {
 			// Try to fetch Zoho IDs for products without them
-			orderProducts, _ = c.processProductsWithoutZohoID(orderProducts)
-
-			//if updated {
-			//	c.log.With(
-			//		slog.Int64("order_id", ocOrder.OrderID),
-			//	).Info("updated Zoho IDs for some products")
-			//}
+			c.processProductsWithoutZohoID(order.LineItems)
 
 			// Check if there are still products without Zoho IDs
-			if hasEmptyZohoID(orderProducts) {
+			if ee := hasEmptyZohoID(order.LineItems); ee != nil {
 				c.log.With(
-					slog.Int64("order_id", ocOrder.OrderID),
-				).Warn("order still has product(s) without Zoho ID, skipping")
+					slog.Int64("order_id", order.OrderId),
+				).Warn("order has product(s) without Zoho ID, skipping")
 				continue // leave in queue
 			}
 		}
 
-		zohoOrder := c.buildZohoOrder(ocOrder, orderProducts, contactID)
+		zohoOrder := c.buildZohoOrder(order, contactID)
 
 		orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
 			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
+				slog.Int64("order_id", order.OrderId),
 				sl.Err(err),
 			).Error("create Zoho order")
 			continue
@@ -95,12 +86,12 @@ func (c *Core) ProcessOrders() {
 		//	).Error("update order status")
 		//}
 
-		err = c.repo.ChangeOrderZohoId(ocOrder.OrderID, orderZohoId)
+		err = c.repo.ChangeOrderZohoId(order.OrderId, orderZohoId)
 		if err != nil {
 			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
+				slog.Int64("order_id", order.OrderId),
 				sl.Err(err),
-			).Error("update order zohoid")
+			).Error("update order zoho_id")
 		}
 
 		ordersProcessed += 1
@@ -108,47 +99,48 @@ func (c *Core) ProcessOrders() {
 
 	c.log.With(
 		slog.Int("processed_orders", ordersProcessed),
-		slog.Int("remaining_orders", len(newOrders)-ordersProcessed),
+		slog.Int("remaining_orders", len(orders)-ordersProcessed),
 	).Info("processed orders")
 }
 
-func hasEmptyZohoID(products []entity.Product) bool {
+func hasEmptyZohoID(products []*entity.LineItem) error {
 	for _, p := range products {
 		if p.ZohoId == "" {
-			return true
+			return fmt.Errorf("product id=%d %s has empty zoho_id", p.Id, p.Name)
 		}
 	}
-	return false
+	return nil
 }
 
-func hasEmptyUid(products []entity.Product) bool {
+func hasEmptyUid(products []*entity.LineItem) error {
 	for _, p := range products {
-		if p.UID == "" {
-			return true
+		if p.Uid == "" {
+			return fmt.Errorf("product id=%d %s has empty UID", p.Id, p.Name)
 		}
 	}
-	return false
+	return nil
 }
 
-func (c *Core) processProductsWithoutZohoID(products []entity.Product) ([]entity.Product, bool) {
-	var productsUpdated bool
+func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 
 	for i, p := range products {
 		if p.ZohoId == "" {
-			zohoID, err := c.prodRepo.GetProductZohoID(p.UID)
+			zohoID, err := c.prodRepo.GetProductZohoID(p.Uid)
 			if err != nil {
 				c.log.With(
-					slog.String("product_uid", p.UID),
+					slog.String("product", p.Name),
+					slog.String("product_uid", p.Uid),
 					sl.Err(err),
 				).Error("failed to get product Zoho ID")
 				continue
 			}
 
 			if zohoID != "" {
-				err = c.repo.UpdateProductZohoId(p.UID, zohoID)
+				err = c.repo.UpdateProductZohoId(p.Uid, zohoID)
 				if err != nil {
 					c.log.With(
-						slog.String("product_uid", p.UID),
+						slog.String("product", p.Name),
+						slog.String("product_uid", p.Uid),
 						slog.String("zoho_id", zohoID),
 						sl.Err(err),
 					).Error("failed to update product Zoho ID")
@@ -157,60 +149,43 @@ func (c *Core) processProductsWithoutZohoID(products []entity.Product) ([]entity
 
 				// Update the product in the slice
 				products[i].ZohoId = zohoID
-				productsUpdated = true
 
 				c.log.With(
-					slog.String("product_uid", p.UID),
+					slog.String("product", p.Name),
+					slog.String("product_uid", p.Uid),
 					slog.String("zoho_id", zohoID),
 				).Info("product Zoho ID updated")
 			}
 		}
 	}
 
-	return products, productsUpdated
 }
 
-func filterDigitsOnly(phone string) string {
-	var result []rune
-	for _, ch := range phone {
-		if ch >= '0' && ch <= '9' {
-			result = append(result, ch)
-		}
-	}
-	return string(result)
-}
+//func filterDigitsOnly(phone string) string {
+//	var result []rune
+//	for _, ch := range phone {
+//		if ch >= '0' && ch <= '9' {
+//			result = append(result, ch)
+//		}
+//	}
+//	return string(result)
+//}
 
-func (c *Core) buildZohoOrder(oc entity.OCOrder, products []entity.Product, contactID string) entity.ZohoOrder {
-	//var productDetails []entity.ProductDetail
-	//
-	//for _, p := range products {
-	//	productDetails = append(productDetails, entity.ProductDetail{
-	//		Product:     entity.ProductID{ID: p.ZohoId},
-	//		Quantity:    p.Quantity,
-	//		Discount:    0, // set appropriately if discount info available
-	//		ProductDesc: p.UID,
-	//		UnitPrice:   float64(p.Price), // set price if available
-	//		LineTax: []entity.LineTax{
-	//			{Name: "Common Tax", Percentage: 0},
-	//		},
-	//	})
-	//}
-
-	//orderedItems := convertToOrderedItems(productDetails)
+func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entity.ZohoOrder {
 
 	var orderedItems []entity.OrderedItem
 
-	for _, d := range products {
+	for _, d := range oc.LineItems {
 		item := entity.OrderedItem{
 			Product: entity.ZohoProduct{
 				ID: d.ZohoId,
 				//Name: d.UID, // using UID as the name
 			},
-			Quantity:  d.Quantity,
+			Quantity:  d.Qty,
 			Discount:  0,
 			DiscountP: 0,
 			ListPrice: roundToTwoDecimalPlaces(d.Price),
-			Total:     roundToTwoDecimalPlaces(d.Price * float64(d.Quantity)),
+			Total:     roundToTwoDecimalPlaces(d.Price * d.Qty),
 		}
 		orderedItems = append(orderedItems, item)
 	}
@@ -219,47 +194,26 @@ func (c *Core) buildZohoOrder(oc entity.OCOrder, products []entity.Product, cont
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
 		Discount:           0,
-		Description:        oc.Comment,
-		CustomerNo:         fmt.Sprint(oc.CustomerID),
-		ShippingState:      oc.ShippingZone,
+		Description:        "", //oc.Comment,
+		CustomerNo:         "", //fmt.Sprint(oc.CustomerID),
+		ShippingState:      "",
 		Tax:                0,
-		BillingCountry:     oc.PaymentCountry,
-		Carrier:            oc.ShippingMethod,
+		BillingCountry:     oc.ClientDetails.Country,
+		Carrier:            "",
 		Status:             c.statuses[entity.OrderStatusNew],
 		SalesCommission:    0,
 		DueDate:            time.Now().Format("2006-01-02"),
-		BillingStreet:      oc.PaymentAddress1,
+		BillingStreet:      oc.ClientDetails.Street,
 		Adjustment:         0,
 		TermsAndConditions: "Standard terms apply.",
-		BillingCode:        oc.PaymentPostcode,
+		BillingCode:        oc.ClientDetails.ZipCode,
 		ProductDetails:     nil,
-		Subject:            fmt.Sprintf("Order #%d", oc.OrderID),
+		Subject:            fmt.Sprintf("Order #%s", oc.OrderId),
 		Location:           ZohoLocation,
 		OrderSource:        ZohoOrderSource,
 	}
 }
 
-func convertToOrderedItems(details []entity.ProductDetail) []entity.OrderedItem {
-	var orderedItems []entity.OrderedItem
-
-	for _, d := range details {
-		item := entity.OrderedItem{
-			Product: entity.ZohoProduct{
-				ID:   d.Product.ID,
-				Name: d.ProductDesc, // using ProductDesc as the name
-			},
-			Quantity:  d.Quantity,
-			Discount:  roundToTwoDecimalPlaces(d.Discount),
-			DiscountP: 0,
-			ListPrice: roundToTwoDecimalPlaces(d.UnitPrice),
-			Total:     roundToTwoDecimalPlaces(d.UnitPrice * float64(d.Quantity)),
-		}
-		orderedItems = append(orderedItems, item)
-	}
-
-	return orderedItems
-}
-
-func roundToTwoDecimalPlaces(value float64) float64 {
-	return float64(int(value*100)) / 100.0
+func roundToTwoDecimalPlaces(value int64) float64 {
+	return float64(value) / 100.0
 }

@@ -29,7 +29,7 @@ type ContactName struct {
 
 type OrderedItem struct {
 	Product   ZohoProduct `json:"Product_Name"`
-	Quantity  int         `json:"Quantity"`
+	Quantity  int64       `json:"Quantity"`
 	Discount  float64     `json:"Discount"`
 	DiscountP float64     `json:"DiscountP"`
 	ListPrice float64     `json:"List_Price"`
