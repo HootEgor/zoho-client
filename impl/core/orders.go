@@ -177,22 +177,39 @@ func filterDigitsOnly(phone string) string {
 }
 
 func (c *Core) buildZohoOrder(oc entity.OCOrder, products []entity.Product, contactID string) entity.ZohoOrder {
-	var productDetails []entity.ProductDetail
+	//var productDetails []entity.ProductDetail
+	//
+	//for _, p := range products {
+	//	productDetails = append(productDetails, entity.ProductDetail{
+	//		Product:     entity.ProductID{ID: p.ZohoId},
+	//		Quantity:    p.Quantity,
+	//		Discount:    0, // set appropriately if discount info available
+	//		ProductDesc: p.UID,
+	//		UnitPrice:   float64(p.Price), // set price if available
+	//		LineTax: []entity.LineTax{
+	//			{Name: "Common Tax", Percentage: 0},
+	//		},
+	//	})
+	//}
 
-	for _, p := range products {
-		productDetails = append(productDetails, entity.ProductDetail{
-			Product:     entity.ProductID{ID: p.ZohoId},
-			Quantity:    p.Quantity,
-			Discount:    0, // set appropriately if discount info available
-			ProductDesc: p.UID,
-			UnitPrice:   float64(p.Price), // set price if available
-			LineTax: []entity.LineTax{
-				{Name: "Common Tax", Percentage: 0},
+	//orderedItems := convertToOrderedItems(productDetails)
+
+	var orderedItems []entity.OrderedItem
+
+	for _, d := range products {
+		item := entity.OrderedItem{
+			Product: entity.ZohoProduct{
+				ID: d.ZohoId,
+				//Name: d.UID, // using UID as the name
 			},
-		})
+			Quantity:  d.Quantity,
+			Discount:  0,
+			DiscountP: 0,
+			ListPrice: roundToTwoDecimalPlaces(d.Price),
+			Total:     roundToTwoDecimalPlaces(d.Price * float64(d.Quantity)),
+		}
+		orderedItems = append(orderedItems, item)
 	}
-
-	orderedItems := convertToOrderedItems(productDetails)
 
 	return entity.ZohoOrder{
 		ContactName:        entity.ContactName{ID: contactID},

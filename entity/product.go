@@ -4,7 +4,7 @@ type Product struct {
 	UID      string  `json:"product_uid"`
 	ZohoId   string  `json:"zoho_id"`
 	Quantity int     `json:"quantity"`
-	Price    float32 `json:"price"`
+	Price    float64 `json:"price"`
 }
 
 type ProductResponse struct {

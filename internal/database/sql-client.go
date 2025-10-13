@@ -4,13 +4,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql" // MySQL driver
 	"log/slog"
 	"sync"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
 	"zohoclient/internal/lib/sl"
+
+	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
 type MySql struct {
@@ -167,7 +168,9 @@ func (s *MySql) OrderSearchStatus(statusId int64) ([]int64, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var orderIds []int64
 	for rows.Next() {
@@ -264,7 +267,9 @@ func (s *MySql) GetOrderProducts(orderId int64) ([]entity.Product, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query products: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var products []entity.Product
 	for rows.Next() {
