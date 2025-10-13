@@ -45,13 +45,6 @@ func (c *Core) ProcessOrders() {
 		}
 
 		if hasEmptyUid(orderProducts) {
-			//err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusApproved)
-			//if err != nil {
-			//	c.log.With(
-			//		slog.Int64("order_id", ocOrder.OrderID),
-			//		sl.Err(err),
-			//	).Error("update order status")
-			//}
 			c.log.With(
 				slog.Int64("order_id", ocOrder.OrderID),
 				slog.Any("products", orderProducts),
@@ -90,13 +83,13 @@ func (c *Core) ProcessOrders() {
 			continue
 		}
 
-		err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusProcessing)
-		if err != nil {
-			c.log.With(
-				slog.Int64("order_id", ocOrder.OrderID),
-				sl.Err(err),
-			).Error("update order status")
-		}
+		//err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusProcessing)
+		//if err != nil {
+		//	c.log.With(
+		//		slog.Int64("order_id", ocOrder.OrderID),
+		//		sl.Err(err),
+		//	).Error("update order status")
+		//}
 
 		err = c.repo.ChangeOrderZohoId(ocOrder.OrderID, orderZohoId)
 		if err != nil {
