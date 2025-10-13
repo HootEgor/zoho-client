@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -55,10 +54,12 @@ func (s *ZohoService) RefreshToken() error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := ioutil.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("refresh token failed: %s", string(bodyBytes))
 	}
 
@@ -129,19 +130,21 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	s.log.With(
-		slog.String("response", string(bodyBytes)),
-	).Debug("create contact response")
+	//s.log.With(
+	//	slog.String("response", string(bodyBytes)),
+	//).Debug("create contact response")
 
 	var apiResp entity.ZohoAPIResponse
-	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
+	if err = json.Unmarshal(bodyBytes, &apiResp); err != nil {
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 
@@ -155,7 +158,7 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 	if item.Status == "error" {
 		if item.Code == "DUPLICATE_DATA" {
 			var dup entity.DuplicateDetails
-			if err := json.Unmarshal(item.Details, &dup); err != nil {
+			if err = json.Unmarshal(item.Details, &dup); err != nil {
 				return "", fmt.Errorf("failed to parse duplicate details: %w", err)
 			}
 			s.log.With(
@@ -168,13 +171,15 @@ func (s *ZohoService) CreateContact(contactData entity.Contact) (string, error) 
 
 		if item.Code == "MULTIPLE_OR_MULTI_ERRORS" {
 			var multiErr entity.MultipleErrors
-			if err := json.Unmarshal(item.Details, &multiErr); err != nil {
+			if err = json.Unmarshal(item.Details, &multiErr); err != nil {
 				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
 			}
+			id := multiErr.Errors[0].Details.DuplicateRecord.ID
 			s.log.With(
 				slog.Any("error_message", multiErr.Errors[0].Message),
+				slog.String("duplicate_id", id),
 			).Debug("multiple errors detected")
-			return multiErr.Errors[0].Details.DuplicateRecord.ID, nil
+			return id, nil
 		}
 		return "", fmt.Errorf("zoho error [%s]: %s", item.Code, item.Message)
 	}
@@ -220,7 +225,8 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	log := s.log.With(
 		slog.String("url", fullURL),
 		slog.String("method", req.Method),
-		slog.String("payload", string(body)))
+		//slog.String("payload", string(body)),
+	)
 	t := time.Now()
 	defer func() {
 		log = log.With(slog.Duration("duration", time.Since(t)))
@@ -239,7 +245,9 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		).Debug("response")
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -322,7 +330,9 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
