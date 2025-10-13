@@ -75,13 +75,10 @@ func (s *ZohoService) RefreshToken() error {
 		s.crmUrl = response.ApiDomain
 	}
 
-	if response != (entity.TokenResponse{}) {
-		s.log.With(
-			slog.Any("response", response),
-		).Debug("refresh token succeeded")
-	} else {
-		return fmt.Errorf("empty response from Zoho API")
-	}
+	s.log.With(
+		slog.Int("expires", response.ExpiresIn),
+		sl.Secret("token", response.AccessToken),
+	).Debug("refresh token succeeded")
 
 	return nil
 }
