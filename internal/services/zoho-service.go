@@ -285,12 +285,13 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 
 	// Decode success
 	var success entity.SuccessOrderDetails
-	if err := json.Unmarshal(item.Details, &success); err != nil {
+	if err = json.Unmarshal(item.Details, &success); err != nil {
 		return "", fmt.Errorf("failed to parse order ID: %w", err)
 	}
 
 	s.log.With(
-		slog.Any("order response", success),
+		slog.String("id", success.ID),
+		slog.String("subject", orderData.Subject),
 	).Debug("order created successfully")
 
 	return success.ID, nil

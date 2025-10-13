@@ -64,13 +64,8 @@ func (p *ProductRepo) GetProductZohoID(productUID string) (string, error) {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	p.log.With(
-		slog.String("product_uid", productUID),
-		slog.String("response", string(bodyBytes)),
-	).Debug("get product zoho id response")
-
 	var apiResp entity.ProductResponse
-	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
+	if err = json.Unmarshal(bodyBytes, &apiResp); err != nil {
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 

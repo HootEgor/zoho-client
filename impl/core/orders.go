@@ -59,14 +59,13 @@ func (c *Core) ProcessOrders() {
 
 		if hasEmptyZohoID(orderProducts) {
 			// Try to fetch Zoho IDs for products without them
-			updatedProducts, updated := c.processProductsWithoutZohoID(orderProducts)
-			orderProducts = updatedProducts
+			orderProducts, _ = c.processProductsWithoutZohoID(orderProducts)
 
-			if updated {
-				c.log.With(
-					slog.Int64("order_id", ocOrder.OrderID),
-				).Info("updated Zoho IDs for some products")
-			}
+			//if updated {
+			//	c.log.With(
+			//		slog.Int64("order_id", ocOrder.OrderID),
+			//	).Info("updated Zoho IDs for some products")
+			//}
 
 			// Check if there are still products without Zoho IDs
 			if hasEmptyZohoID(orderProducts) {
