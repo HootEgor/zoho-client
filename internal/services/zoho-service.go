@@ -21,6 +21,7 @@ type ZohoService struct {
 	clientSecret string
 	refreshToken string
 	refreshUrl   string
+	tokenExpiry  time.Time
 	crmUrl       string
 	scope        string
 	apiVersion   string
@@ -44,6 +45,26 @@ func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error)
 }
 
 func (s *ZohoService) RefreshToken() error {
+
+	if s.refreshToken != "" && time.Now().Before(s.tokenExpiry) {
+		return nil
+	}
+	var err error
+	for i := 0; i < 3; i++ {
+		if err = s.requestToken(); err == nil {
+			break
+		}
+		s.log.With(
+			slog.Int("attempt", i+1),
+			sl.Err(err),
+		).Warn("refresh token failed")
+		time.Sleep(30 * time.Second)
+	}
+
+	return nil
+}
+
+func (s *ZohoService) requestToken() error {
 	form := url.Values{}
 	form.Add("client_id", s.clientID)
 	form.Add("client_secret", s.clientSecret)
@@ -70,13 +91,18 @@ func (s *ZohoService) RefreshToken() error {
 
 	if response.AccessToken != "" {
 		s.refreshToken = response.AccessToken
+	} else {
+		return fmt.Errorf("empty access token")
 	}
 	if response.ApiDomain != "" {
 		s.crmUrl = response.ApiDomain
 	}
+	if response.ExpiresIn != 0 {
+		s.tokenExpiry = time.Now().Add(time.Duration(response.ExpiresIn) * time.Second)
+	}
 
 	s.log.With(
-		slog.Int("expires", response.ExpiresIn),
+		slog.Time("expires", s.tokenExpiry),
 		sl.Secret("token", response.AccessToken),
 	).Debug("refresh token succeeded")
 

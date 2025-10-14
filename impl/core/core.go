@@ -96,7 +96,7 @@ func (c *Core) Start() {
 
 	// Refresh token every 55 minutes
 	go func() {
-		ticker := time.NewTicker(55 * time.Minute)
+		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 
 		for {
@@ -110,7 +110,7 @@ func (c *Core) Start() {
 
 	//Process orders every 1 minute
 	func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
 
 		for {
