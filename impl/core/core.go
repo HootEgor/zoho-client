@@ -94,21 +94,21 @@ func (c *Core) Start() {
 		c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
 	}
 
-	// Refresh token every 55 minutes
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
+	// Refresh token
+	//go func() {
+	//	ticker := time.NewTicker(5 * time.Minute)
+	//	defer ticker.Stop()
+	//
+	//	for {
+	//		<-ticker.C
+	//		err = c.zoho.RefreshToken()
+	//		if err != nil {
+	//			c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
+	//		}
+	//	}
+	//}()
 
-		for {
-			<-ticker.C
-			err = c.zoho.RefreshToken()
-			if err != nil {
-				c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
-			}
-		}
-	}()
-
-	//Process orders every 1 minute
+	// Process orders
 	func() {
 		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()

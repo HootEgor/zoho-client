@@ -152,6 +152,10 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		return "", err
 	}
 
+	if e := s.RefreshToken(); e != nil {
+		return "", e
+	}
+
 	req, err := http.NewRequest(
 		http.MethodPost,
 		fullURL,
@@ -250,6 +254,10 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders")
 	if err != nil {
 		return "", err
+	}
+
+	if e := s.RefreshToken(); e != nil {
+		return "", e
 	}
 
 	req, err := http.NewRequest(
@@ -354,6 +362,10 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
 	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders", id)
 	if err != nil {
 		return err
+	}
+
+	if e := s.RefreshToken(); e != nil {
+		return e
 	}
 
 	req, err := http.NewRequest(
