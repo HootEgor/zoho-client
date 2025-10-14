@@ -20,6 +20,7 @@ type ZohoService struct {
 	clientID     string
 	clientSecret string
 	refreshToken string
+	initialToken string
 	refreshUrl   string
 	tokenExpiry  time.Time
 	crmUrl       string
@@ -33,7 +34,7 @@ func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error)
 	service := &ZohoService{
 		clientID:     conf.Zoho.ClientId,
 		clientSecret: conf.Zoho.ClientSecret,
-		refreshToken: conf.Zoho.RefreshToken,
+		initialToken: conf.Zoho.RefreshToken,
 		refreshUrl:   conf.Zoho.RefreshUrl,
 		crmUrl:       conf.Zoho.CrmUrl,
 		scope:        conf.Zoho.Scope,
@@ -68,7 +69,7 @@ func (s *ZohoService) requestToken() error {
 	form := url.Values{}
 	form.Add("client_id", s.clientID)
 	form.Add("client_secret", s.clientSecret)
-	form.Add("refresh_token", s.refreshToken)
+	form.Add("refresh_token", s.initialToken)
 	form.Add("grant_type", "refresh_token")
 
 	resp, err := http.PostForm(s.refreshUrl, form)
@@ -89,9 +90,12 @@ func (s *ZohoService) requestToken() error {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if response.AccessToken != "" {
-		s.refreshToken = response.AccessToken
-	} else {
+	s.refreshToken = response.AccessToken
+
+	if response.AccessToken == "" {
+		s.log.With(
+			slog.Any("response", response),
+		).Debug("refresh token failed")
 		return fmt.Errorf("empty access token")
 	}
 	if response.ApiDomain != "" {
