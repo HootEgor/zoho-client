@@ -74,25 +74,26 @@ func (c *Core) SendEvent(message *entity.EventMessage) (interface{}, error) {
 
 func (c *Core) Start() {
 	if c.zoho == nil {
-		c.log.Error("Zoho service not set")
+		c.log.Error("zoho service not set")
 		return
 	}
 
 	if c.repo == nil {
-		c.log.Error("Repository service not set")
+		c.log.Error("repository service not set")
 		return
 	}
 
 	if c.prodRepo == nil {
-		c.log.Error("ProductRepository service not set")
+		c.log.Error("product repository service not set")
 		return
 	}
 
-	c.log.Info("Starting core service")
-	err := c.zoho.RefreshToken()
-	if err != nil {
-		c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
-	}
+	c.log.Info("starting core service")
+
+	//err := c.zoho.RefreshToken()
+	//if err != nil {
+	//	c.log.Error("failed to refresh Zoho token", slog.String("error", err.Error()))
+	//}
 
 	// Refresh token
 	//go func() {
