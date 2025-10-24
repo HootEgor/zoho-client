@@ -210,7 +210,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		SubTotal:           roundToTwoDecimalPlaces(oc.Total - oc.TaxValue),
 		BillingCountry:     oc.ClientDetails.Country,
 		Carrier:            "",
-		Status:             c.statuses[entity.OrderStatusNew],
+		Status:             c.statuses[entity.OrderStatusPayed],
 		SalesCommission:    0,
 		DueDate:            time.Now().Format("2006-01-02"),
 		BillingStreet:      oc.ClientDetails.Street,
