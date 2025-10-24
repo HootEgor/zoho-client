@@ -172,6 +172,11 @@ type ClientDetails struct {
 	City      string `json:"city" bson:"city"`
 	Street    string `json:"street" bson:"street"`
 	TaxId     string `json:"tax_id" bson:"tax_id"`
+	GroupId   int64  `json:"group_id" bson:"group_id"`
+}
+
+func (c *ClientDetails) IsB2B() bool {
+	return c.GroupId == 5 || c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16
 }
 
 func (c *ClientDetails) CountryCode() string {

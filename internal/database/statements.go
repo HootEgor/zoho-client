@@ -65,6 +65,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			lastname,
 			email,
 			telephone,
+			customer_group_id,
 			custom_field,
 			shipping_country,
 			shipping_postcode,

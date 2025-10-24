@@ -37,6 +37,10 @@ func (c *Core) ProcessOrders() {
 			continue
 		}
 
+		if !order.ClientDetails.IsB2B() {
+			continue
+		}
+
 		contactID, err := c.zoho.CreateContact(order.ClientDetails)
 		if err != nil {
 			c.log.With(

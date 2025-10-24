@@ -100,7 +100,7 @@ func (s *MySql) Stats() string {
 
 func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {
 	statuses := []int{
-		entity.OrderStatusPending,
+		entity.OrderStatusPayed,
 	}
 
 	var orders []*entity.CheckoutParams
@@ -189,6 +189,7 @@ func (s *MySql) OrderSearchStatus(statusId int) ([]*entity.CheckoutParams, error
 			&lastName,
 			&client.Email,
 			&client.Phone,
+			&client.GroupId,
 			&customField,
 			&client.Country,
 			&client.ZipCode,
