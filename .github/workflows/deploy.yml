@@ -27,7 +27,7 @@ jobs:
           sed -i 's|${SQL_PORT}|'"$SQL_PORT"'|g' zohoclient-config.yml
           sed -i 's|${SQL_PREFIX}|'"$SQL_PREFIX"'|g' zohoclient-config.yml
           sed -i 's|${TELEGRAM_API_KEY}|'"$TELEGRAM_API_KEY"'|g' zohoclient-config.yml
-          sed -i 's|${TELEGRAM_ADMIN_ID}|'"$TELEGRAM_ADMIN_ID"'|g' zohoclient-conf.yml
+          sed -i 's|${TELEGRAM_ADMIN_ID}|'"$TELEGRAM_ADMIN_ID"'|g' zohoclient-config.yml
           sed -i 's|${ZOHO_CLIENT_ID}|'"$ZOHO_CLIENT_ID"'|g' zohoclient-config.yml
           sed -i 's|${ZOHO_CLIENT_SECRET}|'"$ZOHO_CLIENT_SECRET"'|g' zohoclient-config.yml
           sed -i 's|${ZOHO_REFRESH_TOKEN}|'"$ZOHO_REFRESH_TOKEN"'|g' zohoclient-config.yml
