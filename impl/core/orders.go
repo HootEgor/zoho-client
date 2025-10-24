@@ -101,12 +101,12 @@ func (c *Core) ProcessOrders() {
 		ordersProcessed += 1
 	}
 
-	if ordersProcessed > 0 {
-		c.log.With(
-			slog.Int("processed_orders", ordersProcessed),
-			slog.Int("remaining_orders", len(orders)-ordersProcessed),
-		).Info("processed orders")
-	}
+	//if ordersProcessed > 0 {
+	//	c.log.With(
+	//		slog.Int("processed_orders", ordersProcessed),
+	//		slog.Int("remaining_orders", len(orders)-ordersProcessed),
+	//	).Info("processed orders")
+	//}
 }
 
 func hasEmptyZohoID(products []*entity.LineItem) error {

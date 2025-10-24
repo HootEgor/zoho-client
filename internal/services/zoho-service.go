@@ -343,7 +343,7 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	s.log.With(
 		slog.String("id", success.ID),
 		slog.String("subject", orderData.Subject),
-	).Debug("order created successfully")
+	).Info("order created")
 
 	return success.ID, nil
 
