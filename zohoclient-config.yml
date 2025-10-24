@@ -11,8 +11,11 @@ sql:
   port: ${SQL_PORT}
   prefix: ${SQL_PREFIX}
 telegram:
-  enabled: false
+  enabled: true
   api_key: ${TELEGRAM_API_KEY}
+  admin_id: ${TELEGRAM_ADMIN_ID}
+  bot_name: Zoho Client
+  min_log_level: debug
 zoho:
   client_id: ${ZOHO_CLIENT_ID}
   client_secret: ${ZOHO_CLIENT_SECRET}

@@ -2,9 +2,10 @@ package config
 
 import (
 	"fmt"
-	"github.com/ilyakaznacheev/cleanenv"
 	"log"
 	"sync"
+
+	"github.com/ilyakaznacheev/cleanenv"
 )
 
 type Config struct {
@@ -20,8 +21,11 @@ type Config struct {
 		Prefix   string `yaml:"prefix" env-default:""`
 	} `yaml:"sql"`
 	Telegram struct {
-		Enabled bool   `yaml:"enabled" env-default:"false"`
-		ApiKey  string `yaml:"api_key" env-default:""`
+		Enabled     bool   `yaml:"enabled" env-default:"false"`
+		ApiKey      string `yaml:"api_key" env-default:""`
+		AdminId     string `yaml:"admin_id" env-default:""`
+		BotName     string `yaml:"bot_name" env-default:"ZohoBot"`
+		MinLogLevel string `yaml:"min_log_level" env-default:"debug"`
 	}
 	Zoho struct {
 		ClientId     string `yaml:"client_id" env-default:""`

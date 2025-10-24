@@ -14,6 +14,9 @@ sql:
 telegram:
   enabled: false
   api_key: telegram-api-key
+  admin_id: 123456789
+  bot_name: Zoho Client
+  min_log_level: debug
 zoho:
   client_id: zoho_client_id
   client_secret: zoho_client_secret

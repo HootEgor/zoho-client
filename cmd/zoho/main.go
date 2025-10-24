@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log/slog"
 	"time"
+	"zohoclient/bot"
 	"zohoclient/impl/core"
 	"zohoclient/internal/config"
 	"zohoclient/internal/database"
@@ -20,6 +21,29 @@ func main() {
 
 	conf := config.MustLoad(*configPath)
 	lg := logger.SetupLogger(conf.Env, *logPath)
+
+	// Initialize Telegram bot if enabled
+	var tgBot *bot.TgBot
+	if conf.Telegram.Enabled {
+		var err error
+		tgBot, err = bot.NewTgBot(conf.Telegram.BotName, conf.Telegram.ApiKey, conf.Telegram.AdminId, lg)
+		if err != nil {
+			lg.Error("failed to initialize telegram bot", slog.String("error", err.Error()))
+		} else {
+			// Set up Telegram handler for the logger
+			lg = logger.SetupTelegramHandler(lg, tgBot, slog.LevelDebug)
+			lg.With(
+				slog.String("bot_name", conf.Telegram.BotName),
+			).Info("telegram bot initialized")
+
+			// Start the bot in a goroutine
+			go func() {
+				if err := tgBot.Start(); err != nil {
+					lg.Error("telegram bot error", slog.String("error", err.Error()))
+				}
+			}()
+		}
+	}
 
 	lg.Info("starting zohoclient", slog.String("config", *configPath), slog.String("env", conf.Env))
 	lg.Debug("debug messages enabled")

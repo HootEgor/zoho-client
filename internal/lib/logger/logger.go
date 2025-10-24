@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"zohoclient/bot"
 )
 
 const (
@@ -39,7 +40,7 @@ func SetupLogger(env, path string) *slog.Logger {
 		)
 	case envProd:
 		logger = slog.New(
-			slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo}),
+			slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo}),
 		)
 	default:
 		log.Fatal("invalid environment: ", env)
@@ -50,4 +51,20 @@ func SetupLogger(env, path string) *slog.Logger {
 
 func logFilePath(path string) string {
 	return filepath.Join(path, logFileName)
+}
+
+// SetupTelegramHandler adds a Telegram handler to the logger
+func SetupTelegramHandler(logger *slog.Logger, tgBot *bot.TgBot, minLevel slog.Level) *slog.Logger {
+	if tgBot == nil {
+		return logger
+	}
+
+	// Get the existing handler from the logger
+	existingHandler := logger.Handler()
+
+	// Create a new Telegram handler that wraps the existing handler
+	tgHandler := NewTelegramHandler(existingHandler, tgBot, minLevel)
+
+	// Create a new logger with the Telegram handler
+	return slog.New(tgHandler)
 }

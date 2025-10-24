@@ -5,6 +5,7 @@ go 1.24.0
 toolchain go1.24.2
 
 require (
+	github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.33
 	github.com/biter777/countries v1.7.5
 	github.com/go-playground/validator/v10 v10.28.0
 	github.com/go-sql-driver/mysql v1.9.3
