@@ -54,7 +54,7 @@ func (c *CheckoutParams) Bind(_ *http.Request) error {
 func (c *CheckoutParams) ItemsTotal() int64 {
 	var total int64
 	for _, item := range c.LineItems {
-		total += item.Qty * item.Price
+		total += item.Qty*item.Price - item.Discount
 	}
 	return total
 }
@@ -99,7 +99,8 @@ func (c *CheckoutParams) RecalcWithDiscount() {
 		if item.Shipping {
 			continue
 		}
-		item.Price = int64(math.Round(float64(item.Price) * k))
+		item.Discount = int64(math.Round(float64(item.Price) * (1.0 - k)))
+		item.DiscountP = int64(math.Round(k * 100))
 	}
 	itemsTotal = c.ItemsTotal()
 	diff := c.Total - itemsTotal
@@ -107,25 +108,20 @@ func (c *CheckoutParams) RecalcWithDiscount() {
 		return
 	}
 	for _, item := range c.LineItems {
-		if item.Shipping {
-			continue
-		}
-		if absInt64(diff) < item.Qty {
+		if item.Shipping || item.Discount == 0 {
 			continue
 		}
 		if diff < 0 {
-			item.Price--
-			diff = diff + item.Qty
+			item.Discount--
+			diff++
 		} else {
-			item.Price++
-			diff = diff - item.Qty
+			item.Discount++
+			diff--
 		}
 		if diff == 0 {
 			break
 		}
 	}
-	itemsTotal = c.ItemsTotal()
-	diff = c.Total - itemsTotal
 }
 
 // TaxRate calculates the tax rate as a percentage based on the tax value and total amount. Returns 0 if not applicable.
@@ -138,14 +134,16 @@ func (c *CheckoutParams) TaxRate() int {
 }
 
 type LineItem struct {
-	Name     string `json:"name" validate:"required"`
-	Id       int64  `json:"id,omitempty" bson:"id"`
-	Uid      string `json:"uid,omitempty" bson:"uid"`
-	ZohoId   string `json:"zoho_id,omitempty" bson:"zoho_id"`
-	Qty      int64  `json:"qty" validate:"required,min=1"`
-	Price    int64  `json:"price" validate:"required,min=1"`
-	Sku      string `json:"sku,omitempty" bson:"sku"`
-	Shipping bool   `json:"shipping,omitempty" bson:"shipping"`
+	Name      string `json:"name" validate:"required"`
+	Id        int64  `json:"id,omitempty" bson:"id"`
+	Uid       string `json:"uid,omitempty" bson:"uid"`
+	ZohoId    string `json:"zoho_id,omitempty" bson:"zoho_id"`
+	Qty       int64  `json:"qty" validate:"required,min=1"`
+	Price     int64  `json:"price" validate:"required,min=1"`
+	Discount  int64  `json:"discount,omitempty" bson:"discount"`
+	DiscountP int64  `json:"discount_p,omitempty" bson:"discount_p"`
+	Sku       string `json:"sku,omitempty" bson:"sku"`
+	Shipping  bool   `json:"shipping,omitempty" bson:"shipping"`
 }
 
 func ShippingLineItem(title string, amount int64) *LineItem {
