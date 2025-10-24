@@ -4,6 +4,7 @@ type ZohoOrder struct {
 	ContactName        ContactName     `json:"Contact_Name"`
 	OrderedItems       []OrderedItem   `json:"Ordered_Items"`
 	Discount           float64         `json:"Discount"`
+	DiscountP          float64         `json:"DiscountP"`
 	Description        string          `json:"Description"`
 	CustomerNo         string          `json:"Customer_No"`
 	ShippingState      string          `json:"Shipping_State"`

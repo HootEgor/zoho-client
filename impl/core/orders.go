@@ -188,10 +188,10 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 				//Name: d.UID, // using UID as the name
 			},
 			Quantity:  d.Qty,
-			Discount:  0,
-			DiscountP: 0,
+			Discount:  roundToTwoDecimalPlaces(d.Discount),
+			DiscountP: d.DiscountP,
 			ListPrice: roundToTwoDecimalPlaces(d.Price),
-			Total:     roundToTwoDecimalPlaces(d.Price * d.Qty),
+			Total:     roundToTwoDecimalPlaces(d.Price*d.Qty - d.Discount),
 		}
 		orderedItems = append(orderedItems, item)
 	}
@@ -199,7 +199,8 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 	return entity.ZohoOrder{
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
-		Discount:           0,
+		Discount:           roundToTwoDecimalPlaces(oc.Discount),
+		DiscountP:          oc.DiscountP,
 		Description:        oc.Comment,
 		CustomerNo:         "", //fmt.Sprint(oc.CustomerID),
 		ShippingState:      "",
