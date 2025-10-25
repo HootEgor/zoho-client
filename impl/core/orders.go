@@ -37,7 +37,10 @@ func (c *Core) ProcessOrders() {
 			continue
 		}
 
-		if !order.ClientDetails.IsB2B() {
+		if order.ClientDetails.IsB2B() {
+			c.log.With(
+				slog.Int64("order_id", order.OrderId),
+			).Debug("b2b client; order skipped")
 			continue
 		}
 
