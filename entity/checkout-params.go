@@ -161,6 +161,7 @@ func ShippingLineItem(title string, amount int64) *LineItem {
 	}
 	return &LineItem{
 		Name:     title,
+		Uid:      "cd3cc23c-6dfb-11ec-b75f-00155d018000",
 		Qty:      1,
 		Price:    amount,
 		Shipping: true,
