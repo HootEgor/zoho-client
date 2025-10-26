@@ -25,6 +25,8 @@ func (c *Core) ProcessOrders() {
 
 	for _, order := range orders {
 
+		order.DiscountP = roundFloat(order.DiscountP)
+
 		log := c.log.With(
 			slog.Int64("order_id", order.OrderId),
 			slog.String("currency", order.Currency),
@@ -211,7 +213,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
 		Discount:           roundInt(oc.Discount),
-		DiscountP:          roundFloat(oc.DiscountP),
+		DiscountP:          oc.DiscountP,
 		Description:        oc.Comment,
 		CustomerNo:         "", //fmt.Sprint(oc.CustomerID),
 		ShippingState:      "",
