@@ -77,7 +77,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			comment
 		 FROM %sorder
 		 WHERE order_status_id = ? AND (zoho_id = '' OR zoho_id IS NULL)
-		 LIMIT 5`,
+		 LIMIT 10`,
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrderStatus", query)

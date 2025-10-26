@@ -54,6 +54,9 @@ func (c *Core) ProcessOrders() {
 		contactID, err := c.zoho.CreateContact(order.ClientDetails)
 		if err != nil {
 			log.With(
+				slog.String("email", order.ClientDetails.Email),
+				slog.String("phone", order.ClientDetails.Phone),
+				slog.String("name", fmt.Sprintf("%s %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
 				sl.Err(err),
 			).Error("create contact")
 			continue
@@ -195,7 +198,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 			},
 			Quantity:  d.Qty,
 			Discount:  roundToTwoDecimalPlaces(d.Discount),
-			DiscountP: roundToTwoDecimalPlaces(int64(d.DiscountP) * 100),
+			DiscountP: roundToTwoDecimalPlaces(int64(d.DiscountP * 100)),
 			ListPrice: roundToTwoDecimalPlaces(d.Price),
 			Total:     roundToTwoDecimalPlaces(d.Price*d.Qty - d.Discount),
 		}
@@ -206,7 +209,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
 		Discount:           roundToTwoDecimalPlaces(oc.Discount),
-		DiscountP:          roundToTwoDecimalPlaces(int64(oc.DiscountP) * 100),
+		DiscountP:          roundToTwoDecimalPlaces(int64(oc.DiscountP * 100)),
 		Description:        oc.Comment,
 		CustomerNo:         "", //fmt.Sprint(oc.CustomerID),
 		ShippingState:      "",
