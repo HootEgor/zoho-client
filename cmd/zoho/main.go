@@ -33,7 +33,7 @@ func main() {
 			// Set up Telegram handler for the logger
 			lg = logger.SetupTelegramHandler(lg, tgBot, slog.LevelDebug)
 			lg.With(
-				slog.String("bot_name", conf.Telegram.BotName),
+				slog.String("bot", conf.Telegram.BotName),
 			).Info("telegram bot initialized")
 
 			// Start the bot in a goroutine
@@ -99,7 +99,7 @@ func main() {
 
 	if zoho != nil {
 		handler.SetZoho(zoho)
-		lg.Info("zoho service initialized")
+		//lg.Info("zoho service initialized")
 	} else {
 		lg.Error("zoho service not initialized")
 	}
