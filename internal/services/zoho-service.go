@@ -326,13 +326,14 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		var errDetails entity.ErrorDetails
 		_ = json.Unmarshal(item.Details, &errDetails)
 
-		return "", fmt.Errorf(
+		err = fmt.Errorf(
 			"order not created: [%s] %s (field: %s, path: %s)",
 			item.Code,
 			item.Message,
 			errDetails.APIName,
 			errDetails.JSONPath,
 		)
+		return "", err
 	}
 
 	// Decode success

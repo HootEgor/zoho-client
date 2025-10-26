@@ -90,9 +90,9 @@ func (c *Core) ProcessOrders() {
 
 		orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
-			log.With(
-				sl.Err(err),
-			).Error("create Zoho order")
+			//log.With(
+			//	sl.Err(err),
+			//).Error("create Zoho order")
 			continue
 		}
 
