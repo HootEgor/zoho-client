@@ -78,7 +78,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 		 FROM %sorder
 		 WHERE order_status_id = ? 
 		 	AND (zoho_id = '' OR zoho_id IS NULL)
-		 	AND date_created > ?
+		 	AND date_modified > ?
 		 LIMIT 10`,
 		s.prefix,
 	)
