@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/lib/sl"
@@ -198,10 +199,10 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 				//Name: d.UID, // using UID as the name
 			},
 			Quantity:  d.Qty,
-			Discount:  roundToTwoDecimalPlaces(d.Discount),
-			DiscountP: roundToTwoDecimalPlaces(int64(d.DiscountP * 100)),
-			ListPrice: roundToTwoDecimalPlaces(d.Price),
-			Total:     roundToTwoDecimalPlaces(d.Price*d.Qty - d.Discount),
+			Discount:  roundInt(d.Discount),
+			DiscountP: roundFloat(d.DiscountP),
+			ListPrice: roundInt(d.Price),
+			Total:     roundInt(d.Price*d.Qty - d.Discount),
 		}
 		orderedItems = append(orderedItems, item)
 	}
@@ -209,15 +210,15 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 	return entity.ZohoOrder{
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
-		Discount:           roundToTwoDecimalPlaces(oc.Discount),
-		DiscountP:          roundToTwoDecimalPlaces(int64(oc.DiscountP * 100)),
+		Discount:           roundInt(oc.Discount),
+		DiscountP:          roundFloat(oc.DiscountP),
 		Description:        oc.Comment,
 		CustomerNo:         "", //fmt.Sprint(oc.CustomerID),
 		ShippingState:      "",
 		Tax:                0,
 		VAT:                float64(oc.TaxRate()),
-		GrandTotal:         roundToTwoDecimalPlaces(oc.Total),
-		SubTotal:           roundToTwoDecimalPlaces(oc.Total - oc.TaxValue),
+		GrandTotal:         roundInt(oc.Total),
+		SubTotal:           roundInt(oc.Total - oc.TaxValue),
 		BillingCountry:     oc.ClientDetails.Country,
 		Carrier:            "",
 		Status:             c.statuses[entity.OrderStatusPayed],
@@ -234,6 +235,10 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 	}
 }
 
-func roundToTwoDecimalPlaces(value int64) float64 {
+func roundInt(value int64) float64 {
 	return float64(value) / 100.0
+}
+
+func roundFloat(value float64) float64 {
+	return math.Round(value*100) / 100
 }

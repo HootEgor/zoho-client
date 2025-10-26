@@ -101,12 +101,14 @@ func (s *MySql) Stats() string {
 func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {
 	statuses := []int{
 		entity.OrderStatusPayed,
-		//entity.OrderStatusPrepareForShipping,
+		entity.OrderStatusPrepareForShipping,
 	}
+
+	from := time.Now().Add(-30 * 24 * time.Hour)
 
 	var orders []*entity.CheckoutParams
 	for _, status := range statuses {
-		params, err := s.OrderSearchStatus(status)
+		params, err := s.OrderSearchStatus(status, from)
 		if err != nil {
 			s.log.With(
 				sl.Err(err),
@@ -163,16 +165,18 @@ func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
 	return nil
 }
 
-func (s *MySql) OrderSearchStatus(statusId int) ([]*entity.CheckoutParams, error) {
+func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.CheckoutParams, error) {
 	stmt, err := s.stmtSelectOrderStatus()
 	if err != nil {
 		return nil, err
 	}
-	rows, err := stmt.Query(statusId)
+	rows, err := stmt.Query(statusId, from)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var orders []*entity.CheckoutParams
 	for rows.Next() {
@@ -241,7 +245,9 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var order entity.CheckoutParams
 	if rows.Next() {
@@ -298,7 +304,9 @@ func (s *MySql) OrderProducts(orderId int64, currencyValue float64, ignoreTax bo
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var products []*entity.LineItem
 	for rows.Next() {
@@ -352,7 +360,9 @@ func (s *MySql) OrderTotal(orderId int64, code string, currencyValue float64) (s
 	if err != nil {
 		return "", 0, err
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var title string
 	var value float64
