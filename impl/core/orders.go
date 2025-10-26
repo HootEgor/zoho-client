@@ -32,6 +32,8 @@ func (c *Core) ProcessOrders() {
 			slog.String("currency", order.Currency),
 			slog.String("tax", order.TaxTitle),
 			slog.Float64("discount", order.DiscountP),
+			slog.Int64("total", order.Total),
+			slog.Int64("tax_value", order.TaxValue),
 		)
 
 		if order.ClientDetails == nil {
@@ -95,6 +97,10 @@ func (c *Core) ProcessOrders() {
 			//).Error("create Zoho order")
 			continue
 		}
+
+		log.With(
+			slog.String("zoho_id", orderZohoId),
+		).Info("order created")
 
 		//err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusProcessing)
 		//if err != nil {
