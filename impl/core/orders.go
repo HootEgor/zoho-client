@@ -143,7 +143,7 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 					slog.String("product", p.Name),
 					slog.String("product_uid", p.Uid),
 					sl.Err(err),
-				).Error("failed to get product Zoho ID")
+				).Error("get product")
 				continue
 			}
 
@@ -155,18 +155,18 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 						slog.String("product_uid", p.Uid),
 						slog.String("zoho_id", zohoID),
 						sl.Err(err),
-					).Error("failed to update product Zoho ID")
+					).Error("update product")
 					continue
 				}
 
 				// Update the product in the slice
 				products[i].ZohoId = zohoID
 
-				c.log.With(
-					slog.String("product", p.Name),
-					slog.String("product_uid", p.Uid),
-					slog.String("zoho_id", zohoID),
-				).Info("product Zoho ID updated")
+				//c.log.With(
+				//	slog.String("product", p.Name),
+				//	slog.String("product_uid", p.Uid),
+				//	slog.String("zoho_id", zohoID),
+				//).Debug("product updated")
 			}
 		}
 	}
