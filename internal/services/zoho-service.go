@@ -283,7 +283,9 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	defer func() {
 		log = log.With(slog.Duration("duration", time.Since(t)))
 		if err != nil {
-			log.Error("create order", sl.Err(err))
+			log.With(
+				sl.Err(err),
+			).Error("order not created")
 		} else {
 			log.Info("order created")
 		}
