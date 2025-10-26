@@ -24,40 +24,45 @@ func (c *Core) ProcessOrders() {
 
 	for _, order := range orders {
 
+		log := c.log.With(
+			slog.Int64("order_id", order.OrderId),
+			slog.String("currency", order.Currency),
+			slog.String("tax", order.TaxTitle),
+			slog.Float64("discount", order.DiscountP),
+		)
+
 		if order.ClientDetails == nil {
-			c.log.With(
-				slog.Int64("order_id", order.OrderId),
-			).Warn("order has no client details, skipping")
+			log.Warn("no client details")
 			continue
 		}
 		if order.LineItems == nil || len(order.LineItems) == 0 {
-			c.log.With(
-				slog.Int64("order_id", order.OrderId),
-			).Warn("order has no line items, skipping")
+			log.Warn("no line items")
 			continue
 		}
 
 		if order.ClientDetails.IsB2B() {
-			c.log.With(
-				slog.Int64("order_id", order.OrderId),
-			).Debug("b2b client; order skipped")
+			log.Debug("b2b client; order skipped")
 			continue
 		}
 
+		log = log.With(
+			slog.String("name", fmt.Sprintf("%s %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
+			//slog.String("email", order.ClientDetails.Email),
+			slog.String("country", order.ClientDetails.Country),
+		)
+
 		contactID, err := c.zoho.CreateContact(order.ClientDetails)
 		if err != nil {
-			c.log.With(
-				slog.Int64("order_id", order.OrderId),
+			log.With(
 				sl.Err(err),
 			).Error("create contact")
 			continue
 		}
 
 		if e := hasEmptyUid(order.LineItems); e != nil {
-			c.log.With(
-				slog.Int64("order_id", order.OrderId),
+			log.With(
 				sl.Err(e),
-			).Warn("order has product(s) without UID, skipping")
+			).Warn("order has product(s) without UID")
 			continue
 		}
 
@@ -67,9 +72,9 @@ func (c *Core) ProcessOrders() {
 
 			// Check if there are still products without Zoho IDs
 			if ee := hasEmptyZohoID(order.LineItems); ee != nil {
-				c.log.With(
-					slog.Int64("order_id", order.OrderId),
-				).Warn("order has product(s) without Zoho ID, skipping")
+				log.With(
+					sl.Err(ee),
+				).Error("order has product(s) without Zoho ID")
 				continue // leave in queue
 			}
 		}
@@ -78,8 +83,7 @@ func (c *Core) ProcessOrders() {
 
 		orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
-			c.log.With(
-				slog.Int64("order_id", order.OrderId),
+			log.With(
 				sl.Err(err),
 			).Error("create Zoho order")
 			continue
@@ -95,8 +99,7 @@ func (c *Core) ProcessOrders() {
 
 		err = c.repo.ChangeOrderZohoId(order.OrderId, orderZohoId)
 		if err != nil {
-			c.log.With(
-				slog.Int64("order_id", order.OrderId),
+			log.With(
 				sl.Err(err),
 			).Error("update order zoho_id")
 		}

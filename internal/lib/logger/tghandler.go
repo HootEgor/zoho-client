@@ -52,19 +52,23 @@ func (h *TelegramHandler) Handle(ctx context.Context, record slog.Record) error 
 
 		// Add group prefix if present
 		if h.group != "" {
-			msg = fmt.Sprintf("[%s] %s.%s", record.Level.String(), h.group, record.Message)
+			msg = fmt.Sprintf("*%s* `%s.%s`", record.Level.String(), h.group, record.Message)
 		} else {
-			msg = fmt.Sprintf("[%s] %s", record.Level.String(), record.Message)
+			msg = fmt.Sprintf("*%s* `%s`", record.Level.String(), record.Message)
 		}
 
 		// Add attributes from .With() calls
 		for _, attr := range h.attrs {
-			msg += fmt.Sprintf("\n%s: %v", attr.Key, attr.Value)
+			if attr.Key == "error" {
+				msg += fmt.Sprintf("```error %v ```", attr.Value)
+			} else {
+				msg += bot.Sanitize(fmt.Sprintf("\n%s: %v", attr.Key, attr.Value))
+			}
 		}
 
 		// Add attributes from the record
 		record.Attrs(func(attr slog.Attr) bool {
-			msg += fmt.Sprintf("\n%s: %v", attr.Key, attr.Value)
+			msg += bot.Sanitize(fmt.Sprintf("\n%s: %v", attr.Key, attr.Value))
 			return true
 		})
 

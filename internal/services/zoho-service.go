@@ -274,9 +274,10 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 
 	log := s.log.With(
-		slog.String("url", fullURL),
-		slog.String("method", req.Method),
-		//slog.String("payload", string(body)),
+		slog.String("subject", orderData.Subject),
+		slog.Float64("vat", orderData.VAT),
+		slog.Float64("discount", orderData.DiscountP),
+		slog.Float64("total", orderData.GrandTotal),
 	)
 	t := time.Now()
 	defer func() {
@@ -284,7 +285,7 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		if err != nil {
 			log.Error("create order", sl.Err(err))
 		} else {
-			log.Debug("create order")
+			log.Info("order created")
 		}
 	}()
 
@@ -340,10 +341,9 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		return "", fmt.Errorf("failed to parse order ID: %w", err)
 	}
 
-	s.log.With(
+	log = log.With(
 		slog.String("id", success.ID),
-		slog.String("subject", orderData.Subject),
-	).Info("order created")
+	)
 
 	return success.ID, nil
 
