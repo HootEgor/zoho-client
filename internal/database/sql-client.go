@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
 	"zohoclient/entity"
@@ -209,10 +210,9 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 		}
 
 		// client data
-		_ = client.ParseTaxId(customFieldNip, customField)
-		client.FirstName = firstName
-		client.LastName = lastName
+		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
 		order.ClientDetails = &client
+		order.TrimSpaces()
 		// order summary
 		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
 		order.Source = entity.SourceOpenCart
@@ -278,10 +278,9 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 		}
 
 		// client data
-		_ = client.ParseTaxId(customFieldNip, customField)
-		client.FirstName = firstName
-		client.LastName = lastName
+		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
 		order.ClientDetails = &client
+		order.TrimSpaces()
 		// order summary
 		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
 		order.Source = entity.SourceOpenCart
