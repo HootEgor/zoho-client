@@ -62,7 +62,6 @@ func (c *Core) ProcessOrders() {
 			log.With(
 				slog.String("email", order.ClientDetails.Email),
 				slog.String("phone", order.ClientDetails.Phone),
-				slog.String("name", fmt.Sprintf("%s %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
 				sl.Err(err),
 			).Error("create contact")
 			continue
