@@ -211,6 +211,8 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 
 		// client data
 		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
+		client.FirstName = firstName
+		client.LastName = lastName
 		order.ClientDetails = &client
 		order.TrimSpaces()
 		// order summary
@@ -279,6 +281,8 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 
 		// client data
 		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
+		client.FirstName = firstName
+		client.LastName = lastName
 		order.ClientDetails = &client
 		order.TrimSpaces()
 		// order summary
