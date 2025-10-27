@@ -44,8 +44,9 @@ func New(log *slog.Logger) *Core {
 	return &Core{
 		log: log.With(sl.Module("core")),
 		statuses: map[int]string{
-			entity.OrderStatusNew:   "Нове",
-			entity.OrderStatusPayed: "Оплачено, формування ТТН",
+			entity.OrderStatusNew:                "Нове",
+			entity.OrderStatusPayed:              "Оплачено, формування ТТН",
+			entity.OrderStatusPrepareForShipping: "Перевірка та збір",
 		},
 	}
 }

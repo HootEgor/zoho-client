@@ -21,8 +21,6 @@ func (c *Core) ProcessOrders() {
 		return
 	}
 
-	ordersProcessed := 0
-
 	for _, order := range orders {
 
 		order.DiscountP = roundFloat(order.DiscountP)
@@ -115,16 +113,8 @@ func (c *Core) ProcessOrders() {
 				sl.Err(err),
 			).Error("update order zoho_id")
 		}
-
-		ordersProcessed += 1
 	}
 
-	//if ordersProcessed > 0 {
-	//	c.log.With(
-	//		slog.Int("processed_orders", ordersProcessed),
-	//		slog.Int("remaining_orders", len(orders)-ordersProcessed),
-	//	).Info("processed orders")
-	//}
 }
 
 func hasEmptyZohoID(products []*entity.LineItem) error {
@@ -228,7 +218,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		SubTotal:           roundInt(oc.Total - oc.TaxValue),
 		BillingCountry:     oc.ClientDetails.Country,
 		Carrier:            "",
-		Status:             c.statuses[entity.OrderStatusPayed],
+		Status:             c.statuses[oc.StatusId],
 		SalesCommission:    0,
 		DueDate:            time.Now().Format("2006-01-02"),
 		BillingStreet:      oc.ClientDetails.Street,

@@ -36,6 +36,7 @@ type CheckoutParams struct {
 	Created       time.Time      `json:"created" bson:"created"`
 	Closed        time.Time      `json:"closed,omitempty" bson:"closed"`
 	Status        string         `json:"status" bson:"status"`
+	StatusId      int            `json:"status_id,omitempty" bson:"status_id,omitempty"`
 	SessionId     string         `json:"session_id,omitempty" bson:"session_id,omitempty"`
 	EventId       string         `json:"event_id,omitempty" bson:"event_id,omitempty"`
 	InvoiceId     string         `json:"invoice_id,omitempty" bson:"invoice_id,omitempty"`
@@ -193,7 +194,7 @@ type ClientDetails struct {
 }
 
 func (c *ClientDetails) IsB2B() bool {
-	return c.GroupId == 5 || c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16
+	return c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16
 }
 
 func (c *ClientDetails) CountryCode() string {

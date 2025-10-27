@@ -97,6 +97,7 @@ func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
 			order_id,
+			order_status_id,
 			date_added,
 			firstname,
 			lastname,
