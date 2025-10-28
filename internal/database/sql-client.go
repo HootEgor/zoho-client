@@ -186,14 +186,13 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 		var order entity.CheckoutParams
 		var client entity.ClientDetails
 		var customField string
-		var firstName, lastName string
 		var total float64
 
 		if err = rows.Scan(
 			&order.OrderId,
-			&order.Created, // replaced by Now()
-			&firstName,
-			&lastName,
+			&order.Created,
+			&client.FirstName,
+			&client.LastName,
 			&client.Email,
 			&client.Phone,
 			&client.GroupId,
@@ -212,14 +211,11 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 
 		// client data
 		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
-		client.FirstName = firstName
-		client.LastName = lastName
 		order.ClientDetails = &client
 		order.TrimSpaces()
 		// order summary
 		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
 		order.Source = entity.SourceOpenCart
-		order.Created = time.Now().In(s.loc)
 		order.StatusId = statusId
 
 		orders = append(orders, &order)
@@ -258,15 +254,14 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 
 		var client entity.ClientDetails
 		var customField string
-		var firstName, lastName string
 		var total float64
 
 		if err = rows.Scan(
 			&order.OrderId,
 			&order.StatusId,
-			&order.Created, // replaced by Now()
-			&firstName,
-			&lastName,
+			&order.Created,
+			&client.FirstName,
+			&client.LastName,
 			&client.Email,
 			&client.Phone,
 			&customField,
@@ -284,14 +279,11 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 
 		// client data
 		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
-		client.FirstName = firstName
-		client.LastName = lastName
 		order.ClientDetails = &client
 		order.TrimSpaces()
 		// order summary
 		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
 		order.Source = entity.SourceOpenCart
-		order.Created = time.Now().In(s.loc)
 	}
 
 	if err = rows.Err(); err != nil {
