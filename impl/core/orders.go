@@ -50,7 +50,7 @@ func (c *Core) ProcessOrders() {
 		}
 
 		log = log.With(
-			slog.String("name", fmt.Sprintf("%s %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
+			slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
 			//slog.String("email", order.ClientDetails.Email),
 			slog.String("country", order.ClientDetails.Country),
 		)

@@ -118,7 +118,7 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 	log := s.log.With(
 		slog.String("email", contact.Email),
 		slog.String("phone", contact.Phone),
-		slog.String("name", fmt.Sprintf("%s %s", contact.FirstName, contact.LastName)),
+		slog.String("name", fmt.Sprintf("%s : %s", contact.FirstName, contact.LastName)),
 	)
 
 	err := util.ValidateEmail(contact.Email)
