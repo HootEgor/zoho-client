@@ -131,6 +131,13 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		return "", fmt.Errorf("email and phone are empty")
 	}
 
+	if contact.FirstName == "" {
+		contact.FirstName = "?"
+	}
+	if contact.LastName == "" {
+		contact.LastName = "?"
+	}
+
 	payload := map[string]interface{}{
 		"data": []*entity.Contact{
 			{
