@@ -43,17 +43,17 @@ func (c *Core) ProcessOrders() {
 			continue
 		}
 
-		if order.ClientDetails.IsB2B() {
-			log.Debug("b2b client; order skipped")
-			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
-			continue
-		}
-
 		log = log.With(
 			slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
 			//slog.String("email", order.ClientDetails.Email),
 			slog.String("country", order.ClientDetails.Country),
 		)
+
+		if order.ClientDetails.IsB2B() {
+			log.Debug("b2b client; order skipped")
+			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
+			continue
+		}
 
 		contactID, err := c.zoho.CreateContact(order.ClientDetails)
 		if err != nil {
