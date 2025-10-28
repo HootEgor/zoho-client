@@ -145,7 +145,8 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 				Phone:     contact.Phone,
 				FirstName: contact.FirstName,
 				LastName:  contact.LastName,
-				Field2:    contact.City,
+				City:      contact.City,
+				Country:   contact.Country,
 			},
 		},
 	}
@@ -235,7 +236,7 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 				return id, nil
 			}
 		}
-		return "", fmt.Errorf("zoho error [%s]: %s", item.Code, item.Message)
+		return "", fmt.Errorf("zoho error: %s", item)
 	}
 
 	// Success path: extract the record ID

@@ -36,6 +36,7 @@ type CheckoutParams struct {
 	Created       time.Time      `json:"created" bson:"created"`
 	Closed        time.Time      `json:"closed,omitempty" bson:"closed"`
 	Status        string         `json:"status" bson:"status"`
+	StatusId      int            `json:"status_id,omitempty" bson:"status_id,omitempty"`
 	SessionId     string         `json:"session_id,omitempty" bson:"session_id,omitempty"`
 	EventId       string         `json:"event_id,omitempty" bson:"event_id,omitempty"`
 	InvoiceId     string         `json:"invoice_id,omitempty" bson:"invoice_id,omitempty"`
@@ -140,6 +141,17 @@ func (c *CheckoutParams) TaxRate() int {
 	}
 }
 
+func (c *CheckoutParams) TrimSpaces() {
+	c.ClientDetails.FirstName = strings.TrimPrefix(strings.TrimSuffix(c.ClientDetails.FirstName, " "), " ")
+	c.ClientDetails.LastName = strings.TrimPrefix(strings.TrimSuffix(c.ClientDetails.LastName, " "), " ")
+	c.ClientDetails.Email = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Email, " "), " ")
+	c.ClientDetails.Phone = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Phone, " "), " ")
+	c.ClientDetails.Country = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Country, " "), " ")
+	c.ClientDetails.ZipCode = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.ZipCode, " "), " ")
+	c.ClientDetails.City = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.City, " "), " ")
+	c.ClientDetails.Street = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Street, " "), " ")
+}
+
 type LineItem struct {
 	Name      string  `json:"name" validate:"required"`
 	Id        int64   `json:"id,omitempty" bson:"id"`
@@ -182,7 +194,7 @@ type ClientDetails struct {
 }
 
 func (c *ClientDetails) IsB2B() bool {
-	return c.GroupId == 5 || c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16
+	return c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16
 }
 
 func (c *ClientDetails) CountryCode() string {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
 	"zohoclient/entity"
@@ -100,6 +101,7 @@ func (s *MySql) Stats() string {
 
 func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {
 	statuses := []int{
+		entity.OrderStatusNew,
 		entity.OrderStatusPayed,
 		entity.OrderStatusPrepareForShipping,
 	}
@@ -209,14 +211,16 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 		}
 
 		// client data
-		_ = client.ParseTaxId(customFieldNip, customField)
+		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
 		client.FirstName = firstName
 		client.LastName = lastName
 		order.ClientDetails = &client
+		order.TrimSpaces()
 		// order summary
 		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
 		order.Source = entity.SourceOpenCart
 		order.Created = time.Now().In(s.loc)
+		order.StatusId = statusId
 
 		orders = append(orders, &order)
 	}
@@ -259,6 +263,7 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 
 		if err = rows.Scan(
 			&order.OrderId,
+			&order.StatusId,
 			&order.Created, // replaced by Now()
 			&firstName,
 			&lastName,
@@ -278,10 +283,11 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 		}
 
 		// client data
-		_ = client.ParseTaxId(customFieldNip, customField)
+		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
 		client.FirstName = firstName
 		client.LastName = lastName
 		order.ClientDetails = &client
+		order.TrimSpaces()
 		// order summary
 		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
 		order.Source = entity.SourceOpenCart
