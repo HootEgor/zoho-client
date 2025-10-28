@@ -50,7 +50,9 @@ func (c *Core) ProcessOrders() {
 		)
 
 		if order.ClientDetails.IsB2B() {
-			log.Debug("b2b client; order skipped")
+			log.With(
+				slog.Int64("group_id", order.ClientDetails.GroupId),
+			).Debug("b2b client; order skipped")
 			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
 			continue
 		}
