@@ -105,10 +105,10 @@ func (s *ZohoService) requestToken() error {
 		s.tokenExpiry = time.Now().Add(time.Duration(response.ExpiresIn) * time.Second)
 	}
 
-	s.log.With(
-		slog.Time("expires", s.tokenExpiry),
-		sl.Secret("token", response.AccessToken),
-	).Debug("refresh token succeeded")
+	//s.log.With(
+	//	slog.Time("expires", s.tokenExpiry),
+	//	sl.Secret("token", response.AccessToken),
+	//).Debug("refresh token succeeded")
 
 	return nil
 }
