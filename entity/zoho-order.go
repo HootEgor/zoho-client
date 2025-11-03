@@ -12,6 +12,7 @@ type ZohoOrder struct {
 	VAT                float64         `json:"VAT"`
 	GrandTotal         float64         `json:"Grand_Total"`
 	SubTotal           float64         `json:"Sub_Total"`
+	Currency           string          `json:"Currency"`
 	BillingCountry     string          `json:"Billing_Country"`
 	Carrier            string          `json:"Carrier"`
 	Status             string          `json:"Status"`

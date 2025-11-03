@@ -218,6 +218,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		VAT:                float64(oc.TaxRate()),
 		GrandTotal:         roundInt(oc.Total),
 		SubTotal:           roundInt(oc.Total - oc.TaxValue),
+		Currency:           oc.Currency,
 		BillingCountry:     oc.ClientDetails.Country,
 		Carrier:            "",
 		Status:             c.statuses[oc.StatusId],
