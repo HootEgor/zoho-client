@@ -194,7 +194,7 @@ type ClientDetails struct {
 }
 
 func (c *ClientDetails) IsB2B() bool {
-	return c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16
+	return c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16 || c.GroupId == 18 || c.GroupId == 19
 }
 
 func (c *ClientDetails) CountryCode() string {
