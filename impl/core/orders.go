@@ -30,6 +30,10 @@ func (c *Core) ProcessOrders() {
 
 	if longOrder != nil && zohoId == "" {
 		orders = append(orders, longOrder)
+	} else {
+		c.log.With(
+			slog.String("zoho_id", zohoId),
+		).Info("order found")
 	}
 
 	for _, order := range orders {
