@@ -23,18 +23,18 @@ func (c *Core) ProcessOrders() {
 		return
 	}
 
-	zohoId, longOrder, err := c.repo.OrderSearchId(5184)
-	if err != nil {
-		c.log.Error("failed to get order", slog.String("error", err.Error()))
-	}
-
-	if longOrder != nil && zohoId == "[B2B]" {
-		orders = append(orders, longOrder)
-	} else {
-		c.log.With(
-			slog.String("zoho_id", zohoId),
-		).Info("order found")
-	}
+	//zohoId, longOrder, err := c.repo.OrderSearchId(5184)
+	//if err != nil {
+	//	c.log.Error("failed to get order", slog.String("error", err.Error()))
+	//}
+	//
+	//if longOrder != nil && zohoId == "[B2B]" {
+	//	orders = append(orders, longOrder)
+	//} else {
+	//	c.log.With(
+	//		slog.String("zoho_id", zohoId),
+	//	).Info("order found")
+	//}
 
 	for _, order := range orders {
 
@@ -113,13 +113,13 @@ func (c *Core) ProcessOrders() {
 		}
 
 		for _, chunk := range chunkedItems {
-			orderZohoId, err = c.zoho.AddItemsToOrder(orderZohoId, chunk)
+			_, err = c.zoho.AddItemsToOrder(orderZohoId, chunk)
 			if err != nil {
-				//log.With(
-				//	sl.Err(err),
-				//).Error("create Zoho order")
-				continue
+				break
 			}
+		}
+		if err != nil {
+			continue
 		}
 
 		log.With(
