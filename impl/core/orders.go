@@ -28,7 +28,7 @@ func (c *Core) ProcessOrders() {
 		c.log.Error("failed to get order", slog.String("error", err.Error()))
 	}
 
-	if longOrder != nil && zohoId == "" {
+	if longOrder != nil && zohoId == "[B2B]" {
 		orders = append(orders, longOrder)
 	} else {
 		c.log.With(
