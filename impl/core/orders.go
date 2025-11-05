@@ -12,6 +12,8 @@ import (
 const (
 	ZohoLocation    = "Польша"
 	ZohoOrderSource = "OpenCart"
+
+	ChunkSize = 100
 )
 
 func (c *Core) ProcessOrders() {
@@ -19,6 +21,15 @@ func (c *Core) ProcessOrders() {
 	if err != nil {
 		c.log.Error("failed to get new orders", slog.String("error", err.Error()))
 		return
+	}
+
+	zohoId, longOrder, err := c.repo.OrderSearchId(5184)
+	if err != nil {
+		c.log.Error("failed to get order", slog.String("error", err.Error()))
+	}
+
+	if longOrder != nil && zohoId == "" {
+		orders = append(orders, longOrder)
 	}
 
 	for _, order := range orders {
@@ -87,7 +98,7 @@ func (c *Core) ProcessOrders() {
 			}
 		}
 
-		zohoOrder := c.buildZohoOrder(order, contactID)
+		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
 
 		orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
@@ -95,6 +106,16 @@ func (c *Core) ProcessOrders() {
 			//	sl.Err(err),
 			//).Error("create Zoho order")
 			continue
+		}
+
+		for _, chunk := range chunkedItems {
+			orderZohoId, err = c.zoho.AddItemsToOrder(orderZohoId, chunk)
+			if err != nil {
+				//log.With(
+				//	sl.Err(err),
+				//).Error("create Zoho order")
+				continue
+			}
 		}
 
 		log.With(
@@ -187,9 +208,12 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 //	return string(result)
 //}
 
-func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entity.ZohoOrder {
+func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
 
 	var orderedItems []entity.OrderedItem
+
+	var chunkedItems [][]*entity.OrderedItem
+	var chunk []*entity.OrderedItem
 
 	for _, d := range oc.LineItems {
 		item := entity.OrderedItem{
@@ -203,7 +227,18 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 			ListPrice: roundInt(d.Price),
 			Total:     roundInt(d.Price*d.Qty - d.Discount),
 		}
-		orderedItems = append(orderedItems, item)
+
+		if len(orderedItems) >= ChunkSize {
+			if len(chunk) >= ChunkSize {
+				chunkedItems = append(chunkedItems, chunk)
+				chunk = []*entity.OrderedItem{}
+			} else {
+				chunk = append(chunk, &item)
+			}
+		} else {
+			orderedItems = append(orderedItems, item)
+		}
+
 	}
 
 	return entity.ZohoOrder{
@@ -232,7 +267,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) entit
 		Subject:            fmt.Sprintf("Order #%d", oc.OrderId),
 		Location:           ZohoLocation,
 		OrderSource:        ZohoOrderSource,
-	}
+	}, chunkedItems
 }
 
 func roundInt(value int64) float64 {

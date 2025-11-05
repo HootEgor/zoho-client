@@ -41,12 +41,13 @@ func NewTgBot(botName, apiKey string, adminIdsStr string, log *slog.Logger) (*Tg
 
 	// Initialize admin levels map with default level for each admin
 	adminLevels := make(map[int64]slog.Level)
-	for i, adminId := range adminIds { // This loop will not run if adminIds is empty
-		if i == 0 {
-			adminLevels[adminId] = slog.LevelDebug
-		} else {
-			adminLevels[adminId] = slog.LevelWarn
-		}
+	for _, adminId := range adminIds { // This loop will not run if adminIds is empty
+		adminLevels[adminId] = slog.LevelDebug
+		//if i == 0 {
+		//	adminLevels[adminId] = slog.LevelDebug
+		//} else {
+		//	adminLevels[adminId] = slog.LevelWarn
+		//}
 	}
 
 	tgBot := &TgBot{

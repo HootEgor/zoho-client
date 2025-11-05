@@ -111,7 +111,8 @@ func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 			currency_code,
 			currency_value,
 			total,
-			comment
+			comment,
+			zoho_id
 		 FROM %sorder
 		 WHERE order_id = ?`,
 		s.prefix,

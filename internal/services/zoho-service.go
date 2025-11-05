@@ -361,6 +361,92 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 
 }
 
+func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error) {
+	// This is based on the user's sample input for updating a subform.
+	// We create a payload for a bulk/mass update, but only for a single record.
+	updateData := map[string]interface{}{
+		"id":            orderID,
+		"Ordered_Items": items,
+	}
+
+	payload := map[string]interface{}{
+		"data": []interface{}{updateData},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	// The URL for bulk updates is the module URL, not a specific record URL.
+	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders")
+	if err != nil {
+		return "", err
+	}
+
+	if e := s.RefreshToken(); e != nil {
+		return "", e
+	}
+
+	// Bulk updates are done with PUT.
+	req, err := http.NewRequest(
+		http.MethodPut,
+		fullURL,
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	s.log.With(
+		slog.String("response", string(bodyBytes)),
+	).Debug("add items to order response")
+
+	var apiResp entity.ZohoAPIResponse
+	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+
+	if len(apiResp.Data) == 0 {
+		return "", fmt.Errorf("empty response data")
+	}
+
+	item := apiResp.Data[0]
+
+	if item.Status != "success" {
+		var errDetails entity.ErrorDetails
+		_ = json.Unmarshal(item.Details, &errDetails)
+		return "", fmt.Errorf(
+			"items not added: [%s] %s (field: %s, path: %s)",
+			item.Code,
+			item.Message,
+			errDetails.APIName,
+			errDetails.JSONPath,
+		)
+	}
+
+	var success entity.SuccessOrderDetails
+	if err := json.Unmarshal(item.Details, &success); err != nil {
+		return "", fmt.Errorf("failed to parse success response: %w", err)
+	}
+
+	return success.ID, nil
+}
+
 func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
 	// Prepare payload
 	payload := map[string]interface{}{

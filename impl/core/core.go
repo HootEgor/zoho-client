@@ -10,6 +10,7 @@ import (
 
 type Repository interface {
 	GetNewOrders() ([]*entity.CheckoutParams, error)
+	OrderSearchId(orderId int64) (string, *entity.CheckoutParams, error)
 	ChangeOrderStatus(orderId, orderStatusId int64) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
 
@@ -24,6 +25,7 @@ type Zoho interface {
 	RefreshToken() error
 	CreateContact(contactData *entity.ClientDetails) (string, error)
 	CreateOrder(orderData entity.ZohoOrder) (string, error)
+	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
 	UpdateOrder(orderData entity.ZohoOrder, id string) error
 }
 

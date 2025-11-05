@@ -236,18 +236,20 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 	return orders, nil
 }
 
-func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
+func (s *MySql) OrderSearchId(orderId int64) (string, *entity.CheckoutParams, error) {
 	stmt, err := s.stmtSelectOrderId()
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	rows, err := stmt.Query(orderId)
 	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
+		return "", nil, fmt.Errorf("query: %w", err)
 	}
 	defer func(rows *sql.Rows) {
 		_ = rows.Close()
 	}(rows)
+
+	var zohoId string
 
 	var order entity.CheckoutParams
 	if rows.Next() {
@@ -273,8 +275,9 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 			&order.CurrencyValue,
 			&total,
 			&order.Comment,
+			&zohoId,
 		); err != nil {
-			return nil, err
+			return "", nil, err
 		}
 
 		// client data
@@ -287,10 +290,12 @@ func (s *MySql) OrderSearchId(orderId int64) (*entity.CheckoutParams, error) {
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	return s.addOrderData(orderId, &order)
+	params, err := s.addOrderData(orderId, &order)
+
+	return zohoId, params, err
 }
 
 func (s *MySql) OrderProducts(orderId int64, currencyValue float64, ignoreTax bool) ([]*entity.LineItem, error) {
