@@ -1,42 +1,30 @@
-# OCAPI Project
+# Zoho Client
 
-## Overview
-OCAPI (OpenCart API) is a project designed to provide a robust and flexible API for the OpenCart site database. It allows users to update site products and retrieve orders seamlessly.
+![Go](https://img.shields.io/badge/Go-1.22-blue.svg?logo=go)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-blue.svg?logo=mysql)
+![Telegram](https://img.shields.io/badge/Telegram-Bot%20API-blue.svg?logo=telegram)
+
+This project is a client for the Zoho API, with Telegram bot integration and MySQL database support.
 
 ## Features
-- Product management
-- Order retrieval (coming soon)
 
-## Prerequisites
-- Go 1.16 or higher
-- Installed OpenCart site
+*   Interacts with the Zoho API
+*   Telegram bot for notifications and commands
+*   Uses MySQL for data storage
+*   Manages a product repository
 
-The project includes GitHub actions scripts for CI/CD, you can use as a template for your environment.
+## Getting Started
 
-## Setup
-
-### Clone the repository
-Clone repository to your local machine or server, build application, and deploy it alongside your OpenCart site.
-
-### Configure the database
-Update configuration file, default is the `config.yml` file, with your OpenCart database credentials. Provide port, on which the OCAPI service will run, and the API key.
-- [Configuration file structure](docs/config.md)
-
-### Run the application
-Run the application manually or set up a service to run it in the background.
-Command line parameters:
-- `-conf` - path to the configuration file, default `config.yml`
-- `-log` - path to the log file `ocapi.log`, default `/var/log/`
-Example:
-```shell
-/usr/local/bin/ocapi -conf=/etc/conf/config.yml -log=/var/log/
-```
-
-### API Documentation
-- [API v1](docs/apiv1.md)
-
-## License
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-## Contact
-For any questions or inquiries, please contact developer at [dev@nomadus.net](mailto:dev@nomadus.net).
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/your-username/zohoclient.git
+    ```
+2.  Install dependencies:
+    ```bash
+    go mod download
+    ```
+3.  Configure the application by creating a `config.yml` file. You can use `config.example.yml` as a template.
+4.  Build and run the application:
+    ```bash
+    go run cmd/zoho/main.go
+    ```
