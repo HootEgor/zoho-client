@@ -126,7 +126,7 @@ func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {
 	return orders, nil
 }
 
-func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64) error {
+func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64, comment string) error {
 	stmt, err := s.stmtUpdateOrderStatus()
 	if err != nil {
 		return err
@@ -137,6 +137,22 @@ func (s *MySql) ChangeOrderStatus(orderId, orderStatusId int64) error {
 	if err != nil {
 		return fmt.Errorf("update: %v", err)
 	}
+
+	if comment != "" {
+		// add order history record
+		rec := map[string]interface{}{
+			"order_id":        orderId,
+			"order_status_id": orderStatusId,
+			"notify":          0,
+			"comment":         comment,
+			"date_added":      dateModified,
+		}
+		_, err = s.insert("order_history", rec)
+		if err != nil {
+			return fmt.Errorf("insert order history: %w", err)
+		}
+	}
+
 	return nil
 }
 

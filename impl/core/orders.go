@@ -79,6 +79,7 @@ func (c *Core) ProcessOrders() {
 				slog.String("phone", order.ClientDetails.Phone),
 				sl.Err(err),
 			).Error("create contact")
+			_ = c.repo.ChangeOrderStatus(order.OrderId, entity.OrderStatusCanceled, fmt.Sprintf("Zoho: %v", err))
 			continue
 		}
 

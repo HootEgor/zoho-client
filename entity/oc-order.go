@@ -70,4 +70,5 @@ const (
 	OrderStatusPending            = 2
 	OrderStatusPrepareForShipping = 5
 	OrderStatusPayed              = 17
+	OrderStatusCanceled           = 7
 )

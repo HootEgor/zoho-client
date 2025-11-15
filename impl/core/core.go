@@ -11,7 +11,7 @@ import (
 type Repository interface {
 	GetNewOrders() ([]*entity.CheckoutParams, error)
 	OrderSearchId(orderId int64) (string, *entity.CheckoutParams, error)
-	ChangeOrderStatus(orderId, orderStatusId int64) error
+	ChangeOrderStatus(orderId, orderStatusId int64, comment string) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
 
 	UpdateProductZohoId(productUID string, zohoId string) error
