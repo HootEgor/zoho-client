@@ -428,7 +428,7 @@ func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*enti
 }
 
 // OrderSearchByZohoId searches for an order by its Zoho ID and returns the order_id and order data.
-func (s *MySql) OrderSearchByZohoId(zohoId int64) (int64, *entity.CheckoutParams, error) {
+func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParams, error) {
 	stmt, err := s.stmtSelectOrderByZohoId()
 	if err != nil {
 		return 0, nil, err
