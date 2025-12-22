@@ -8,6 +8,7 @@ import (
 	"zohoclient/impl/core"
 	"zohoclient/internal/config"
 	"zohoclient/internal/database"
+	"zohoclient/internal/http-server/api"
 	"zohoclient/internal/lib/logger"
 	"zohoclient/internal/lib/sl"
 	"zohoclient/internal/services"
@@ -110,12 +111,12 @@ func main() {
 	handler.Start()
 
 	// *** blocking start with http server ***
-	//err = api.New(conf, lg, handler)
-	//if err != nil {
-	//	lg.Error("server start", sl.Err(err))
-	//	return
-	//}
-	//lg.Error("service stopped")
+	err = api.New(conf, lg, handler)
+	if err != nil {
+		lg.Error("server start", sl.Err(err))
+		return
+	}
+	lg.Error("service stopped")
 
 	//if conf.Telegram.Enabled {
 	//	tg, e := telegram.New(conf.Telegram.ApiKey, lg)

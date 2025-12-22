@@ -115,7 +115,7 @@ func (c *Core) Start() {
 	//c.log.Info("starting core service")
 
 	// Process orders
-	func() {
+	go func() {
 		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
 
