@@ -45,7 +45,7 @@ func New(conf *config.Config, log *slog.Logger, handler Handler) error {
 	router.NotFound(errors.NotFound(log))
 	router.MethodNotAllowed(errors.NotAllowed(log))
 
-	router.Route("/api/v1", func(v1 chi.Router) {
+	router.Route("/zoho", func(v1 chi.Router) {
 		v1.Route("/webhook", func(r chi.Router) {
 			v1.Route("/order", func(r chi.Router) {
 				r.Post("/", order.UpdateOrder(log, handler))
