@@ -9,12 +9,12 @@ import (
 
 func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// Validate input
-	if orderDetails.ZohoID == "" {
+	if orderDetails.ZohoID == 0 {
 		return fmt.Errorf("zoho_id is required")
 	}
 
 	log := c.log.With(
-		slog.String("zoho_id", orderDetails.ZohoID),
+		slog.Int64("zoho_id", orderDetails.ZohoID),
 	)
 
 	// Find order by zoho_id
