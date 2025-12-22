@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 	"zohoclient/entity"
+	"zohoclient/internal/config"
 	"zohoclient/internal/lib/sl"
 )
 
@@ -46,7 +47,7 @@ type Core struct {
 	log      *slog.Logger
 }
 
-func New(log *slog.Logger) *Core {
+func New(log *slog.Logger, conf config.Config) *Core {
 	return &Core{
 		log: log.With(sl.Module("core")),
 		statuses: map[int]string{
@@ -54,7 +55,8 @@ func New(log *slog.Logger) *Core {
 			entity.OrderStatusPayed:              "Оплачено, формування ТТН",
 			entity.OrderStatusPrepareForShipping: "Перевірка та збір",
 		},
-		keys: make(map[string]string),
+		authKey: conf.Listen.ApiKey,
+		keys:    make(map[string]string),
 	}
 }
 
