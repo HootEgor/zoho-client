@@ -49,7 +49,7 @@ func main() {
 	lg.Info("starting zohoclient", slog.String("config", *configPath), slog.String("env", conf.Env))
 	lg.Debug("debug messages enabled")
 
-	handler := core.New(lg)
+	handler := core.New(lg, *conf)
 
 	db, err := database.NewSQLClient(conf, lg)
 	if err != nil {
