@@ -426,3 +426,80 @@ func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*enti
 
 	return order, nil
 }
+
+// OrderSearchByZohoId searches for an order by its Zoho ID and returns the order_id and order data.
+func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParams, error) {
+	stmt, err := s.stmtSelectOrderByZohoId()
+	if err != nil {
+		return 0, nil, err
+	}
+	rows, err := stmt.Query(zohoId)
+	if err != nil {
+		return 0, nil, fmt.Errorf("query: %w", err)
+	}
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
+
+	var foundZohoId string
+	var order entity.CheckoutParams
+	if rows.Next() {
+		var client entity.ClientDetails
+		var customField string
+		var total float64
+
+		if err = rows.Scan(
+			&order.OrderId,
+			&order.StatusId,
+			&order.Created,
+			&client.FirstName,
+			&client.LastName,
+			&client.Email,
+			&client.Phone,
+			&customField,
+			&client.Country,
+			&client.ZipCode,
+			&client.City,
+			&client.Street,
+			&order.Currency,
+			&order.CurrencyValue,
+			&total,
+			&order.Comment,
+			&foundZohoId,
+		); err != nil {
+			return 0, nil, err
+		}
+
+		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
+	} else {
+		return 0, nil, fmt.Errorf("order with zoho_id '%s' not found", zohoId)
+	}
+
+	if err = rows.Err(); err != nil {
+		return 0, nil, err
+	}
+
+	return order.OrderId, &order, nil
+}
+
+// UpdateOrderItems updates order line items in the order_product table.
+// It updates price, total, and quantity for products matched by zoho_id.
+func (s *MySql) UpdateOrderItems(orderId int64, items []entity.ApiOrderedItem) error {
+	stmt, err := s.stmtUpdateOrderProduct()
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		// Convert float price to cents (int64) for database storage
+		priceInCents := int64(math.Round(item.Price * 100))
+		totalInCents := int64(math.Round(item.Price * float64(item.Quantity) * 100))
+
+		_, err = stmt.Exec(priceInCents, totalInCents, item.Quantity, orderId, item.ZohoID)
+		if err != nil {
+			return fmt.Errorf("update order item (zoho_id: %s): %w", item.ZohoID, err)
+		}
+	}
+
+	return nil
+}

@@ -104,7 +104,18 @@ func main() {
 		lg.Error("zoho service not initialized")
 	}
 
+	// Set auth key for API authentication
+	handler.SetAuthKey(conf.Listen.ApiKey)
+
 	handler.Start()
+
+	// *** blocking start with http server ***
+	//err = api.New(conf, lg, handler)
+	//if err != nil {
+	//	lg.Error("server start", sl.Err(err))
+	//	return
+	//}
+	//lg.Error("service stopped")
 
 	//if conf.Telegram.Enabled {
 	//	tg, e := telegram.New(conf.Telegram.ApiKey, lg)

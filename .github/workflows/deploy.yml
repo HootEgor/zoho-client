@@ -55,6 +55,8 @@ jobs:
           REPO_LOGIN: ${{ secrets.REPO_LOGIN }}
           REPO_PASSWORD: ${{ secrets.REPO_PASSWORD }}
           REPO_PROD_URL: ${{ vars.REPO_PROD_URL }}
+          LISTEN_PORT: ${{ vars.LISTEN_PORT }}
+          API_KEY: ${{ secrets.API_KEY }}
 
       - name: Copy Configuration to Server
         uses: appleboy/scp-action@master

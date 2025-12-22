@@ -29,3 +29,7 @@ prod_repo:
   login: repo_login
   password: repo_password
   prod_url: repo_base_url
+listen:
+  bind_ip: 127.0.0.1
+  port: 8080
+  key: api_key

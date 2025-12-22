@@ -11,8 +11,10 @@ import (
 type Repository interface {
 	GetNewOrders() ([]*entity.CheckoutParams, error)
 	OrderSearchId(orderId int64) (string, *entity.CheckoutParams, error)
+	OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParams, error)
 	ChangeOrderStatus(orderId, orderStatusId int64, comment string) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
+	UpdateOrderItems(orderId int64, items []entity.ApiOrderedItem) error
 
 	UpdateProductZohoId(productUID string, zohoId string) error
 }
@@ -39,6 +41,8 @@ type Core struct {
 	zoho     Zoho
 	ms       MessageService
 	statuses map[int]string
+	authKey  string
+	keys     map[string]string
 	log      *slog.Logger
 }
 
@@ -50,6 +54,7 @@ func New(log *slog.Logger) *Core {
 			entity.OrderStatusPayed:              "Оплачено, формування ТТН",
 			entity.OrderStatusPrepareForShipping: "Перевірка та збір",
 		},
+		keys: make(map[string]string),
 	}
 }
 
@@ -69,11 +74,26 @@ func (c *Core) SetMessageService(ms MessageService) {
 	c.ms = ms
 }
 
+func (c *Core) SetAuthKey(key string) {
+	c.authKey = key
+}
+
 func (c *Core) SendEvent(message *entity.EventMessage) (interface{}, error) {
 	if c.ms == nil {
 		return nil, fmt.Errorf("not set MessageService")
 	}
 	return nil, c.ms.SendEventMessage(message)
+}
+
+// GetStatusIdByName performs reverse lookup of status ID by status name (Ukrainian string).
+// Returns the status ID or -1 if not found.
+func (c *Core) GetStatusIdByName(statusName string) int {
+	for id, name := range c.statuses {
+		if name == statusName {
+			return id
+		}
+	}
+	return -1
 }
 
 func (c *Core) Start() {

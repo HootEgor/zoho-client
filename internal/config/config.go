@@ -41,6 +41,11 @@ type Config struct {
 		Password string `yaml:"password" env-default:""`
 		ProdUrl  string `yaml:"prod_url" env-default:""`
 	} `yaml:"prod_repo"`
+	Listen struct {
+		BindIP string `yaml:"bind_ip" env-default:"127.0.0.1"`
+		Port   string `yaml:"port" env:"PORT" env-default:"8080"`
+		ApiKey string `yaml:"key" env-default:""`
+	} `yaml:"listen"`
 }
 
 var instance *Config

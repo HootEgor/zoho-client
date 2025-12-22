@@ -145,10 +145,51 @@ func (s *MySql) stmtSelectOrderProducts() (*sql.Stmt, error) {
 			op.quantity,
 			op.model
 		 FROM %sorder_product op
-		 JOIN %sproduct_description pd ON op.product_id = pd.product_id 
+		 JOIN %sproduct_description pd ON op.product_id = pd.product_id
 		 JOIN %sproduct pr ON op.product_id = pr.product_id
 		 WHERE op.order_id = ? AND pd.language_id = 2`,
 		s.prefix, s.prefix, s.prefix,
 	)
 	return s.prepareStmt("selectOrderProducts", query)
+}
+
+func (s *MySql) stmtSelectOrderByZohoId() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT
+			order_id,
+			order_status_id,
+			date_added,
+			firstname,
+			lastname,
+			email,
+			telephone,
+			custom_field,
+			shipping_country,
+			shipping_postcode,
+			shipping_city,
+			shipping_address_1,
+			currency_code,
+			currency_value,
+			total,
+			comment,
+			zoho_id
+		 FROM %sorder
+		 WHERE zoho_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("selectOrderByZohoId", query)
+}
+
+func (s *MySql) stmtUpdateOrderProduct() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder_product SET
+			price = ?,
+			total = ?,
+			quantity = ?
+		 WHERE order_id = ? AND product_id = (
+			SELECT product_id FROM %sproduct WHERE zoho_id = ?
+		 )`,
+		s.prefix, s.prefix,
+	)
+	return s.prepareStmt("updateOrderProduct", query)
 }
