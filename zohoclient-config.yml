@@ -29,6 +29,6 @@ prod_repo:
   password: ${REPO_PASSWORD}
   prod_url: ${REPO_PROD_URL}
 listen:
-  bind_ip: 0.0.0.0
+  bind_ip: 127.0.0.1
   port: ${LISTEN_PORT}
   key: ${API_KEY}
