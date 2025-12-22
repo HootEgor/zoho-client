@@ -57,6 +57,10 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 			return
 		}
 
+		log.Debug("order updates received",
+			slog.String("zoho_id", updates.ZohoID),
+		)
+
 		err = order.UpdateOrder(&updates)
 		if err != nil {
 			apiErr := apierrors.NewDatabaseError("UpdateOrder")
