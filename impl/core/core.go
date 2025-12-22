@@ -14,7 +14,7 @@ type Repository interface {
 	OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParams, error)
 	ChangeOrderStatus(orderId, orderStatusId int64, comment string) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
-	UpdateOrderItems(orderId int64, items []entity.ApiOrderedItem) error
+	UpdateOrderItems(orderId int64, items []entity.ApiOrderedItem, currencyValue float64, orderTotal float64) error
 
 	UpdateProductZohoId(productUID string, zohoId string) error
 }

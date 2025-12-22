@@ -193,3 +193,35 @@ func (s *MySql) stmtUpdateOrderProduct() (*sql.Stmt, error) {
 	)
 	return s.prepareStmt("updateOrderProduct", query)
 }
+
+func (s *MySql) stmtDeleteOrderProducts() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`DELETE FROM %sorder_product WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("deleteOrderProducts", query)
+}
+
+func (s *MySql) stmtInsertOrderProduct() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`INSERT INTO %sorder_product (order_id, product_id, name, model, quantity, price, total, tax, reward)
+		 SELECT ?, p.product_id, pd.name, p.model, ?, ?, ?, 0, 0
+		 FROM %sproduct p
+		 JOIN %sproduct_description pd ON p.product_id = pd.product_id
+		 WHERE p.zoho_id = ? AND pd.language_id = 2
+		 LIMIT 1`,
+		s.prefix, s.prefix, s.prefix,
+	)
+	return s.prepareStmt("insertOrderProduct", query)
+}
+
+func (s *MySql) stmtUpdateOrderTotal() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET
+			date_modified = ?,
+			total = ?
+		 WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateOrderTotal", query)
+}

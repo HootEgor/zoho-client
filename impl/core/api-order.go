@@ -47,13 +47,20 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 	// Update order items if provided
 	if len(orderDetails.OrderedItems) > 0 {
-		err = c.repo.UpdateOrderItems(orderId, orderDetails.OrderedItems)
+		// Use grand_total from request if provided, otherwise keep existing order total
+		orderTotal := orderDetails.GrandTotal
+		if orderTotal == 0 {
+			orderTotal = float64(order.Total) / 100.0 // Convert cents to float
+		}
+
+		err = c.repo.UpdateOrderItems(orderId, orderDetails.OrderedItems, order.CurrencyValue, orderTotal)
 		if err != nil {
 			log.Error("failed to update order items", sl.Err(err))
 			return fmt.Errorf("failed to update items: %w", err)
 		}
 		log.Info("order items updated",
-			slog.Int("items_count", len(orderDetails.OrderedItems)))
+			slog.Int("items_count", len(orderDetails.OrderedItems)),
+			slog.Float64("grand_total", orderTotal))
 	}
 
 	log.Info("order updated successfully",

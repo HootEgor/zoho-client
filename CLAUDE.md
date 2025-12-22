@@ -117,10 +117,11 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Logger handler sends formatted messages to admins based on log levels
 
 **internal/http-server/api/Server**
-- HTTP REST API server built with chi router (currently stub implementation)
+- HTTP REST API server built with chi router
 - Listens on configured bind IP and port from `listen` config section
 - Protected by Bearer token authentication middleware
-- Provides `/api/v1/order` endpoint for order updates (not yet implemented)
+- Provides `/api/v1/order` endpoint for updating orders from external systems (e.g., Zoho webhooks)
+- Updates OpenCart database: order status, line items (with full replacement), recalculated discounts/totals
 - See `docs/apiv1.md` for API documentation
 
 ### Data Flow
@@ -145,6 +146,14 @@ docs/                       # API documentation (apiv1.md, config.md)
    - Creates order with initial items
    - Adds remaining items via chunked updates
    - Updates OpenCart order with Zoho ID or "[B2B]" marker
+
+5. **API Order Update** (`impl/core/api-order.go:UpdateOrder()`)
+   - Receives updates from external systems via HTTP API
+   - Finds order by zoho_id in OpenCart database
+   - Updates status by mapping Ukrainian status names to OpenCart status IDs
+   - Replaces ALL line items (deletes existing, inserts new)
+   - Recalculates discounts using same logic as order creation
+   - Updates order total in database
 
 ### Important Details
 
@@ -171,6 +180,18 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Application automatically adds `zoho_id VARCHAR(64)` columns to OpenCart tables
 - Uses prepared statements stored in `statements` map for performance
 - Connection pooling: 50 max open, 10 max idle, 1-hour lifetime
+
+**API Order Updates (Reverse Sync)**
+- `OrderSearchByZohoId()` - finds OpenCart order_id by Zoho ID
+- `UpdateOrderItems()` - replaces all order items and recalculates:
+  1. Deletes all existing order_product rows for the order
+  2. Inserts new items using product zoho_id lookup
+  3. Fetches shipping from order_total table
+  4. Runs `RecalcWithDiscount()` to distribute discounts across items
+  5. Updates each order_product with calculated discount
+  6. Updates order.total with final calculated amount
+- Status mapping via `GetStatusIdByName()` - reverse lookup from Ukrainian to numeric ID
+- Money conversion: API receives floats, converts to cents for database storage
 
 ## Deployment
 
@@ -227,7 +248,7 @@ The application includes an HTTP REST API server for external integrations. The 
 - Request/response utilities in `internal/lib/api/` with validation support
 
 **Current Endpoints:**
-- `POST /api/v1/order` - Order update endpoint (stub implementation, returns nil)
+- `POST /api/v1/order` - Order update endpoint (updates OpenCart database from external systems)
 
 **Authentication Flow:**
 1. Client sends request with `Authorization: Bearer <token>` header
@@ -244,12 +265,9 @@ See `docs/apiv1.md` for detailed API documentation.
 ## Known Issues and Quirks
 
 - Order processing runs in infinite loop in main goroutine (blocking)
-- HTTP API server not started in `main.go` (infrastructure exists but not wired up)
+- HTTP API server not started in `main.go` (infrastructure exists but commented out)
 - No graceful shutdown handling for either service
 - Telegram markdown escaping is incomplete (see `Sanitize()` function)
 - Legacy telegram implementation in `impl/telegram/` is commented out but not removed
 - No retry logic for failed Zoho order creation (orders stay in queue)
 - `zoho_id` check uses placeholder string "[B2B]" instead of boolean flag
-- `Core.UpdateOrder()` endpoint implementation is a stub that returns nil
-- Authentication token cache (`c.keys`) is never initialized, will panic on first auth attempt
-- `c.authKey` is never populated from config, authentication will always fail
