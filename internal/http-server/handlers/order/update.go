@@ -70,7 +70,7 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 		}
 
 		log.Debug("order updated successfully",
-			slog.Int64("zoho_id", updates.ZohoID),
+			slog.String("zoho_id", updates.ZohoID),
 		)
 
 		render.JSON(w, r, response.OkWithMessage("Order updated successfully", "success"))
