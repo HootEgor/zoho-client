@@ -44,8 +44,8 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 		}
 
 		// Extract status updates array
-		var updates entity.ApiOrder
-		err = request.DecodeAndValidateData(req, r, &updates)
+		var updates []entity.ApiOrder
+		err = request.DecodeAndValidateArrayData(req, r, &updates)
 		if err != nil {
 			apiErr := apierrors.NewValidationError("Invalid order updates data")
 			log.Warn("failed to decode order updates data",
@@ -57,11 +57,12 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 			return
 		}
 
-		log.Debug("order updates received",
-			slog.String("zoho_id", updates.ZohoID),
-		)
+		if len(updates) == 0 {
+			render.JSON(w, r, response.OkWithMessage("No updates provided", "success"))
+			return
+		}
 
-		err = order.UpdateOrder(&updates)
+		err = order.UpdateOrder(&updates[0])
 		if err != nil {
 			apiErr := apierrors.NewDatabaseError("UpdateOrder")
 			log.Error("failed to update order",
@@ -74,7 +75,7 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 		}
 
 		log.Debug("order updated successfully",
-			slog.String("zoho_id", updates.ZohoID),
+			slog.String("zoho_id", updates[0].ZohoID),
 		)
 
 		render.JSON(w, r, response.OkWithMessage("Order updated successfully", "success"))
