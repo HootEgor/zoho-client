@@ -270,6 +270,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		BillingCode:        oc.ClientDetails.ZipCode,
 		ProductDetails:     nil,
 		Subject:            fmt.Sprintf("Order #%d", oc.OrderId),
+		IDsite:             fmt.Sprintf("%d", oc.OrderId),
 		Location:           ZohoLocation,
 		OrderSource:        ZohoOrderSource,
 	}, chunkedItems
