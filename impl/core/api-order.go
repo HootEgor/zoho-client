@@ -48,6 +48,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		log.Warn("failed to calculate tax rate, using default", sl.Err(err))
 		taxRate = 0.23 // Default 23% VAT
 	}
+	taxRate = 0.23
 
 	// 5. Calculate discount percentage from API items
 	discountPercent := c.calculateDiscountPercent(orderDetails.OrderedItems)
