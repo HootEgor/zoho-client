@@ -608,7 +608,7 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 			return fmt.Errorf("get rows affected: %w", err)
 		}
 		if rowsAffected < 1 {
-			return fmt.Errorf("no rows affected: %w", err)
+			return fmt.Errorf("product not found in database (zoho_id: %s)", item.ZohoID)
 		}
 	}
 
