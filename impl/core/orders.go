@@ -23,18 +23,18 @@ func (c *Core) ProcessOrders() {
 		return
 	}
 
-	zohoId, longOrder, err := c.repo.OrderSearchId(7725)
-	if err != nil {
-		c.log.Error("failed to get order", slog.String("error", err.Error()))
-	}
-
-	if longOrder != nil && zohoId == "[B2B]" {
-		orders = append(orders, longOrder)
-	} else {
-		c.log.With(
-			slog.String("zoho_id", zohoId),
-		).Info("order found")
-	}
+	//zohoId, longOrder, err := c.repo.OrderSearchId(7725)
+	//if err != nil {
+	//	c.log.Error("failed to get order", slog.String("error", err.Error()))
+	//}
+	//
+	//if longOrder != nil && zohoId == "[B2B]" {
+	//	orders = append(orders, longOrder)
+	//} else {
+	//	c.log.With(
+	//		slog.String("zoho_id", zohoId),
+	//	).Info("order found")
+	//}
 
 	for _, order := range orders {
 
@@ -64,13 +64,13 @@ func (c *Core) ProcessOrders() {
 			slog.String("country", order.ClientDetails.Country),
 		)
 
-		//if order.ClientDetails.IsB2B() {
-		//	log.With(
-		//		slog.Int64("group_id", order.ClientDetails.GroupId),
-		//	).Debug("b2b client; order skipped")
-		//	_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
-		//	continue
-		//}
+		if order.ClientDetails.IsB2B() {
+			log.With(
+				slog.Int64("group_id", order.ClientDetails.GroupId),
+			).Debug("b2b client; order skipped")
+			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
+			continue
+		}
 
 		contactID, err := c.zoho.CreateContact(order.ClientDetails)
 		if err != nil {

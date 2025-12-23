@@ -18,7 +18,10 @@ import (
 const (
 	totalCodeShipping = "shipping"
 	//totalCodeDiscount = "discount"
-	totalCodeTax = "tax"
+	totalCodeTax   = "tax"
+	totalCodeTotal = "total"
+	subTotalCode   = "sub_total"
+	discountCode   = "discount"
 	//totalCodeTotal    = "total"
 	customFieldNip = "2"
 	locationCode   = "Europe/Warsaw"

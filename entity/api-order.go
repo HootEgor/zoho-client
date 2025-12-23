@@ -10,5 +10,6 @@ type ApiOrder struct {
 type ApiOrderedItem struct {
 	ZohoID   string  `json:"zoho_id" validation:"required"`
 	Price    float64 `json:"price" validation:"required min=0.01"`
+	Total    float64 `json:"total" validation:"required min=0.01"`
 	Quantity int     `json:"quantity" validation:"required min=1"`
 }
