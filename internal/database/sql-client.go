@@ -587,7 +587,7 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 
 	// Step 2: Insert new order items
 	insertQuery := fmt.Sprintf(`
-		INSERT INTO %sorder_product (order_id, product_id, name, model, quantity, price, total, tax, reward, sku, upc, ean, jan, isbn, mpn, location, weight, discount_type, discount_amount)
+		INSERT INTO %sorder_product (order_id, product_id, 'name', model, quantity, price, total, tax, reward, sku, upc, ean, jan, isbn, mpn, location, weight, discount_type, discount_amount)
 		SELECT ?, p.product_id, pd.name, p.model, ?, ?, ?, ?, 0, p.sku, p.upc, p.ean, p.jan, p.isbn, p.mpn, p.location, p.weight, '', 0
 		FROM %sproduct p
 		JOIN %sproduct_description pd ON p.product_id = pd.product_id
