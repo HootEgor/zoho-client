@@ -73,7 +73,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		})
 
 		itemsTotal += int(math.Round(lineTotal * 100))
-		taxTotal += int(math.Round(taxPerUnit * 100))
+		taxTotal += int(math.Round(taxPerUnit*100)) * item.Quantity
 	}
 
 	// 7. Get existing shipping and titles (before transaction)

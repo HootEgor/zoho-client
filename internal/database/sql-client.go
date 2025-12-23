@@ -636,31 +636,31 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 	`, s.prefix)
 
 	// Sub total
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "sub_total", "Suma cząstkowa", float64(data.Totals.SubTotal)/100.0, 1)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, subTotalCode, "Suma cząstkowa", float64(data.Totals.SubTotal)/100.0, 4)
 	if err != nil {
 		return fmt.Errorf("insert sub_total: %w", err)
 	}
 
 	// Tax
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "tax", data.Totals.TaxTitle, float64(data.Totals.Tax)/100.0, 2)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, totalCodeTax, data.Totals.TaxTitle, float64(data.Totals.Tax)/100.0, 4)
 	if err != nil {
 		return fmt.Errorf("insert tax: %w", err)
 	}
 
 	// Discount
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "discount", data.Totals.DiscountTitle, float64(data.Totals.Discount)/100.0, 3)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, discountCode, data.Totals.DiscountTitle, float64(data.Totals.Discount)/100.0, 4)
 	if err != nil {
 		return fmt.Errorf("insert discount: %w", err)
 	}
 
 	// Shipping
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "shipping", data.Totals.ShippingTitle, float64(data.Totals.Shipping)/100.0, 4)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, totalCodeShipping, data.Totals.ShippingTitle, float64(data.Totals.Shipping)/100.0, 4)
 	if err != nil {
 		return fmt.Errorf("insert shipping: %w", err)
 	}
 
 	// Total
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "total", "Razem", float64(data.Totals.Total)/100.0, 5)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, totalCodeTotal, "Razem", float64(data.Totals.Total)/100.0, 4)
 	if err != nil {
 		return fmt.Errorf("insert total: %w", err)
 	}
