@@ -424,13 +424,16 @@ func (s *MySql) UpdateOrderTotal(orderId int64, code string, valueInCents int64)
 	// Convert cents back to float for database storage (order_total.value is DECIMAL)
 	valueFloat := float64(valueInCents) / 100.0
 
+	title := code
+	sortOrder := 1
+
 	query := fmt.Sprintf(`
-		INSERT INTO %sorder_total (order_id, code, value)
+		INSERT INTO %sorder_total (order_id, code, value, title, sort_order)
 		VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE value = VALUES(value), title = VALUES(title), sort_order = VALUES(sort_order)
 	`, s.prefix)
 
-	_, err := s.db.Exec(query, orderId, code, valueFloat)
+	_, err := s.db.Exec(query, orderId, code, valueFloat, title, sortOrder)
 	if err != nil {
 		return fmt.Errorf("update order_total (code: %s): %w", code, err)
 	}
