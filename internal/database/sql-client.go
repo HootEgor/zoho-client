@@ -420,17 +420,17 @@ func (s *MySql) GetOrderProductTotals(orderId int64) (totalSum int64, taxSum int
 // UpdateOrderTotal updates or inserts a single row in the order_total table.
 // Uses INSERT...ON DUPLICATE KEY UPDATE for idempotent upsert operation.
 // valueInCents is the monetary value in cents (stored as float in DB after conversion).
-func (s *MySql) UpdateOrderTotal(orderId int64, code string, title string, valueInCents int64, sortOrder int) error {
+func (s *MySql) UpdateOrderTotal(orderId int64, code string, valueInCents int64) error {
 	// Convert cents back to float for database storage (order_total.value is DECIMAL)
 	valueFloat := float64(valueInCents) / 100.0
 
 	query := fmt.Sprintf(`
-		INSERT INTO %sorder_total (order_id, code, title, value, sort_order)
+		INSERT INTO %sorder_total (order_id, code, value)
 		VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE value = VALUES(value), title = VALUES(title), sort_order = VALUES(sort_order)
 	`, s.prefix)
 
-	_, err := s.db.Exec(query, orderId, code, title, valueFloat, sortOrder)
+	_, err := s.db.Exec(query, orderId, code, valueFloat)
 	if err != nil {
 		return fmt.Errorf("update order_total (code: %s): %w", code, err)
 	}
@@ -630,37 +630,28 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 	}
 
 	// Insert all order_total entries
-	insertTotalsQuery := fmt.Sprintf(`
-		INSERT INTO %sorder_total (order_id, code, title, value, sort_order)
-		VALUES (?, ?, ?, ?, ?)
-	`, s.prefix)
 
-	// Sub total
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, subTotalCode, "Suma cząstkowa", float64(data.Totals.SubTotal)/100.0, 4)
+	err = s.UpdateOrderTotal(data.OrderID, subTotalCode, data.Totals.SubTotal)
 	if err != nil {
 		return fmt.Errorf("insert sub_total: %w", err)
 	}
 
-	// Tax
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, totalCodeTax, data.Totals.TaxTitle, float64(data.Totals.Tax)/100.0, 4)
+	err = s.UpdateOrderTotal(data.OrderID, totalCodeTax, data.Totals.Tax)
 	if err != nil {
 		return fmt.Errorf("insert tax: %w", err)
 	}
 
-	// Discount
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, discountCode, data.Totals.DiscountTitle, float64(data.Totals.Discount)/100.0, 4)
+	err = s.UpdateOrderTotal(data.OrderID, discountCode, data.Totals.Discount)
 	if err != nil {
 		return fmt.Errorf("insert discount: %w", err)
 	}
 
-	// Shipping
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, totalCodeShipping, data.Totals.ShippingTitle, float64(data.Totals.Shipping)/100.0, 4)
+	err = s.UpdateOrderTotal(data.OrderID, totalCodeShipping, data.Totals.Shipping)
 	if err != nil {
 		return fmt.Errorf("insert shipping: %w", err)
 	}
 
-	// Total
-	_, err = tx.Exec(insertTotalsQuery, data.OrderID, totalCodeTotal, "Razem", float64(data.Totals.Total)/100.0, 4)
+	err = s.UpdateOrderTotal(data.OrderID, totalCodeTotal, data.Totals.Total)
 	if err != nil {
 		return fmt.Errorf("insert total: %w", err)
 	}
