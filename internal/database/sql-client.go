@@ -599,9 +599,16 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		totalFloat := float64(item.TotalInCents) / 100.0
 		taxFloat := float64(item.TaxInCents) / 100.0
 
-		_, err = tx.Exec(insertQuery, data.OrderID, item.Quantity, priceFloat, totalFloat, taxFloat, item.ZohoID)
+		res, err := tx.Exec(insertQuery, data.OrderID, item.Quantity, priceFloat, totalFloat, taxFloat, item.ZohoID)
 		if err != nil {
 			return fmt.Errorf("insert order item (zoho_id: %s): %w", item.ZohoID, err)
+		}
+		rowsAffected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("get rows affected: %w", err)
+		}
+		if rowsAffected != 1 {
+			return fmt.Errorf("expected 1 row affected, got %d", rowsAffected)
 		}
 	}
 
