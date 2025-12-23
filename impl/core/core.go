@@ -16,8 +16,13 @@ type Repository interface {
 	OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParams, error)
 	ChangeOrderStatus(orderId, orderStatusId int64, comment string) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
-	UpdateOrderItems(orderId int64, items []database.OrderProductData, currencyValue float64, orderTotal float64) error
 	OrderTotal(orderId int64, code string, currencyValue float64) (string, int64, error)
+
+	// Transaction-based order update (preferred method)
+	UpdateOrderWithTransaction(data database.OrderUpdateTransaction) error
+
+	// Deprecated: Use UpdateOrderWithTransaction instead
+	UpdateOrderItems(orderId int64, items []database.OrderProductData, currencyValue float64, orderTotal float64) error
 	UpdateOrderTotal(orderId int64, code string, title string, valueInCents int64, sortOrder int) error
 
 	UpdateProductZohoId(productUID string, zohoId string) error

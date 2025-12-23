@@ -30,7 +30,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		slog.Int64("order_id", orderId),
 	)
 
-	// 3. Update status if provided
+	// 3. Update status if provided (done separately before transaction)
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)
 		if statusId > 0 {
@@ -76,26 +76,13 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		taxTotal += int(math.Round(taxPerUnit * 100))
 	}
 
-	// 7. Update order items in database (simplified CRUD operation)
-	orderTotal := orderDetails.GrandTotal
-	if orderTotal == 0 {
-		orderTotal = float64(orderParams.Total) / 100.0
-	}
-	err = c.repo.UpdateOrderItems(orderId, productData, currencyValue, orderTotal)
-	if err != nil {
-		return fmt.Errorf("failed to update order items: %w", err)
-	}
-
-	// 8. Calculate order totals
-	subTotal := itemsTotal
-
-	// 9. Get existing shipping and titles
+	// 7. Get existing shipping and titles (before transaction)
 	shippingTitle, shippingValueCents, err := c.repo.OrderTotal(orderId, "shipping", currencyValue)
 	if err != nil {
 		shippingTitle = "Shipping"
 		shippingValueCents = 0
 	}
-	shipping := float64(shippingValueCents)
+	shipping := shippingValueCents
 
 	taxTitle, _, _ := c.repo.OrderTotal(orderId, "tax", currencyValue)
 	if taxTitle == "" {
@@ -107,21 +94,43 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		discountTitle = "Discount"
 	}
 
-	// 10. Calculate discount and final total
-	discount := float64(subTotal+taxTotal+int(shipping)) * discountPercent
-	total := float64(subTotal+taxTotal+int(shipping)) - discount
+	// 8. Calculate discount and final total
+	discount := int64(math.Round(float64(itemsTotal+taxTotal+int(shipping)) * discountPercent))
+	total := int64(itemsTotal + taxTotal + int(shipping) - int(discount))
 
-	// 11. Update all entries in order_total table
-	err = c.updateOrderTotals(orderId, float64(subTotal), float64(taxTotal), discount, shipping, total,
-		taxTitle, discountTitle, shippingTitle, currencyValue)
+	// 9. Determine order total for database
+	orderTotal := orderDetails.GrandTotal
+	if orderTotal == 0 {
+		orderTotal = float64(orderParams.Total) / 100.0
+	}
+
+	// 10. Execute entire update in a single transaction
+	txData := database.OrderUpdateTransaction{
+		OrderID:       orderId,
+		Items:         productData,
+		CurrencyValue: currencyValue,
+		OrderTotal:    orderTotal,
+		Totals: database.OrderTotalsData{
+			SubTotal:      int64(itemsTotal),
+			Tax:           int64(taxTotal),
+			TaxTitle:      taxTitle,
+			Discount:      discount,
+			DiscountTitle: discountTitle,
+			Shipping:      shipping,
+			ShippingTitle: shippingTitle,
+			Total:         total,
+		},
+	}
+
+	err = c.repo.UpdateOrderWithTransaction(txData)
 	if err != nil {
-		return fmt.Errorf("failed to update order totals: %w", err)
+		return fmt.Errorf("failed to update order: %w", err)
 	}
 
 	log.Info("order updated successfully",
 		slog.String("zoho_id", orderDetails.ZohoID),
 		slog.Int64("order_id", orderId),
-		slog.Float64("total", total))
+		slog.Float64("total", float64(total)/100.0))
 
 	return nil
 }
@@ -166,45 +175,4 @@ func (c *Core) calculateDiscountPercent(items []entity.ApiOrderedItem) float64 {
 	}
 
 	return 1.0 - (sumApiTotals / sumFullTotals)
-}
-
-// updateOrderTotals updates all entries in the order_total table by calling database layer for each total type.
-// Converts all values from floats to cents before passing to database layer.
-func (c *Core) updateOrderTotals(orderId int64, subTotal, tax, discount, shipping, total float64,
-	taxTitle, discountTitle, shippingTitle string, currencyValue float64) error {
-
-	// Convert to cents
-	subTotalCents := int64(math.Round(subTotal * currencyValue * 100))
-	taxCents := int64(math.Round(tax * currencyValue * 100))
-	discountCents := int64(math.Round(discount * currencyValue * 100))
-	shippingCents := int64(math.Round(shipping * currencyValue * 100))
-	totalCents := int64(math.Round(total * currencyValue * 100))
-
-	// Update each total entry
-	err := c.repo.UpdateOrderTotal(orderId, "sub_total", "Suma cząstkowa", subTotalCents, 1)
-	if err != nil {
-		return err
-	}
-
-	err = c.repo.UpdateOrderTotal(orderId, "tax", taxTitle, taxCents, 2)
-	if err != nil {
-		return err
-	}
-
-	err = c.repo.UpdateOrderTotal(orderId, "discount", discountTitle, discountCents, 3)
-	if err != nil {
-		return err
-	}
-
-	err = c.repo.UpdateOrderTotal(orderId, "shipping", shippingTitle, shippingCents, 4)
-	if err != nil {
-		return err
-	}
-
-	err = c.repo.UpdateOrderTotal(orderId, "total", "Razem", totalCents, 5)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

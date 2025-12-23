@@ -534,13 +534,171 @@ type OrderProductData struct {
 	TaxInCents   int64 // Unit tax, in cents
 }
 
-// UpdateOrderItems replaces all order line items with new items (simple CRUD operation).
-// All monetary values are provided in cents by the caller (core layer handles business logic).
-// Steps: 1) Delete all existing items, 2) Insert new items with provided values, 3) Update order.total
-func (s *MySql) UpdateOrderItems(orderId int64, items []OrderProductData, currencyValue float64, orderTotal float64) error {
+// OrderUpdateTransaction encapsulates all data needed for a complete order update within a transaction
+type OrderUpdateTransaction struct {
+	OrderID       int64
+	Items         []OrderProductData
+	CurrencyValue float64
+	OrderTotal    float64
+	Totals        OrderTotalsData
+}
+
+// OrderTotalsData contains all order_total entries to be updated
+type OrderTotalsData struct {
+	SubTotal      int64 // in cents
+	Tax           int64 // in cents
+	TaxTitle      string
+	Discount      int64 // in cents
+	DiscountTitle string
+	Shipping      int64 // in cents
+	ShippingTitle string
+	Total         int64 // in cents
+}
+
+// UpdateOrderWithTransaction performs a complete order update within a single transaction.
+// This ensures atomicity - either all changes succeed or all are rolled back.
+// Steps: 1) Delete items, 2) Insert new items, 3) Update order.total, 4) Update order_total entries, 5) Add order_history
+func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
+	// Begin transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Get current order status for order_history
+	var orderStatusId int64
+	selectStatusQuery := fmt.Sprintf("SELECT order_status_id FROM %sorder WHERE order_id = ?", s.prefix)
+	err = tx.QueryRow(selectStatusQuery, data.OrderID).Scan(&orderStatusId)
+	if err != nil {
+		return fmt.Errorf("get order status: %w", err)
+	}
+
 	// Step 1: Delete all existing order items
 	deleteQuery := fmt.Sprintf("DELETE FROM %sorder_product WHERE order_id = ?", s.prefix)
-	_, err := s.db.Exec(deleteQuery, orderId)
+	_, err = tx.Exec(deleteQuery, data.OrderID)
+	if err != nil {
+		return fmt.Errorf("delete existing order items: %w", err)
+	}
+
+	// Step 2: Insert new order items
+	insertQuery := fmt.Sprintf(`
+		INSERT INTO %sorder_product (order_id, product_id, name, model, quantity, price, total, tax, reward, sku, upc, ean, jan, isbn, mpn, location, weight, discount_type, discount_amount)
+		SELECT ?, p.product_id, pd.name, p.model, ?, ?, ?, ?, 0, p.sku, p.upc, p.ean, p.jan, p.isbn, p.mpn, p.location, p.weight, '', 0
+		FROM %sproduct p
+		JOIN %sproduct_description pd ON p.product_id = pd.product_id
+		WHERE p.zoho_id = ? AND pd.language_id = 2
+	`, s.prefix, s.prefix, s.prefix)
+
+	for _, item := range data.Items {
+		priceFloat := float64(item.PriceInCents) / 100.0
+		totalFloat := float64(item.TotalInCents) / 100.0
+		taxFloat := float64(item.TaxInCents) / 100.0
+
+		_, err = tx.Exec(insertQuery, data.OrderID, item.Quantity, priceFloat, totalFloat, taxFloat, item.ZohoID)
+		if err != nil {
+			return fmt.Errorf("insert order item (zoho_id: %s): %w", item.ZohoID, err)
+		}
+	}
+
+	// Step 3: Update order.total in the order table
+	now := time.Now()
+	updateQuery := fmt.Sprintf("UPDATE %sorder SET date_modified = ?, total = ? WHERE order_id = ?", s.prefix)
+	totalFloat := data.OrderTotal / data.CurrencyValue
+	_, err = tx.Exec(updateQuery, now, totalFloat, data.OrderID)
+	if err != nil {
+		return fmt.Errorf("update order total: %w", err)
+	}
+
+	// Step 4: Update all order_total entries
+	totalsUpdateQuery := fmt.Sprintf(`
+		INSERT INTO %sorder_total (order_id, code, title, value, sort_order)
+		VALUES (?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE value = VALUES(value), title = VALUES(title), sort_order = VALUES(sort_order)
+	`, s.prefix)
+
+	// Sub total
+	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "sub_total", "Suma cząstkowa", float64(data.Totals.SubTotal)/100.0, 1)
+	if err != nil {
+		return fmt.Errorf("update sub_total: %w", err)
+	}
+
+	// Tax
+	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "tax", data.Totals.TaxTitle, float64(data.Totals.Tax)/100.0, 2)
+	if err != nil {
+		return fmt.Errorf("update tax: %w", err)
+	}
+
+	// Discount
+	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "discount", data.Totals.DiscountTitle, float64(data.Totals.Discount)/100.0, 3)
+	if err != nil {
+		return fmt.Errorf("update discount: %w", err)
+	}
+
+	// Shipping
+	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "shipping", data.Totals.ShippingTitle, float64(data.Totals.Shipping)/100.0, 4)
+	if err != nil {
+		return fmt.Errorf("update shipping: %w", err)
+	}
+
+	// Total
+	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "total", "Razem", float64(data.Totals.Total)/100.0, 5)
+	if err != nil {
+		return fmt.Errorf("update total: %w", err)
+	}
+
+	// Step 5: Add order_history record
+	historyQuery := fmt.Sprintf(`
+		INSERT INTO %sorder_history (order_id, order_status_id, notify, comment, date_added)
+		VALUES (?, ?, 0, ?, ?)
+	`, s.prefix)
+	comment := fmt.Sprintf("Order updated from zoho, total = %.2f", totalFloat)
+	_, err = tx.Exec(historyQuery, data.OrderID, orderStatusId, comment, now)
+	if err != nil {
+		return fmt.Errorf("insert order history: %w", err)
+	}
+
+	// Commit transaction
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateOrderItems replaces all order line items with new items (simple CRUD operation).
+// DEPRECATED: Use UpdateOrderWithTransaction for transactional updates instead.
+// All monetary values are provided in cents by the caller (core layer handles business logic).
+// Uses a transaction to ensure atomicity - all changes are rolled back if any step fails.
+// Steps: 1) Begin transaction, 2) Delete all existing items, 3) Insert new items, 4) Update order.total, 5) Add order_history record, 6) Commit
+func (s *MySql) UpdateOrderItems(orderId int64, items []OrderProductData, currencyValue float64, orderTotal float64) error {
+	// Begin transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Get current order status for order_history
+	var orderStatusId int64
+	selectStatusQuery := fmt.Sprintf("SELECT order_status_id FROM %sorder WHERE order_id = ?", s.prefix)
+	err = tx.QueryRow(selectStatusQuery, orderId).Scan(&orderStatusId)
+	if err != nil {
+		return fmt.Errorf("get order status: %w", err)
+	}
+
+	// Step 1: Delete all existing order items
+	deleteQuery := fmt.Sprintf("DELETE FROM %sorder_product WHERE order_id = ?", s.prefix)
+	_, err = tx.Exec(deleteQuery, orderId)
 	if err != nil {
 		return fmt.Errorf("delete existing order items: %w", err)
 	}
@@ -560,18 +718,36 @@ func (s *MySql) UpdateOrderItems(orderId int64, items []OrderProductData, curren
 		totalFloat := float64(item.TotalInCents) / 100.0
 		taxFloat := float64(item.TaxInCents) / 100.0
 
-		_, err = s.db.Exec(insertQuery, orderId, item.Quantity, priceFloat, totalFloat, taxFloat, item.ZohoID)
+		_, err = tx.Exec(insertQuery, orderId, item.Quantity, priceFloat, totalFloat, taxFloat, item.ZohoID)
 		if err != nil {
 			return fmt.Errorf("insert order item (zoho_id: %s): %w", item.ZohoID, err)
 		}
 	}
 
 	// Step 3: Update order.total in the order table
+	now := time.Now()
 	updateQuery := fmt.Sprintf("UPDATE %sorder SET date_modified = ?, total = ? WHERE order_id = ?", s.prefix)
 	totalFloat := orderTotal / currencyValue
-	_, err = s.db.Exec(updateQuery, time.Now(), totalFloat, orderId)
+	_, err = tx.Exec(updateQuery, now, totalFloat, orderId)
 	if err != nil {
 		return fmt.Errorf("update order total: %w", err)
+	}
+
+	// Step 4: Add order_history record
+	historyQuery := fmt.Sprintf(`
+		INSERT INTO %sorder_history (order_id, order_status_id, notify, comment, date_added)
+		VALUES (?, ?, 0, ?, ?)
+	`, s.prefix)
+	comment := fmt.Sprintf("Order updated from zoho, total = %.2f", totalFloat)
+	_, err = tx.Exec(historyQuery, orderId, orderStatusId, comment, now)
+	if err != nil {
+		return fmt.Errorf("insert order history: %w", err)
+	}
+
+	// Commit transaction
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil
