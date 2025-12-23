@@ -65,7 +65,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 		// Convert to cents
 		productData = append(productData, database.OrderProductData{
-			ZohoID:       fmt.Sprintf("%d", item.ZohoID),
+			ZohoID:       item.ZohoID, // Already a string, use directly
 			Quantity:     item.Quantity,
 			PriceInCents: int64(math.Round(item.Price * 100)),
 			TotalInCents: int64(math.Round(lineTotal * 100)),
