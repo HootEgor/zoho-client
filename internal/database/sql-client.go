@@ -404,6 +404,40 @@ func (s *MySql) OrderTotal(orderId int64, code string, currencyValue float64) (s
 	return title, int64(math.Round(value * currencyValue * 100)), nil
 }
 
+// GetOrderProductTotals queries the sum of total and tax columns from order_product table for a given order.
+// Returns sums in cents as stored in the database.
+func (s *MySql) GetOrderProductTotals(orderId int64) (totalSum int64, taxSum int64, error error) {
+	query := fmt.Sprintf("SELECT COALESCE(SUM(total), 0), COALESCE(SUM(tax), 0) FROM %sorder_product WHERE order_id = ?", s.prefix)
+
+	err := s.db.QueryRow(query, orderId).Scan(&totalSum, &taxSum)
+	if err != nil {
+		return 0, 0, fmt.Errorf("query order product totals: %w", err)
+	}
+
+	return totalSum, taxSum, nil
+}
+
+// UpdateOrderTotal updates or inserts a single row in the order_total table.
+// Uses INSERT...ON DUPLICATE KEY UPDATE for idempotent upsert operation.
+// valueInCents is the monetary value in cents (stored as float in DB after conversion).
+func (s *MySql) UpdateOrderTotal(orderId int64, code string, title string, valueInCents int64, sortOrder int) error {
+	// Convert cents back to float for database storage (order_total.value is DECIMAL)
+	valueFloat := float64(valueInCents) / 100.0
+
+	query := fmt.Sprintf(`
+		INSERT INTO %sorder_total (order_id, code, title, value, sort_order)
+		VALUES (?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE value = VALUES(value), title = VALUES(title), sort_order = VALUES(sort_order)
+	`, s.prefix)
+
+	_, err := s.db.Exec(query, orderId, code, title, valueFloat, sortOrder)
+	if err != nil {
+		return fmt.Errorf("update order_total (code: %s): %w", code, err)
+	}
+
+	return nil
+}
+
 // addOrderData retrieves and calculates tax, line items, and shipping costs for a specific order and updates its details.
 func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*entity.CheckoutParams, error) {
 	var err error
@@ -490,102 +524,52 @@ func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParam
 	return order.OrderId, &order, nil
 }
 
-// UpdateOrderItems replaces all order line items and recalculates order totals.
-// Steps: 1) Delete all existing items, 2) Insert new items, 3) Recalculate with discount, 4) Update order total
-func (s *MySql) UpdateOrderItems(orderId int64, items []entity.ApiOrderedItem, currencyValue float64, orderTotal float64) error {
-	// Step 1: Delete all existing order items
-	deleteStmt, err := s.stmtDeleteOrderProducts()
-	if err != nil {
-		return fmt.Errorf("prepare delete statement: %w", err)
-	}
+// OrderProductData represents the data needed to insert a product line item into an order.
+// All monetary values are in cents (int64) to avoid floating point precision issues.
+type OrderProductData struct {
+	ZohoID       string
+	Quantity     int
+	PriceInCents int64 // Per-unit price, in cents
+	TotalInCents int64 // Line total, in cents
+	TaxInCents   int64 // Unit tax, in cents
+}
 
-	_, err = deleteStmt.Exec(orderId)
+// UpdateOrderItems replaces all order line items with new items (simple CRUD operation).
+// All monetary values are provided in cents by the caller (core layer handles business logic).
+// Steps: 1) Delete all existing items, 2) Insert new items with provided values, 3) Update order.total
+func (s *MySql) UpdateOrderItems(orderId int64, items []OrderProductData, currencyValue float64, orderTotal float64) error {
+	// Step 1: Delete all existing order items
+	deleteQuery := fmt.Sprintf("DELETE FROM %sorder_product WHERE order_id = ?", s.prefix)
+	_, err := s.db.Exec(deleteQuery, orderId)
 	if err != nil {
 		return fmt.Errorf("delete existing order items: %w", err)
 	}
 
-	// Step 2: Insert new order items
-	insertStmt, err := s.stmtInsertOrderProduct()
-	if err != nil {
-		return fmt.Errorf("prepare insert statement: %w", err)
-	}
+	// Step 2: Insert new order items (values already calculated by core layer)
+	insertQuery := fmt.Sprintf(`
+		INSERT INTO %sorder_product (order_id, product_id, product_uid, name, model, quantity, price, total, tax, reward)
+		SELECT ?, p.product_id, p.product_uid, pd.name, p.model, ?, ?, ?, ?, 0
+		FROM %sproduct p
+		JOIN %sproduct_description pd ON p.product_id = pd.product_id
+		WHERE p.zoho_id = ? AND pd.language_id = 2
+	`, s.prefix, s.prefix, s.prefix)
 
-	var lineItems []*entity.LineItem
 	for _, item := range items {
-		// Convert float price to cents (int64) for database storage
-		priceInCents := int64(math.Round(item.Price * 100))
-		totalInCents := int64(math.Round(item.Price * float64(item.Quantity) * 100))
+		// Convert cents back to float for database storage (OpenCart stores as DECIMAL)
+		priceFloat := float64(item.PriceInCents) / 100.0
+		totalFloat := float64(item.TotalInCents) / 100.0
+		taxFloat := float64(item.TaxInCents) / 100.0
 
-		_, err = insertStmt.Exec(orderId, item.Quantity, priceInCents, totalInCents, item.ZohoID)
+		_, err = s.db.Exec(insertQuery, orderId, item.Quantity, priceFloat, totalFloat, taxFloat, item.ZohoID)
 		if err != nil {
 			return fmt.Errorf("insert order item (zoho_id: %s): %w", item.ZohoID, err)
 		}
-
-		// Build LineItem for discount calculation
-		lineItems = append(lineItems, &entity.LineItem{
-			ZohoId: fmt.Sprintf("%d", item.ZohoID),
-			Qty:    int64(item.Quantity),
-			Price:  priceInCents,
-		})
 	}
 
-	// Step 3: Recalculate order with discount
-	orderTotalInCents := int64(math.Round(orderTotal * 100))
-	checkoutParams := &entity.CheckoutParams{
-		LineItems: lineItems,
-		Total:     orderTotalInCents,
-		Shipping:  0, // Will be added if exists
-	}
-
-	// Retrieve tax from order_total table (preserve existing tax data)
-	taxTitle, taxValue, err := s.OrderTotal(orderId, totalCodeTax, currencyValue)
-	if err != nil {
-		return fmt.Errorf("get order tax: %w", err)
-	}
-	if taxValue > 0 {
-		checkoutParams.TaxTitle = taxTitle
-		checkoutParams.TaxValue = taxValue
-	}
-
-	// Add shipping if it exists in order_total table
-	title, shippingValue, err := s.OrderTotal(orderId, totalCodeShipping, currencyValue)
-	if err != nil {
-		return fmt.Errorf("get order shipping: %w", err)
-	}
-	if shippingValue > 0 {
-		checkoutParams.AddShipping(title, shippingValue)
-	}
-
-	// Recalculate discounts
-	checkoutParams.RecalcWithDiscount()
-
-	// Step 4: Update order items with calculated discounts
-	updateStmt, err := s.stmtUpdateOrderProduct()
-	if err != nil {
-		return fmt.Errorf("prepare update statement: %w", err)
-	}
-
-	for _, item := range checkoutParams.LineItems {
-		if item.Shipping {
-			continue // Skip shipping line item
-		}
-
-		totalWithDiscount := item.Price*item.Qty - item.Discount
-		_, err = updateStmt.Exec(item.Price, totalWithDiscount, item.Qty, orderId, item.ZohoId)
-		if err != nil {
-			return fmt.Errorf("update item discount (zoho_id: %s): %w", item.ZohoId, err)
-		}
-	}
-
-	// Step 5: Update order total in the order table
-	updateTotalStmt, err := s.stmtUpdateOrderTotal()
-	if err != nil {
-		return fmt.Errorf("prepare update total statement: %w", err)
-	}
-
-	// Convert total back to float for database (order.total is float)
-	totalFloat := float64(orderTotalInCents) / (100 * currencyValue)
-	_, err = updateTotalStmt.Exec(time.Now(), totalFloat, orderId)
+	// Step 3: Update order.total in the order table
+	updateQuery := fmt.Sprintf("UPDATE %sorder SET date_modified = ?, total = ? WHERE order_id = ?", s.prefix)
+	totalFloat := orderTotal / currencyValue
+	_, err = s.db.Exec(updateQuery, time.Now(), totalFloat, orderId)
 	if err != nil {
 		return fmt.Errorf("update order total: %w", err)
 	}
