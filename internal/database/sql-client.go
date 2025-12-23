@@ -607,8 +607,8 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		if err != nil {
 			return fmt.Errorf("get rows affected: %w", err)
 		}
-		if rowsAffected != 1 {
-			return fmt.Errorf("expected 1 row affected, got %d", rowsAffected)
+		if rowsAffected < 1 {
+			return fmt.Errorf("no rows affected: %w", err)
 		}
 	}
 
