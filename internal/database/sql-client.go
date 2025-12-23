@@ -547,8 +547,8 @@ func (s *MySql) UpdateOrderItems(orderId int64, items []OrderProductData, curren
 
 	// Step 2: Insert new order items (values already calculated by core layer)
 	insertQuery := fmt.Sprintf(`
-		INSERT INTO %sorder_product (order_id, product_id, name, model, quantity, price, total, tax, reward, sku, upc, ean, jan, isbn, mpn, location, weight)
-		SELECT ?, p.product_id, pd.name, p.model, ?, ?, ?, ?, 0, p.sku, p.upc, p.ean, p.jan, p.isbn, p.mpn, p.location, p.weight
+		INSERT INTO %sorder_product (order_id, product_id, name, model, quantity, price, total, tax, reward, sku, upc, ean, jan, isbn, mpn, location, weight, discount_type, discount_amount)
+		SELECT ?, p.product_id, pd.name, p.model, ?, ?, ?, ?, 0, p.sku, p.upc, p.ean, p.jan, p.isbn, p.mpn, p.location, p.weight, '', 0
 		FROM %sproduct p
 		JOIN %sproduct_description pd ON p.product_id = pd.product_id
 		WHERE p.zoho_id = ? AND pd.language_id = 2
