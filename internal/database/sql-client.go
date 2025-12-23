@@ -470,6 +470,11 @@ func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParam
 			return 0, nil, err
 		}
 
+		// client data
+		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
+		order.ClientDetails = &client
+		order.TrimSpaces()
+		// order summary
 		order.Total = int64(math.Round(total * order.CurrencyValue * 100))
 	} else {
 		return 0, nil, fmt.Errorf("order with zoho_id '%s' not found", zohoId)
@@ -527,6 +532,16 @@ func (s *MySql) UpdateOrderItems(orderId int64, items []entity.ApiOrderedItem, c
 		LineItems: lineItems,
 		Total:     orderTotalInCents,
 		Shipping:  0, // Will be added if exists
+	}
+
+	// Retrieve tax from order_total table (preserve existing tax data)
+	taxTitle, taxValue, err := s.OrderTotal(orderId, totalCodeTax, currencyValue)
+	if err != nil {
+		return fmt.Errorf("get order tax: %w", err)
+	}
+	if taxValue > 0 {
+		checkoutParams.TaxTitle = taxTitle
+		checkoutParams.TaxValue = taxValue
 	}
 
 	// Add shipping if it exists in order_total table
