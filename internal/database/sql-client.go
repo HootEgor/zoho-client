@@ -614,41 +614,48 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		return fmt.Errorf("update order total: %w", err)
 	}
 
-	// Step 4: Update all order_total entries
-	totalsUpdateQuery := fmt.Sprintf(`
+	// Step 4: Update all order_total entries (delete first, then insert for clean state)
+	// Delete all existing order_total entries for this order
+	deleteTotalsQuery := fmt.Sprintf("DELETE FROM %sorder_total WHERE order_id = ?", s.prefix)
+	_, err = tx.Exec(deleteTotalsQuery, data.OrderID)
+	if err != nil {
+		return fmt.Errorf("delete existing order totals: %w", err)
+	}
+
+	// Insert all order_total entries
+	insertTotalsQuery := fmt.Sprintf(`
 		INSERT INTO %sorder_total (order_id, code, title, value, sort_order)
 		VALUES (?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE value = VALUES(value), title = VALUES(title), sort_order = VALUES(sort_order)
 	`, s.prefix)
 
 	// Sub total
-	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "sub_total", "Suma cząstkowa", float64(data.Totals.SubTotal)/100.0, 1)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "sub_total", "Suma cząstkowa", float64(data.Totals.SubTotal)/100.0, 1)
 	if err != nil {
-		return fmt.Errorf("update sub_total: %w", err)
+		return fmt.Errorf("insert sub_total: %w", err)
 	}
 
 	// Tax
-	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "tax", data.Totals.TaxTitle, float64(data.Totals.Tax)/100.0, 2)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "tax", data.Totals.TaxTitle, float64(data.Totals.Tax)/100.0, 2)
 	if err != nil {
-		return fmt.Errorf("update tax: %w", err)
+		return fmt.Errorf("insert tax: %w", err)
 	}
 
 	// Discount
-	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "discount", data.Totals.DiscountTitle, float64(data.Totals.Discount)/100.0, 3)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "discount", data.Totals.DiscountTitle, float64(data.Totals.Discount)/100.0, 3)
 	if err != nil {
-		return fmt.Errorf("update discount: %w", err)
+		return fmt.Errorf("insert discount: %w", err)
 	}
 
 	// Shipping
-	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "shipping", data.Totals.ShippingTitle, float64(data.Totals.Shipping)/100.0, 4)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "shipping", data.Totals.ShippingTitle, float64(data.Totals.Shipping)/100.0, 4)
 	if err != nil {
-		return fmt.Errorf("update shipping: %w", err)
+		return fmt.Errorf("insert shipping: %w", err)
 	}
 
 	// Total
-	_, err = tx.Exec(totalsUpdateQuery, data.OrderID, "total", "Razem", float64(data.Totals.Total)/100.0, 5)
+	_, err = tx.Exec(insertTotalsQuery, data.OrderID, "total", "Razem", float64(data.Totals.Total)/100.0, 5)
 	if err != nil {
-		return fmt.Errorf("update total: %w", err)
+		return fmt.Errorf("insert total: %w", err)
 	}
 
 	// Step 5: Add order_history record
