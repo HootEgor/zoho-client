@@ -430,7 +430,7 @@ func (s *MySql) UpdateOrderTotal(orderId int64, code string, valueInCents int64)
 	query := fmt.Sprintf(`
 		INSERT INTO %sorder_total (order_id, code, value, title, sort_order)
 		VALUES (?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE value = VALUES(value), title = VALUES(title), sort_order = VALUES(sort_order)
+		ON DUPLICATE KEY UPDATE value = VALUES(value)
 	`, s.prefix)
 
 	_, err := s.db.Exec(query, orderId, code, valueFloat, title, sortOrder)
