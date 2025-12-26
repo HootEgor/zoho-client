@@ -435,26 +435,26 @@ func (s *MySql) GetOrderProductTotals(orderId int64) (totalSum int64, taxSum int
 // UpdateOrderTotal updates or inserts a single row in the order_total table.
 // Uses INSERT...ON DUPLICATE KEY UPDATE for idempotent upsert operation.
 // valueInCents is the monetary value in cents (stored as float in DB after conversion).
-func (s *MySql) UpdateOrderTotal(orderId int64, code string, valueInCents int64) error {
-	// Convert cents back to float for database storage (order_total.value is DECIMAL)
-	valueFloat := float64(valueInCents) / 100.0
-
-	title := code
-	sortOrder := 1
-
-	query := fmt.Sprintf(`
-		INSERT INTO %sorder_total (order_id, code, value, title, sort_order)
-		VALUES (?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE value = VALUES(value)
-	`, s.prefix)
-
-	_, err := s.db.Exec(query, orderId, code, valueFloat, title, sortOrder)
-	if err != nil {
-		return fmt.Errorf("update order_total (code: %s): %w", code, err)
-	}
-
-	return nil
-}
+//func (s *MySql) UpdateOrderTotal(orderId int64, code string, valueInCents int64) error {
+//	// Convert cents back to float for database storage (order_total.value is DECIMAL)
+//	valueFloat := float64(valueInCents) / 100.0
+//
+//	title := code
+//	sortOrder := 1
+//
+//	query := fmt.Sprintf(`
+//		INSERT INTO %sorder_total (order_id, code, value, title, sort_order)
+//		VALUES (?, ?, ?, ?, ?)
+//		ON DUPLICATE KEY UPDATE value = VALUES(value)
+//	`, s.prefix)
+//
+//	_, err := s.db.Exec(query, orderId, code, valueFloat, title, sortOrder)
+//	if err != nil {
+//		return fmt.Errorf("update order_total (code: %s): %w", code, err)
+//	}
+//
+//	return nil
+//}
 
 // addOrderData retrieves and calculates tax, line items, and shipping costs for a specific order and updates its details.
 func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*entity.CheckoutParams, error) {
@@ -557,7 +557,7 @@ type OrderUpdateTransaction struct {
 	OrderID       int64
 	Items         []OrderProductData
 	CurrencyValue float64
-	OrderTotal    float64
+	OrderTotal    int64
 	Totals        OrderTotalsData
 }
 
@@ -633,7 +633,7 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 	// Step 3: Update order.total in the order table
 	now := time.Now()
 	updateQuery := fmt.Sprintf("UPDATE %sorder SET date_modified = ?, total = ? WHERE order_id = ?", s.prefix)
-	totalFloat := data.OrderTotal / data.CurrencyValue
+	totalFloat := (float64(data.OrderTotal) / 100) / data.CurrencyValue
 	_, err = tx.Exec(updateQuery, now, totalFloat, data.OrderID)
 	if err != nil {
 		return fmt.Errorf("update order total: %w", err)

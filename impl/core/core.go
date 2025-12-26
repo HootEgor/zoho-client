@@ -23,7 +23,7 @@ type Repository interface {
 
 	// Deprecated: Use UpdateOrderWithTransaction instead
 	UpdateOrderItems(orderId int64, items []database.OrderProductData, currencyValue float64, orderTotal float64) error
-	UpdateOrderTotal(orderId int64, code string, valueInCents int64) error
+	//UpdateOrderTotal(orderId int64, code string, valueInCents int64) error
 
 	UpdateProductZohoId(productUID string, zohoId string) error
 	GetProductZohoIdByUid(productUID string) (string, error)

@@ -90,18 +90,12 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	discount := int64(math.Round(float64(itemsTotal+taxTotal+shippingTotal) * discountPercent))
 	total := itemsTotal + taxTotal + shippingTotal - discount
 
-	// Determine order total for database
-	orderTotal := orderDetails.GrandTotal
-	if orderTotal == 0 {
-		orderTotal = float64(orderParams.Total) / 100.0
-	}
-
 	// Execute entire update in a single transaction
 	txData := database.OrderUpdateTransaction{
 		OrderID:       orderId,
 		Items:         productData,
 		CurrencyValue: currencyValue,
-		OrderTotal:    orderTotal,
+		OrderTotal:    total,
 		Totals: database.OrderTotalsData{
 			SubTotal: itemsTotal,
 			Tax:      taxTotal,
