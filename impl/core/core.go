@@ -18,7 +18,7 @@ type Repository interface {
 	ChangeOrderZohoId(orderId int64, zohoId string) error
 	OrderTotal(orderId int64, code string, currencyValue float64) (string, int64, error)
 
-	// Transaction-based order update (preferred method)
+	// UpdateOrderWithTransaction Transaction-based order update (preferred method)
 	UpdateOrderWithTransaction(data database.OrderUpdateTransaction) error
 
 	// Deprecated: Use UpdateOrderWithTransaction instead

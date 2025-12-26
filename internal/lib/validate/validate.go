@@ -3,10 +3,31 @@ package validate
 import (
 	"errors"
 	"fmt"
-	"github.com/go-playground/validator/v10"
 	"reflect"
 	"strings"
+	"sync"
+
+	"github.com/go-playground/validator/v10"
 )
+
+var (
+	once     sync.Once
+	instance *validator.Validate
+)
+
+func getValidator() *validator.Validate {
+	once.Do(func() {
+		instance = validator.New()
+		instance.RegisterTagNameFunc(func(fld reflect.StructField) string {
+			name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+			if name == "-" {
+				return ""
+			}
+			return name
+		})
+	})
+	return instance
+}
 
 // Struct validates a single struct object
 func Struct(s interface{}) error {
@@ -19,15 +40,7 @@ func Struct(s interface{}) error {
 	var validationErrors validator.ValidationErrors
 	var invalidValidationError *validator.InvalidValidationError
 
-	validate := validator.New()
-	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
-		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
-		if name == "-" {
-			return ""
-		}
-		return name
-	})
-	err := validate.Struct(s)
+	err := getValidator().Struct(s)
 	if err == nil {
 		return nil
 	}
