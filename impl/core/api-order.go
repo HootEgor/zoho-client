@@ -68,15 +68,16 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 		// Calculate tax per unit
 		taxPerUnit := item.Price * taxRate / (1 + taxRate)
+		itemPrice := item.Price / (1 + taxRate)
 
 		// Calculate line total (price × quantity, no discount)
-		lineTotal := item.Price * float64(item.Quantity)
+		lineTotal := itemPrice * float64(item.Quantity)
 
 		// Convert to cents
 		productData = append(productData, database.OrderProductData{
 			ZohoID:       item.ZohoID, // Already a string, use directly
 			Quantity:     item.Quantity,
-			PriceInCents: int64(math.Round(item.Price * 100)),
+			PriceInCents: int64(math.Round(itemPrice * 100)),
 			TotalInCents: int64(math.Round(lineTotal * 100)),
 			TaxInCents:   int64(math.Round(taxPerUnit * 100)),
 		})
