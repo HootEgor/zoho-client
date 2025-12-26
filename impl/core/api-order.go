@@ -59,6 +59,9 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		// Calculate shipping total separately
 		if item.Shipping {
 			shippingTotal += int64(math.Round(item.Price * 100))
+			log.With(
+				slog.Float64("price", item.Price),
+			).Debug("shipping item")
 			continue
 		}
 
