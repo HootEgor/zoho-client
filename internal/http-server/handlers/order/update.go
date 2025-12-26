@@ -74,10 +74,6 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 			return
 		}
 
-		log.Debug("order updated successfully",
-			slog.String("zoho_id", updates[0].ZohoID),
-		)
-
 		render.JSON(w, r, response.OkWithMessage("Order updated successfully", "success"))
 	}
 }
