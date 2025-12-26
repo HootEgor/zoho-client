@@ -128,10 +128,11 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 	log.With(
 		slog.Int64("sub_total", int64(itemsTotal)),
-		slog.Int64("total", total),
 		slog.Int64("shipping", shipping),
 		slog.Int64("discount", discount),
+		slog.Int("tax_total", taxTotal),
 		slog.Float64("tax_rate", taxRate),
+		slog.Int64("total", total),
 	).Debug("order updated")
 
 	return nil
