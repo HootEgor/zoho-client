@@ -137,7 +137,7 @@ func (c *CheckoutParams) TaxRate() int {
 	if c.TaxValue == 0 || c.Total <= c.TaxValue {
 		return 0
 	} else {
-		return int(math.Round(float64(c.TaxValue) * 100 / (float64(c.Total) - float64(c.TaxValue))))
+		return int(math.Round(float64(c.TaxValue) * 100 / (float64(c.Total-c.Shipping) - float64(c.TaxValue))))
 	}
 }
 

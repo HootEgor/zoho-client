@@ -93,6 +93,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		discountTitle = "Discount"
 	}
 
+	//taxTotal -= int(shipping)
 	// 8. Calculate discount and final total
 	discount := int64(math.Round(float64(itemsTotal+taxTotal+int(shipping)) * discountPercent))
 	total := int64(itemsTotal + taxTotal + int(shipping) - int(discount))
