@@ -14,9 +14,9 @@ type ApiOrder struct {
 
 type ApiOrderedItem struct {
 	ZohoID   string  `json:"zoho_id" validate:"required"`
-	Price    float64 `json:"price" validate:"required,min=0.01"`
-	Total    float64 `json:"total" validate:"required,min=0.01"`
-	Quantity int     `json:"quantity" validate:"required,min=1"`
+	Price    float64 `json:"price" validate:"required,gt=0"`
+	Total    float64 `json:"total" validate:"required,gt=0"`
+	Quantity int     `json:"quantity" validate:"required,gt=0"`
 }
 
 func (o *ApiOrder) Bind(_ *http.Request) error {
