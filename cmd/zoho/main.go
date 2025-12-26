@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -103,7 +104,7 @@ func main() {
 	handler.SetAuthKey(conf.Listen.ApiKey)
 	handler.Start()
 
-	// Create HTTP server
+	// Create an HTTP server
 	server, err := api.New(conf, lg, handler)
 	if err != nil {
 		lg.Error("server create", sl.Err(err))
@@ -116,16 +117,16 @@ func main() {
 
 	// Start HTTP server in goroutine
 	go func() {
-		if err := server.Start(); err != nil && err != http.ErrServerClosed {
+		if err := server.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			lg.Error("server start", sl.Err(err))
 		}
 	}()
 
-	// Wait for shutdown signal
+	// Wait for a shutdown signal
 	sig := <-quit
 	lg.Info("shutdown signal received", slog.String("signal", sig.String()))
 
-	// Create shutdown context with timeout
+	// Create a shutdown context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
