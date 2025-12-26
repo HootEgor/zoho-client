@@ -27,6 +27,7 @@ type ZohoService struct {
 	scope        string
 	apiVersion   string
 	log          *slog.Logger
+	httpClient   *http.Client
 }
 
 func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error) {
@@ -40,6 +41,14 @@ func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error)
 		scope:        conf.Zoho.Scope,
 		apiVersion:   conf.Zoho.ApiVersion,
 		log:          log.With(sl.Module("zoho")),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        10,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 
 	return service, nil
@@ -72,12 +81,15 @@ func (s *ZohoService) requestToken() error {
 	form.Add("refresh_token", s.initialToken)
 	form.Add("grant_type", "refresh_token")
 
-	resp, err := http.PostForm(s.refreshUrl, form)
+	resp, err := s.httpClient.PostForm(s.refreshUrl, form)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
+		err := Body.Close()
+		if err != nil {
+			s.log.With(sl.Err(err)).Warn("failed to close response body")
+		}
 	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
@@ -155,50 +167,9 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Contacts")
+	apiResp, err := s.doRequest(http.MethodPost, body, "Contacts")
 	if err != nil {
 		return "", err
-	}
-
-	if e := s.RefreshToken(); e != nil {
-		return "", e
-	}
-
-	req, err := http.NewRequest(
-		http.MethodPost,
-		fullURL,
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("send request: %w", err)
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	//s.log.With(
-	//	slog.String("response", string(bodyBytes)),
-	//).Debug("create contact response")
-
-	var apiResp entity.ZohoAPIResponse
-	if err = json.Unmarshal(bodyBytes, &apiResp); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
-	}
-
-	if len(apiResp.Data) == 0 {
-		return "", fmt.Errorf("empty response data")
 	}
 
 	item := apiResp.Data[0]
@@ -250,37 +221,6 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 }
 
 func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
-	// Prepare payload
-	payload := map[string]interface{}{
-		"data": []entity.ZohoOrder{orderData},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders")
-	if err != nil {
-		return "", err
-	}
-
-	if e := s.RefreshToken(); e != nil {
-		return "", e
-	}
-
-	req, err := http.NewRequest(
-		http.MethodPost,
-		fullURL,
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
-	req.Header.Set("Content-Type", "application/json")
-
 	log := s.log.With(
 		slog.String("subject", orderData.Subject),
 		slog.Float64("vat", orderData.VAT),
@@ -289,45 +229,27 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		slog.Float64("total", orderData.GrandTotal),
 	)
 	t := time.Now()
+	var err error
 	defer func() {
 		log = log.With(slog.Duration("duration", time.Since(t)))
 		if err != nil {
 			log.With(
 				sl.Err(err),
 			).Error("order not created")
-			//} else {
-			//	log.Info("order created")
 		}
 	}()
 
-	// Execute request
-	resp, err := http.DefaultClient.Do(req)
+	payload := map[string]interface{}{
+		"data": []entity.ZohoOrder{orderData},
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
-		s.log.With(
-			sl.Err(err),
-		).Debug("response")
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	apiResp, err := s.doRequest(http.MethodPost, body, "Sales_Orders")
+	if err != nil {
 		return "", err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	//s.log.With(
-	//	slog.String("response", string(bodyBytes)),
-	//).Debug("create order response")
-
-	var apiResp entity.ZohoAPIResponse
-	if err = json.Unmarshal(bodyBytes, &apiResp); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
-	}
-
-	if len(apiResp.Data) == 0 {
-		return "", fmt.Errorf("empty response data")
 	}
 
 	item := apiResp.Data[0]
@@ -378,51 +300,9 @@ func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedIte
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	// The URL for bulk updates is the module URL, not a specific record URL.
-	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders")
+	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders")
 	if err != nil {
 		return "", err
-	}
-
-	if e := s.RefreshToken(); e != nil {
-		return "", e
-	}
-
-	// Bulk updates are done with PUT.
-	req, err := http.NewRequest(
-		http.MethodPut,
-		fullURL,
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	s.log.With(
-		slog.String("response", string(bodyBytes)),
-	).Debug("add items to order response")
-
-	var apiResp entity.ZohoAPIResponse
-	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
-	}
-
-	if len(apiResp.Data) == 0 {
-		return "", fmt.Errorf("empty response data")
 	}
 
 	item := apiResp.Data[0]
@@ -448,7 +328,6 @@ func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedIte
 }
 
 func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
-	// Prepare payload
 	payload := map[string]interface{}{
 		"data": []entity.ZohoOrder{orderData},
 	}
@@ -457,53 +336,9 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
-	fullURL, err := buildURL(s.crmUrl, s.scope, s.apiVersion, "Sales_Orders", id)
+	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders", id)
 	if err != nil {
 		return err
-	}
-
-	if e := s.RefreshToken(); e != nil {
-		return e
-	}
-
-	req, err := http.NewRequest(
-		http.MethodPut,
-		fullURL,
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("send request: %w", err)
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	s.log.With(
-		slog.String("response", string(bodyBytes)),
-	).Debug("create order response")
-
-	var apiResp entity.ZohoAPIResponse
-	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-
-	if len(apiResp.Data) == 0 {
-		return fmt.Errorf("empty response data")
 	}
 
 	item := apiResp.Data[0]
@@ -534,6 +369,52 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
 
 	return nil
 
+}
+
+func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...string) (*entity.ZohoAPIResponse, error) {
+	segments := append([]string{s.scope, s.apiVersion}, pathSegments...)
+	fullURL, err := buildURL(s.crmUrl, segments...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.RefreshToken(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(method, fullURL, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			s.log.With(sl.Err(err)).Warn("failed to close response body")
+		}
+	}(resp.Body)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var apiResp entity.ZohoAPIResponse
+	if err = json.Unmarshal(bodyBytes, &apiResp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	if len(apiResp.Data) == 0 {
+		return nil, fmt.Errorf("empty response data")
+	}
+
+	return &apiResp, nil
 }
 
 func buildURL(base string, paths ...string) (string, error) {
