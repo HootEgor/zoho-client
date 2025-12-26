@@ -17,7 +17,8 @@ import (
 type Source string
 
 const (
-	SourceOpenCart Source = "opencart"
+	SourceOpenCart  Source = "opencart"
+	ShippingItemUid        = "cd3cc23c-6dfb-11ec-b75f-00155d018000"
 )
 
 type CheckoutParams struct {
@@ -173,7 +174,7 @@ func ShippingLineItem(title string, amount int64) *LineItem {
 	}
 	return &LineItem{
 		Name:     title,
-		Uid:      "cd3cc23c-6dfb-11ec-b75f-00155d018000",
+		Uid:      ShippingItemUid,
 		Qty:      1,
 		Price:    amount,
 		Shipping: true,

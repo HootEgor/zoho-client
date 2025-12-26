@@ -26,6 +26,7 @@ type Repository interface {
 	UpdateOrderTotal(orderId int64, code string, valueInCents int64) error
 
 	UpdateProductZohoId(productUID string, zohoId string) error
+	GetProductZohoIdByUid(productUID string) (string, error)
 }
 
 type ProductRepository interface {
@@ -45,15 +46,16 @@ type MessageService interface {
 }
 
 type Core struct {
-	repo     Repository
-	prodRepo ProductRepository
-	zoho     Zoho
-	ms       MessageService
-	statuses map[int]string
-	authKey  string
-	keys     map[string]string
-	log      *slog.Logger
-	stopCh   chan struct{}
+	repo               Repository
+	prodRepo           ProductRepository
+	zoho               Zoho
+	ms                 MessageService
+	shippingItemZohoId string
+	statuses           map[int]string
+	authKey            string
+	keys               map[string]string
+	log                *slog.Logger
+	stopCh             chan struct{}
 }
 
 func New(log *slog.Logger, conf config.Config) *Core {
@@ -76,6 +78,15 @@ func (c *Core) Stop() {
 
 func (c *Core) SetRepository(repo Repository) {
 	c.repo = repo
+
+	// Load shipping item zoho_id from database
+	zohoId, err := repo.GetProductZohoIdByUid(entity.ShippingItemUid)
+	if err != nil {
+		c.log.Warn("failed to load shipping item zoho_id", sl.Err(err))
+	} else if zohoId != "" {
+		c.shippingItemZohoId = zohoId
+		c.log.Debug("shipping item zoho_id loaded", slog.String("zoho_id", zohoId))
+	}
 }
 
 func (c *Core) SetProductRepository(prodRepo ProductRepository) {

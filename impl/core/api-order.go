@@ -32,6 +32,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)
 		if statusId > 0 {
+			log = log.With(slog.Int("status_id", statusId))
 			err = c.repo.ChangeOrderStatus(orderId, int64(statusId), "Updated via API")
 			if err != nil {
 				return fmt.Errorf("failed to update status: %w", err)
@@ -46,7 +47,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		taxRate = 0.23 // Default 23% VAT
 	}
 
-	// 5. Calculate discount percentage from API items
+	// Calculate discount percentage from API items
 	discountPercent := c.calculateDiscountPercent(orderDetails.OrderedItems)
 
 	var itemsTotal int64
@@ -57,7 +58,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	productData := make([]database.OrderProductData, 0, len(orderDetails.OrderedItems))
 	for _, item := range orderDetails.OrderedItems {
 		// Calculate shipping total separately
-		if item.Shipping {
+		if item.ZohoID == c.shippingItemZohoId {
 			shippingTotal += int64(math.Round(item.Price * 100))
 			log.With(
 				slog.Float64("price", item.Price),
@@ -66,7 +67,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 
 		// Calculate tax per unit
-		taxPerUnit := item.Price * taxRate
+		taxPerUnit := item.Price * taxRate / (1 + taxRate)
 
 		// Calculate line total (price × quantity, no discount)
 		lineTotal := item.Price * float64(item.Quantity)
@@ -82,21 +83,6 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 		itemsTotal += int64(math.Round(lineTotal * 100))
 		taxTotal += int64(math.Round(taxPerUnit*100)) * int64(item.Quantity)
-	}
-
-	shippingTitle, _, _ := c.repo.OrderTotal(orderId, "shipping", currencyValue)
-	if shippingTitle == "" {
-		shippingTitle = "Shipping"
-	}
-
-	taxTitle, _, _ := c.repo.OrderTotal(orderId, "tax", currencyValue)
-	if taxTitle == "" {
-		taxTitle = "VAT"
-	}
-
-	discountTitle, _, _ := c.repo.OrderTotal(orderId, "discount", currencyValue)
-	if discountTitle == "" {
-		discountTitle = "Discount"
 	}
 
 	// Calculate discount and final total
@@ -116,14 +102,11 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		CurrencyValue: currencyValue,
 		OrderTotal:    orderTotal,
 		Totals: database.OrderTotalsData{
-			SubTotal:      itemsTotal,
-			Tax:           taxTotal,
-			TaxTitle:      taxTitle,
-			Discount:      discount,
-			DiscountTitle: discountTitle,
-			Shipping:      shippingTotal,
-			ShippingTitle: shippingTitle,
-			Total:         total,
+			SubTotal: itemsTotal,
+			Tax:      taxTotal,
+			Discount: discount,
+			Shipping: shippingTotal,
+			Total:    total,
 		},
 	}
 

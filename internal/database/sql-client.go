@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -184,6 +185,20 @@ func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
 		return fmt.Errorf("update product zoho_id: %w", err)
 	}
 	return nil
+}
+
+func (s *MySql) GetProductZohoIdByUid(productUID string) (string, error) {
+	query := fmt.Sprintf("SELECT zoho_id FROM %sproduct WHERE product_uid = ?", s.prefix)
+
+	var zohoId string
+	err := s.db.QueryRow(query, productUID).Scan(&zohoId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("query product zoho_id: %w", err)
+	}
+	return zohoId, nil
 }
 
 func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.CheckoutParams, error) {
