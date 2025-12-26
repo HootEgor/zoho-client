@@ -40,7 +40,6 @@ type OrderedItem struct {
 	DiscountP float64     `json:"DiscountP"`
 	ListPrice float64     `json:"List_Price"`
 	Total     float64     `json:"Total"`
-	Shipping  bool        `json:"is_shipping"`
 }
 
 type ZohoProduct struct {

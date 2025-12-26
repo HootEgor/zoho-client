@@ -83,8 +83,7 @@ The request body must contain a `data` array with order update objects:
           "zoho_id": "9876543210987654321",
           "price": 100.00,
           "total": 100.00,
-          "quantity": 1,
-          "is_shipping": false
+          "quantity": 1
         }
       ]
     }
@@ -126,7 +125,6 @@ The request body must contain a `data` array with order update objects:
 | `data[].ordered_items[].price` | Float64 | Required. Unit price (must be > 0) |
 | `data[].ordered_items[].total` | Float64 | Required. Line item total (must be > 0) |
 | `data[].ordered_items[].quantity` | Integer | Required. Quantity ordered (must be > 0) |
-| `data[].ordered_items[].is_shipping` | Boolean | Optional. Set to `true` for shipping line items, `false` or omit for product items |
 
 #### Notes
 
