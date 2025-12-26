@@ -53,7 +53,7 @@ func Struct(s interface{}) error {
 			}
 			message += fmt.Sprintf("%s %s", fieldErr.Field(), fieldErr.Tag())
 		}
-		return fmt.Errorf(message)
+		return fmt.Errorf("%s", message)
 	} else if errors.As(err, &invalidValidationError) {
 		return fmt.Errorf("invalid validation error: %w", err)
 	} else {
