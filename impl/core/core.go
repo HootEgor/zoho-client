@@ -53,6 +53,7 @@ type Core struct {
 	authKey  string
 	keys     map[string]string
 	log      *slog.Logger
+	stopCh   chan struct{}
 }
 
 func New(log *slog.Logger, conf config.Config) *Core {
@@ -65,7 +66,12 @@ func New(log *slog.Logger, conf config.Config) *Core {
 		},
 		authKey: conf.Listen.ApiKey,
 		keys:    make(map[string]string),
+		stopCh:  make(chan struct{}),
 	}
+}
+
+func (c *Core) Stop() {
+	close(c.stopCh)
 }
 
 func (c *Core) SetRepository(repo Repository) {
@@ -122,16 +128,25 @@ func (c *Core) Start() {
 		return
 	}
 
-	//c.log.Info("starting core service")
-
-	// Process orders
 	go func() {
 		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
 
 		for {
-			c.ProcessOrders()
-			<-ticker.C
+			select {
+			case <-c.stopCh:
+				c.log.Info("order processing stopped")
+				return
+			default:
+				c.ProcessOrders()
+			}
+
+			select {
+			case <-c.stopCh:
+				c.log.Info("order processing stopped")
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
 }

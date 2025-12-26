@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 	"zohoclient/internal/config"
 	"zohoclient/internal/http-server/handlers/errors"
 	"zohoclient/internal/http-server/handlers/order"
@@ -28,9 +30,8 @@ type Handler interface {
 	order.Core
 }
 
-func New(conf *config.Config, log *slog.Logger, handler Handler) error {
-
-	server := Server{
+func New(conf *config.Config, log *slog.Logger, handler Handler) (*Server, error) {
+	server := &Server{
 		conf: conf,
 		log:  log.With(sl.Module("api.server")),
 	}
@@ -59,13 +60,28 @@ func New(conf *config.Config, log *slog.Logger, handler Handler) error {
 		ErrorLog: httpLog,
 	}
 
-	serverAddress := fmt.Sprintf("%s:%s", conf.Listen.BindIP, conf.Listen.Port)
+	return server, nil
+}
+
+func (s *Server) Start() error {
+	serverAddress := fmt.Sprintf("%s:%s", s.conf.Listen.BindIP, s.conf.Listen.Port)
 	listener, err := net.Listen("tcp", serverAddress)
 	if err != nil {
 		return err
 	}
 
-	server.log.Info("starting api server", slog.String("address", serverAddress))
+	s.log.Info("starting api server", slog.String("address", serverAddress))
 
-	return server.httpServer.Serve(listener)
+	return s.httpServer.Serve(listener)
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.log.Info("shutting down api server")
+	return s.httpServer.Shutdown(ctx)
+}
+
+func (s *Server) ShutdownWithTimeout(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return s.Shutdown(ctx)
 }

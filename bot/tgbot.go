@@ -17,6 +17,7 @@ import (
 type TgBot struct {
 	log         *slog.Logger
 	api         *tgbotapi.Bot
+	updater     *ext.Updater
 	botUsername string
 	adminIds    []int64
 	minLogLevel slog.Level
@@ -68,21 +69,18 @@ func NewTgBot(botName, apiKey string, adminIdsStr string, log *slog.Logger) (*Tg
 }
 
 func (t *TgBot) Start() error {
-
 	dispatcher := ext.NewDispatcher(&ext.DispatcherOpts{
-		// If an error is returned by a handler, log it and continue going.
 		Error: func(b *tgbotapi.Bot, ctx *ext.Context, err error) ext.DispatcherAction {
 			log.Println("an error occurred while handling update:", err.Error())
 			return ext.DispatcherActionNoop
 		},
 		MaxRoutines: ext.DefaultMaxRoutines,
 	})
-	updater := ext.NewUpdater(dispatcher, nil)
+	t.updater = ext.NewUpdater(dispatcher, nil)
 
 	dispatcher.AddHandler(handlers.NewCommand("level", t.level))
 
-	// Start receiving updates.
-	err := updater.StartPolling(t.api, &ext.PollingOpts{
+	err := t.updater.StartPolling(t.api, &ext.PollingOpts{
 		DropPendingUpdates: true,
 		GetUpdatesOpts: &tgbotapi.GetUpdatesOpts{
 			Timeout: 9,
@@ -92,14 +90,21 @@ func (t *TgBot) Start() error {
 		},
 	})
 	if err != nil {
-		panic("failed to start polling: " + err.Error())
+		return fmt.Errorf("failed to start polling: %w", err)
 	}
 
-	// Idle, to keep updates coming in, and avoid bot stopping.
-	updater.Idle()
-
-	// Set up an update configuration
+	t.updater.Idle()
 	return nil
+}
+
+func (t *TgBot) Stop() {
+	if t.updater != nil {
+		t.log.Info("stopping telegram bot")
+		err := t.updater.Stop()
+		if err != nil {
+			t.log.Error("error stopping telegram bot", sl.Err(err))
+		}
+	}
 }
 
 // SetMinLogLevel sets the minimum log level for all admin notifications

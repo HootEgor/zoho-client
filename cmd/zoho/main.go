@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 	"zohoclient/bot"
 	"zohoclient/impl/core"
@@ -15,7 +20,6 @@ import (
 )
 
 func main() {
-
 	configPath := flag.String("conf", "config.yml", "path to config file")
 	logPath := flag.String("log", "/var/log/", "path to log file directory")
 	flag.Parse()
@@ -31,13 +35,11 @@ func main() {
 		if err != nil {
 			lg.Error("failed to initialize telegram bot", slog.String("error", err.Error()))
 		} else {
-			// Set up Telegram handler for the logger
 			lg = logger.SetupTelegramHandler(lg, tgBot, slog.LevelDebug)
 			lg.With(
 				slog.String("bot", conf.Telegram.BotName),
 			).Info("telegram bot initialized")
 
-			// Start the bot in a goroutine
 			go func() {
 				if err := tgBot.Start(); err != nil {
 					lg.Error("telegram bot error", slog.String("error", err.Error()))
@@ -53,9 +55,7 @@ func main() {
 
 	db, err := database.NewSQLClient(conf, lg)
 	if err != nil {
-		lg.With(
-			sl.Err(err),
-		).Error("mysql client")
+		lg.With(sl.Err(err)).Error("mysql client")
 	}
 	if db != nil {
 		handler.SetRepository(db)
@@ -65,13 +65,11 @@ func main() {
 			slog.String("user", conf.SQL.UserName),
 			slog.String("database", conf.SQL.Database),
 		).Info("mysql client initialized")
-		defer db.Close()
 
 		lg.Debug("mysql stats", slog.String("connections", db.Stats()))
 		go func() {
 			ticker := time.NewTicker(6 * time.Hour)
 			defer ticker.Stop()
-
 			for {
 				select {
 				case <-ticker.C:
@@ -88,9 +86,7 @@ func main() {
 
 	prodRepo, err := services.NewProductRepo(conf, lg)
 	if err != nil {
-		lg.With(
-			sl.Err(err),
-		).Error("product repository")
+		lg.With(sl.Err(err)).Error("product repository")
 	} else {
 		handler.SetProductRepository(prodRepo)
 		lg.With(
@@ -100,36 +96,59 @@ func main() {
 
 	if zoho != nil {
 		handler.SetZoho(zoho)
-		//lg.Info("zoho service initialized")
 	} else {
 		lg.Error("zoho service not initialized")
 	}
 
-	// Set auth key for API authentication
 	handler.SetAuthKey(conf.Listen.ApiKey)
-
 	handler.Start()
 
-	// *** blocking start with http server ***
-	err = api.New(conf, lg, handler)
+	// Create HTTP server
+	server, err := api.New(conf, lg, handler)
 	if err != nil {
-		lg.Error("server start", sl.Err(err))
+		lg.Error("server create", sl.Err(err))
 		return
 	}
-	lg.Error("service stopped")
 
-	//if conf.Telegram.Enabled {
-	//	tg, e := telegram.New(conf.Telegram.ApiKey, lg)
-	//	if e != nil {
-	//		lg.Error("telegram api", sl.Err(e))
-	//	}
-	//	//if mongo != nil {
-	//	//	tg.SetDatabase(mongo)
-	//	//}
-	//	tg.Start()
-	//	lg.Info("telegram api initialized")
-	//	handler.SetMessageService(tg)
-	//}
+	// Channel to listen for shutdown signals
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	lg.Error("service stopped")
+	// Start HTTP server in goroutine
+	go func() {
+		if err := server.Start(); err != nil && err != http.ErrServerClosed {
+			lg.Error("server start", sl.Err(err))
+		}
+	}()
+
+	// Wait for shutdown signal
+	sig := <-quit
+	lg.Info("shutdown signal received", slog.String("signal", sig.String()))
+
+	// Create shutdown context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Graceful shutdown sequence
+	lg.Info("shutting down services...")
+
+	// 1. Stop accepting new HTTP requests
+	if err := server.Shutdown(ctx); err != nil {
+		lg.Error("http server shutdown", sl.Err(err))
+	}
+
+	// 2. Stop order processing
+	handler.Stop()
+
+	// 3. Stop Telegram bot
+	if tgBot != nil {
+		tgBot.Stop()
+	}
+
+	// 4. Close database connection
+	if db != nil {
+		db.Close()
+	}
+
+	lg.Info("service stopped gracefully")
 }
