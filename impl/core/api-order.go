@@ -10,14 +10,12 @@ import (
 )
 
 func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
-	log := c.log.With(sl.Module("core/api-order"))
+	log := c.log.With(sl.Module("core.UpdateOrder"))
 
-	// 1. Validate input
 	if orderDetails.ZohoID == "" {
 		return fmt.Errorf("zoho_id is required")
 	}
 
-	// 2. Find order in database
 	orderId, orderParams, err := c.repo.OrderSearchByZohoId(orderDetails.ZohoID)
 	if err != nil {
 		return fmt.Errorf("order not found: %w", err)
@@ -30,7 +28,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		slog.Int64("order_id", orderId),
 	)
 
-	// 3. Update status if provided (done separately before transaction)
+	// Update status if provided (done separately before transaction)
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)
 		if statusId > 0 {
@@ -41,7 +39,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 	}
 
-	// 4. Calculate tax rate from existing order totals
+	// Calculate tax rate from existing order totals
 	taxRate, err := c.calculateTaxRate(orderId, currencyValue)
 	if err != nil {
 		log.Warn("failed to calculate tax rate, using default", sl.Err(err))

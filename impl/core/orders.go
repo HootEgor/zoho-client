@@ -231,6 +231,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 			DiscountP: roundFloat(d.DiscountP),
 			ListPrice: roundInt(d.Price),
 			Total:     roundInt(d.Price*d.Qty - d.Discount),
+			Shipping:  d.Shipping,
 		}
 
 		if len(orderedItems) >= ChunkSize {
