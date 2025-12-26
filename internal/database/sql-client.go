@@ -432,30 +432,6 @@ func (s *MySql) GetOrderProductTotals(orderId int64) (totalSum int64, taxSum int
 	return totalSum, taxSum, nil
 }
 
-// UpdateOrderTotal updates or inserts a single row in the order_total table.
-// Uses INSERT...ON DUPLICATE KEY UPDATE for idempotent upsert operation.
-// valueInCents is the monetary value in cents (stored as float in DB after conversion).
-//func (s *MySql) UpdateOrderTotal(orderId int64, code string, valueInCents int64) error {
-//	// Convert cents back to float for database storage (order_total.value is DECIMAL)
-//	valueFloat := float64(valueInCents) / 100.0
-//
-//	title := code
-//	sortOrder := 1
-//
-//	query := fmt.Sprintf(`
-//		INSERT INTO %sorder_total (order_id, code, value, title, sort_order)
-//		VALUES (?, ?, ?, ?, ?)
-//		ON DUPLICATE KEY UPDATE value = VALUES(value)
-//	`, s.prefix)
-//
-//	_, err := s.db.Exec(query, orderId, code, valueFloat, title, sortOrder)
-//	if err != nil {
-//		return fmt.Errorf("update order_total (code: %s): %w", code, err)
-//	}
-//
-//	return nil
-//}
-
 // addOrderData retrieves and calculates tax, line items, and shipping costs for a specific order and updates its details.
 func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*entity.CheckoutParams, error) {
 	var err error

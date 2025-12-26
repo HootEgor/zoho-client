@@ -19,25 +19,11 @@ const (
 func (c *Core) ProcessOrders() {
 	orders, err := c.repo.GetNewOrders()
 	if err != nil {
-		c.log.Error("failed to get new orders", slog.String("error", err.Error()))
+		c.log.With(sl.Err(err)).Error("failed to get new orders")
 		return
 	}
 
-	//zohoId, longOrder, err := c.repo.OrderSearchId(7725)
-	//if err != nil {
-	//	c.log.Error("failed to get order", slog.String("error", err.Error()))
-	//}
-	//
-	//if longOrder != nil && zohoId == "[B2B]" {
-	//	orders = append(orders, longOrder)
-	//} else {
-	//	c.log.With(
-	//		slog.String("zoho_id", zohoId),
-	//	).Info("order found")
-	//}
-
 	for _, order := range orders {
-
 		order.DiscountP = roundFloat(order.DiscountP)
 
 		log := c.log.With(
@@ -60,7 +46,6 @@ func (c *Core) ProcessOrders() {
 
 		log = log.With(
 			slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
-			//slog.String("email", order.ClientDetails.Email),
 			slog.String("country", order.ClientDetails.Country),
 		)
 
@@ -107,15 +92,17 @@ func (c *Core) ProcessOrders() {
 
 		orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
-			//log.With(
-			//	sl.Err(err),
-			//).Error("create Zoho order")
+			log.With(sl.Err(err)).Error("create Zoho order")
 			continue
 		}
 
-		for _, chunk := range chunkedItems {
+		for i, chunk := range chunkedItems {
 			_, err = c.zoho.AddItemsToOrder(orderZohoId, chunk)
 			if err != nil {
+				log.With(
+					sl.Err(err),
+					slog.Int("chunk", i+1),
+				).Error("add items to order")
 				break
 			}
 		}
@@ -127,19 +114,9 @@ func (c *Core) ProcessOrders() {
 			slog.String("zoho_id", orderZohoId),
 		).Info("order created")
 
-		//err = c.repo.ChangeOrderStatus(ocOrder.OrderID, entity.OrderStatusProcessing)
-		//if err != nil {
-		//	c.log.With(
-		//		slog.Int64("order_id", ocOrder.OrderID),
-		//		sl.Err(err),
-		//	).Error("update order status")
-		//}
-
 		err = c.repo.ChangeOrderZohoId(order.OrderId, orderZohoId)
 		if err != nil {
-			log.With(
-				sl.Err(err),
-			).Error("update order zoho_id")
+			log.With(sl.Err(err)).Error("update order zoho_id")
 		}
 	}
 
@@ -164,7 +141,6 @@ func hasEmptyUid(products []*entity.LineItem) error {
 }
 
 func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
-
 	for i, p := range products {
 		if p.ZohoId == "" {
 			zohoID, err := c.prodRepo.GetProductZohoID(p.Uid)
@@ -188,35 +164,14 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 					).Error("update product")
 					continue
 				}
-
-				// Update the product in the slice
 				products[i].ZohoId = zohoID
-
-				//c.log.With(
-				//	slog.String("product", p.Name),
-				//	slog.String("product_uid", p.Uid),
-				//	slog.String("zoho_id", zohoID),
-				//).Debug("product updated")
 			}
 		}
 	}
-
 }
 
-//func filterDigitsOnly(phone string) string {
-//	var result []rune
-//	for _, ch := range phone {
-//		if ch >= '0' && ch <= '9' {
-//			result = append(result, ch)
-//		}
-//	}
-//	return string(result)
-//}
-
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
-
 	var orderedItems []entity.OrderedItem
-
 	var chunkedItems [][]*entity.OrderedItem
 	var chunk []*entity.OrderedItem
 
@@ -224,7 +179,6 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		item := entity.OrderedItem{
 			Product: entity.ZohoProduct{
 				ID: d.ZohoId,
-				//Name: d.UID, // using UID as the name
 			},
 			Quantity:  d.Qty,
 			Discount:  roundInt(d.Discount),
@@ -234,17 +188,23 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 			Shipping:  d.Shipping,
 		}
 
-		if len(orderedItems) >= ChunkSize {
+		// First ChunkSize items go into orderedItems (initial order creation)
+		if len(orderedItems) < ChunkSize {
+			orderedItems = append(orderedItems, item)
+		} else {
+			// Subsequent items go into chunks for AddItemsToOrder calls
+			itemCopy := item
+			chunk = append(chunk, &itemCopy)
 			if len(chunk) >= ChunkSize {
 				chunkedItems = append(chunkedItems, chunk)
 				chunk = []*entity.OrderedItem{}
-			} else {
-				chunk = append(chunk, &item)
 			}
-		} else {
-			orderedItems = append(orderedItems, item)
 		}
+	}
 
+	// Don't forget remaining items in the last chunk
+	if len(chunk) > 0 {
+		chunkedItems = append(chunkedItems, chunk)
 	}
 
 	return entity.ZohoOrder{
@@ -253,7 +213,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		Discount:           roundInt(oc.Discount),
 		DiscountP:          oc.DiscountP,
 		Description:        oc.Comment,
-		CustomerNo:         "", //fmt.Sprint(oc.CustomerID),
+		CustomerNo:         "",
 		ShippingState:      "",
 		Tax:                0,
 		VAT:                float64(oc.TaxRate()),
@@ -285,5 +245,5 @@ func roundFloat(value float64) float64 {
 	if value < 0 {
 		value = -value
 	}
-	return math.Round(value) //*100) / 100
+	return math.Round(value*100) / 100
 }

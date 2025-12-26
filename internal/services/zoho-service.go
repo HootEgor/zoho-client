@@ -55,23 +55,24 @@ func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error)
 }
 
 func (s *ZohoService) RefreshToken() error {
-
 	if s.refreshToken != "" && time.Now().Before(s.tokenExpiry) {
 		return nil
 	}
 	var err error
 	for i := 0; i < 3; i++ {
 		if err = s.requestToken(); err == nil {
-			break
+			return nil
 		}
 		s.log.With(
 			slog.Int("attempt", i+1),
 			sl.Err(err),
 		).Warn("refresh token failed")
-		time.Sleep(30 * time.Second)
+		if i < 2 {
+			time.Sleep(30 * time.Second)
+		}
 	}
 
-	return nil
+	return fmt.Errorf("refresh token failed after 3 attempts: %w", err)
 }
 
 func (s *ZohoService) requestToken() error {
@@ -93,7 +94,10 @@ func (s *ZohoService) requestToken() error {
 	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("refresh token failed (status %d), failed to read body: %w", resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("refresh token failed: %s", string(bodyBytes))
 	}
 
@@ -105,9 +109,7 @@ func (s *ZohoService) requestToken() error {
 	s.refreshToken = response.AccessToken
 
 	if response.AccessToken == "" {
-		s.log.With(
-			slog.Any("response", response),
-		).Debug("refresh token failed")
+		s.log.With(slog.Any("response", response)).Debug("refresh token failed")
 		return fmt.Errorf("empty access token")
 	}
 	if response.ApiDomain != "" {
@@ -116,11 +118,6 @@ func (s *ZohoService) requestToken() error {
 	if response.ExpiresIn != 0 {
 		s.tokenExpiry = time.Now().Add(time.Duration(response.ExpiresIn) * time.Second)
 	}
-
-	//s.log.With(
-	//	slog.Time("expires", s.tokenExpiry),
-	//	sl.Secret("token", response.AccessToken),
-	//).Debug("refresh token succeeded")
 
 	return nil
 }
@@ -183,11 +180,6 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 				return "", fmt.Errorf("failed to parse duplicate details: %w", err)
 			}
 			id = dup.DuplicateRecord.ID
-			//log.With(
-			//	slog.String("duplicate_id", dup.DuplicateRecord.ID),
-			//	slog.String("owner", dup.DuplicateRecord.Owner.Name),
-			//	slog.String("module", dup.DuplicateRecord.Module.APIName),
-			//).Debug("duplicate record detected")
 			if id != "" {
 				return id, nil
 			}
@@ -199,10 +191,6 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
 			}
 			id = multiErr.Errors[0].Details.DuplicateRecord.ID
-			//log.With(
-			//	slog.Any("error_message", multiErr.Errors[0].Message),
-			//	slog.String("duplicate_id", id),
-			//).Debug("multiple errors detected")
 			if id != "" {
 				return id, nil
 			}

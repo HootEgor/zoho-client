@@ -196,12 +196,6 @@ func (t *TgBot) SendMessageWithLevel(msg string, level slog.Level) {
 }
 
 func (t *TgBot) plainResponse(chatId int64, text string) {
-
-	//text = strings.ReplaceAll(text, "**", "*")
-	//text = strings.ReplaceAll(text, "![", "[")
-	//
-	//sanitized := Sanitize(text)
-
 	if text != "" {
 		_, err := t.api.SendMessage(chatId, text, &tgbotapi.SendMessageOpts{
 			ParseMode: "MarkdownV2",
