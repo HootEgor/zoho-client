@@ -49,11 +49,19 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// 5. Calculate discount percentage from API items
 	discountPercent := c.calculateDiscountPercent(orderDetails.OrderedItems)
 
-	itemsTotal := 0
-	taxTotal := 0
-	// 6. Prepare product data with calculated tax
+	var itemsTotal int64
+	var taxTotal int64
+	var shippingTotal int64
+
+	// Prepare product data with calculated tax
 	productData := make([]database.OrderProductData, 0, len(orderDetails.OrderedItems))
 	for _, item := range orderDetails.OrderedItems {
+		// Calculate shipping total separately
+		if item.Shipping {
+			shippingTotal += int64(math.Round(item.Price * 100))
+			continue
+		}
+
 		// Calculate tax per unit
 		taxPerUnit := item.Price * taxRate
 
@@ -69,17 +77,14 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			TaxInCents:   int64(math.Round(taxPerUnit * 100)),
 		})
 
-		itemsTotal += int(math.Round(lineTotal * 100))
-		taxTotal += int(math.Round(taxPerUnit*100)) * item.Quantity
+		itemsTotal += int64(math.Round(lineTotal * 100))
+		taxTotal += int64(math.Round(taxPerUnit*100)) * int64(item.Quantity)
 	}
 
-	// 7. Get existing shipping and titles (before transaction)
-	shippingTitle, shippingValueCents, err := c.repo.OrderTotal(orderId, "shipping", currencyValue)
-	if err != nil {
+	shippingTitle, _, _ := c.repo.OrderTotal(orderId, "shipping", currencyValue)
+	if shippingTitle == "" {
 		shippingTitle = "Shipping"
-		shippingValueCents = 0
 	}
-	shipping := shippingValueCents
 
 	taxTitle, _, _ := c.repo.OrderTotal(orderId, "tax", currencyValue)
 	if taxTitle == "" {
@@ -91,30 +96,29 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		discountTitle = "Discount"
 	}
 
-	//taxTotal -= int(shipping)
-	// 8. Calculate discount and final total
-	discount := int64(math.Round(float64(itemsTotal+taxTotal+int(shipping)) * discountPercent))
-	total := int64(itemsTotal + taxTotal + int(shipping) - int(discount))
+	// Calculate discount and final total
+	discount := int64(math.Round(float64(itemsTotal+taxTotal+shippingTotal) * discountPercent))
+	total := itemsTotal + taxTotal + shippingTotal - discount
 
-	// 9. Determine order total for database
+	// Determine order total for database
 	orderTotal := orderDetails.GrandTotal
 	if orderTotal == 0 {
 		orderTotal = float64(orderParams.Total) / 100.0
 	}
 
-	// 10. Execute entire update in a single transaction
+	// Execute entire update in a single transaction
 	txData := database.OrderUpdateTransaction{
 		OrderID:       orderId,
 		Items:         productData,
 		CurrencyValue: currencyValue,
 		OrderTotal:    orderTotal,
 		Totals: database.OrderTotalsData{
-			SubTotal:      int64(itemsTotal),
-			Tax:           int64(taxTotal),
+			SubTotal:      itemsTotal,
+			Tax:           taxTotal,
 			TaxTitle:      taxTitle,
 			Discount:      discount,
 			DiscountTitle: discountTitle,
-			Shipping:      shipping,
+			Shipping:      shippingTotal,
 			ShippingTitle: shippingTitle,
 			Total:         total,
 		},
@@ -126,10 +130,10 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	log.With(
-		slog.Int64("sub_total", int64(itemsTotal)),
-		slog.Int64("shipping", shipping),
+		slog.Int64("sub_total", itemsTotal),
+		slog.Int64("shipping", shippingTotal),
 		slog.Int64("discount", discount),
-		slog.Int("tax_total", taxTotal),
+		slog.Int64("tax_total", taxTotal),
 		slog.Float64("tax_rate", taxRate),
 		slog.Int64("total", total),
 	).Debug("order updated")

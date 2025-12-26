@@ -17,6 +17,7 @@ type ApiOrderedItem struct {
 	Price    float64 `json:"price" validate:"gt=0"`
 	Total    float64 `json:"total" validate:"gt=0"`
 	Quantity int     `json:"quantity" validate:"gt=0"`
+	Shipping bool    `json:"is_shipping"`
 }
 
 func (o *ApiOrder) Bind(_ *http.Request) error {

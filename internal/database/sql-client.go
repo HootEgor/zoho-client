@@ -624,39 +624,34 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		return fmt.Errorf("update order total: %w", err)
 	}
 
-	// Step 4: Update all order_total entries (delete first, then insert for clean state)
-	// Delete all existing order_total entries for this order
-	deleteTotalsQuery := fmt.Sprintf("DELETE FROM %sorder_total WHERE order_id = ?", s.prefix)
-	_, err = tx.Exec(deleteTotalsQuery, data.OrderID)
+	// Step 4: Update all order_total entries
+	// First, reset all totals to zero
+	resetTotalsQuery := fmt.Sprintf("UPDATE %sorder_total SET value = 0 WHERE order_id = ?", s.prefix)
+	_, err = tx.Exec(resetTotalsQuery, data.OrderID)
 	if err != nil {
-		return fmt.Errorf("delete existing order totals: %w", err)
+		return fmt.Errorf("reset order totals: %w", err)
 	}
 
-	// Insert all order_total entries
+	// Then update each total by code
+	updateTotalQuery := fmt.Sprintf("UPDATE %sorder_total SET value = ? WHERE order_id = ? AND code = ?", s.prefix)
 
-	err = s.UpdateOrderTotal(data.OrderID, subTotalCode, data.Totals.SubTotal)
-	if err != nil {
-		return fmt.Errorf("insert sub_total: %w", err)
+	totalsToUpdate := []struct {
+		code  string
+		value int64
+	}{
+		{subTotalCode, data.Totals.SubTotal},
+		{totalCodeTax, data.Totals.Tax},
+		{discountCode, data.Totals.Discount},
+		{totalCodeShipping, data.Totals.Shipping},
+		{totalCodeTotal, data.Totals.Total},
 	}
 
-	err = s.UpdateOrderTotal(data.OrderID, totalCodeTax, data.Totals.Tax)
-	if err != nil {
-		return fmt.Errorf("insert tax: %w", err)
-	}
-
-	err = s.UpdateOrderTotal(data.OrderID, discountCode, data.Totals.Discount)
-	if err != nil {
-		return fmt.Errorf("insert discount: %w", err)
-	}
-
-	err = s.UpdateOrderTotal(data.OrderID, totalCodeShipping, data.Totals.Shipping)
-	if err != nil {
-		return fmt.Errorf("insert shipping: %w", err)
-	}
-
-	err = s.UpdateOrderTotal(data.OrderID, totalCodeTotal, data.Totals.Total)
-	if err != nil {
-		return fmt.Errorf("insert total: %w", err)
+	for _, t := range totalsToUpdate {
+		valueFloat := float64(t.value) / 100.0
+		_, err = tx.Exec(updateTotalQuery, valueFloat, data.OrderID, t.code)
+		if err != nil {
+			return fmt.Errorf("update order_total (code: %s): %w", t.code, err)
+		}
 	}
 
 	// Step 5: Add order_history record
