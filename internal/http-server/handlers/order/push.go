@@ -45,7 +45,6 @@ func PushOrder(logger *slog.Logger, core Core) http.HandlerFunc {
 		}
 
 		log = log.With(slog.Int64("order_id", orderId))
-		log.Info("pushing order to Zoho")
 
 		zohoId, err := core.PushOrderToZoho(orderId)
 		if err != nil {
@@ -59,7 +58,7 @@ func PushOrder(logger *slog.Logger, core Core) http.HandlerFunc {
 			return
 		}
 
-		log.Info("order pushed to Zoho successfully", slog.String("zoho_id", zohoId))
+		//log.Info("order pushed to Zoho successfully", slog.String("zoho_id", zohoId))
 		render.JSON(w, r, response.Ok(map[string]string{
 			"zoho_id": zohoId,
 		}))

@@ -214,38 +214,11 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 
 	var orders []*entity.CheckoutParams
 	for rows.Next() {
-		var order entity.CheckoutParams
-		var client entity.ClientDetails
-		var customField string
-
-		if err = rows.Scan(
-			&order.OrderId,
-			&order.Created,
-			&client.FirstName,
-			&client.LastName,
-			&client.Email,
-			&client.Phone,
-			&client.GroupId,
-			&customField,
-			&client.Country,
-			&client.ZipCode,
-			&client.City,
-			&client.Street,
-			&order.Currency,
-			&order.CurrencyValue,
-			&order.Total,
-			&order.Comment,
-		); err != nil {
+		order, _, err := s.scanOrderFromRows(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
-		order.ClientDetails = &client
-		order.ClientDetails.TrimSpaces()
-		order.Source = entity.SourceOpenCart
-		order.StatusId = statusId
-
-		orders = append(orders, &order)
+		orders = append(orders, order)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -404,11 +377,11 @@ func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*enti
 	return order, nil
 }
 
-// scanOrderFromRows scans a single order row and returns the order data and zoho_id.
+// scanOrderFromRows scans a single row into CheckoutParams and returns the zoho_id.
 // The rows must have columns in this exact order:
 // order_id, order_status_id, date_added, firstname, lastname, email, telephone,
-// custom_field, shipping_country, shipping_postcode, shipping_city, shipping_address_1,
-// currency_code, currency_value, total, comment, zoho_id
+// customer_group_id, custom_field, shipping_country, shipping_postcode, shipping_city,
+// shipping_address_1, currency_code, currency_value, total, comment, zoho_id
 func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, string, error) {
 	var order entity.CheckoutParams
 	var client entity.ClientDetails
@@ -423,6 +396,7 @@ func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, strin
 		&client.LastName,
 		&client.Email,
 		&client.Phone,
+		&client.GroupId,
 		&customField,
 		&client.Country,
 		&client.ZipCode,
@@ -472,7 +446,12 @@ func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParam
 		return 0, nil, err
 	}
 
-	return order.OrderId, order, nil
+	params, err := s.addOrderData(order.OrderId, order)
+	if err != nil {
+		return 0, nil, fmt.Errorf("add order data: %w", err)
+	}
+
+	return order.OrderId, params, nil
 }
 
 // OrderProductData represents the data needed to insert a product line item into an order.

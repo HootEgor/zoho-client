@@ -39,7 +39,9 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 		slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
 		slog.String("country", order.ClientDetails.Country),
 		slog.String("currency", order.Currency),
-		slog.Float64("total", order.Total),
+		slog.Float64("total", round2(order.Total)),
+		slog.String("tax", order.TaxTitle),
+		slog.Float64("tax_value", round2(order.TaxValue)),
 	)
 
 	contactID, err := c.zoho.CreateContact(order.ClientDetails)
@@ -109,8 +111,8 @@ func (c *Core) ProcessOrders() {
 			slog.Int64("order_id", order.OrderId),
 			slog.String("currency", order.Currency),
 			slog.String("tax", order.TaxTitle),
-			slog.Float64("total", order.Total),
-			slog.Float64("tax_value", order.TaxValue),
+			slog.Float64("total", round2(order.Total)),
+			slog.Float64("tax_value", round2(order.TaxValue)),
 		)
 
 		if order.ClientDetails == nil {

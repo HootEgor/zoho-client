@@ -60,6 +60,7 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
 			order_id,
+			order_status_id,
 			date_added,
 			firstname,
 			lastname,
@@ -74,9 +75,10 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			currency_code,
 			currency_value,
 			total,
-			comment
+			comment,
+			zoho_id
 		 FROM %sorder
-		 WHERE order_status_id = ? 
+		 WHERE order_status_id = ?
 		 	AND (zoho_id = '' OR zoho_id IS NULL)
 		 	AND date_modified > ?
 		 LIMIT 10`,
@@ -103,6 +105,7 @@ func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 			lastname,
 			email,
 			telephone,
+			customer_group_id,
 			custom_field,
 			shipping_country,
 			shipping_postcode,
@@ -163,6 +166,7 @@ func (s *MySql) stmtSelectOrderByZohoId() (*sql.Stmt, error) {
 			lastname,
 			email,
 			telephone,
+			customer_group_id,
 			custom_field,
 			shipping_country,
 			shipping_postcode,
