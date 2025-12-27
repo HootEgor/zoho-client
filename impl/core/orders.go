@@ -42,6 +42,7 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 		slog.Float64("total", round2(order.Total)),
 		slog.String("tax", order.TaxTitle),
 		slog.Float64("tax_value", round2(order.TaxValue)),
+		slog.String("coupon", order.CouponTitle),
 	)
 
 	contactID, err := c.zoho.CreateContact(order.ClientDetails)
@@ -113,6 +114,7 @@ func (c *Core) ProcessOrders() {
 			slog.String("tax", order.TaxTitle),
 			slog.Float64("total", round2(order.Total)),
 			slog.Float64("tax_value", round2(order.TaxValue)),
+			slog.String("coupon", order.CouponTitle),
 		)
 
 		if order.ClientDetails == nil {
@@ -303,11 +305,23 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		chunkedItems = append(chunkedItems, chunk)
 	}
 
+	// if an order has coupon set, move discount percent to promocode
+	promocode := ""
+	promocodeP := 0.0
+	if oc.CouponTitle != "" {
+		promocode = oc.CouponTitle
+		promocodeP = discountP
+		discount = 0
+		discountP = 0.0
+	}
+
 	return entity.ZohoOrder{
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
 		Discount:           round2(discount),
 		DiscountP:          round0(discountP),
+		Promocode:          promocode,
+		PromocodeP:         round0(promocodeP),
 		Description:        oc.Comment,
 		CustomerNo:         "",
 		ShippingState:      "",
