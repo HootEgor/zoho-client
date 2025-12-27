@@ -19,32 +19,46 @@ const (
 // PushOrderToZoho fetches an order by ID from the database and pushes it to Zoho CRM.
 // Returns the Zoho order ID on success.
 func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
-	log := c.log.With(slog.Int64("order_id", orderId))
 
 	_, order, err := c.repo.OrderSearchId(orderId)
 	if err != nil {
 		return "", fmt.Errorf("order search: %w", err)
 	}
 
-	//if existingZohoId != "" {
-	//	log.Info("order already has zoho_id", slog.String("zoho_id", existingZohoId))
-	//	return existingZohoId, nil
-	//}
-
-	if err := order.Validate(); err != nil {
-		return "", fmt.Errorf("order validation: %w", err)
+	zohoId, err := c.processOrder(order)
+	if err != nil {
+		return "", err
 	}
 
-	log = log.With(
-		slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
-		slog.String("country", order.ClientDetails.Country),
+	err = c.repo.ChangeOrderZohoId(orderId, zohoId)
+	if err != nil {
+		return zohoId, fmt.Errorf("update zoho_id in database: %w", err)
+	}
+
+	return zohoId, nil
+}
+
+// processOrder handles the core order-to-Zoho flow: creates contact, validates products,
+// builds and creates the Zoho order with all items. Returns the Zoho order ID on success.
+func (c *Core) processOrder(order *entity.CheckoutParams) (string, error) {
+	log := c.log.With(
+		slog.Int64("order_id", order.OrderId),
 		slog.String("currency", order.Currency),
-		slog.Float64("total", round2(order.Total)),
 		slog.String("tax", order.TaxTitle),
+		slog.Float64("total", round2(order.Total)),
 		slog.Float64("tax_value", round2(order.TaxValue)),
 		slog.String("coupon", order.CouponTitle),
+		slog.Float64("shipping", order.Shipping),
+		slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
+		slog.String("country", order.ClientDetails.Country),
 	)
 
+	if err := order.Validate(); err != nil {
+		log.With(sl.Err(err)).Warn("validation failed")
+		return "", err
+	}
+
+	// Create or find contact in Zoho
 	contactID, err := c.zoho.CreateContact(order.ClientDetails)
 	if err != nil {
 		log.With(
@@ -55,27 +69,31 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 		return "", fmt.Errorf("create contact: %w", err)
 	}
 
-	if e := hasEmptyUid(order.LineItems); e != nil {
-		return "", fmt.Errorf("product without UID: %w", e)
+	// Validate product UIDs
+	if err := hasEmptyUid(order.LineItems); err != nil {
+		return "", fmt.Errorf("product without UID: %w", err)
 	}
 
-	if e := hasEmptyZohoID(order.LineItems); e != nil {
+	// Fetch missing Zoho IDs for products
+	if err := hasEmptyZohoID(order.LineItems); err != nil {
 		c.processProductsWithoutZohoID(order.LineItems)
 
-		if ee := hasEmptyZohoID(order.LineItems); ee != nil {
-			return "", fmt.Errorf("product without Zoho ID: %w", ee)
+		if err := hasEmptyZohoID(order.LineItems); err != nil {
+			return "", fmt.Errorf("product without Zoho ID: %w", err)
 		}
 	}
 
+	// Build and create Zoho order
 	zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
 
-	orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
+	zohoId, err := c.zoho.CreateOrder(zohoOrder)
 	if err != nil {
 		return "", fmt.Errorf("create Zoho order: %w", err)
 	}
 
+	// Add remaining items in chunks
 	for i, chunk := range chunkedItems {
-		_, err = c.zoho.AddItemsToOrder(orderZohoId, chunk)
+		_, err = c.zoho.AddItemsToOrder(zohoId, chunk)
 		if err != nil {
 			log.With(
 				sl.Err(err),
@@ -85,15 +103,9 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 		}
 	}
 
-	log.With(slog.String("zoho_id", orderZohoId)).Info("order pushed to Zoho")
+	log.With(slog.String("zoho_id", zohoId)).Info("order created")
 
-	err = c.repo.ChangeOrderZohoId(orderId, orderZohoId)
-	if err != nil {
-		log.With(sl.Err(err)).Error("update order zoho_id")
-		return orderZohoId, fmt.Errorf("update zoho_id in database: %w", err)
-	}
-
-	return orderZohoId, nil
+	return zohoId, nil
 }
 
 // ProcessOrders fetches all new orders from the database and pushes them to Zoho CRM.
@@ -107,101 +119,27 @@ func (c *Core) ProcessOrders() {
 	}
 
 	for _, order := range orders {
-
 		log := c.log.With(
 			slog.Int64("order_id", order.OrderId),
-			slog.String("currency", order.Currency),
-			slog.String("tax", order.TaxTitle),
-			slog.Float64("total", round2(order.Total)),
-			slog.Float64("tax_value", round2(order.TaxValue)),
-			slog.String("coupon", order.CouponTitle),
-		)
-
-		if order.ClientDetails == nil {
-			log.Warn("no client details")
-			continue
-		}
-		if order.LineItems == nil || len(order.LineItems) == 0 {
-			log.Warn("no line items")
-			continue
-		}
-
-		log = log.With(
-			slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
-			slog.String("country", order.ClientDetails.Country),
 		)
 
 		if order.ClientDetails.IsB2B() {
-			log.With(
-				slog.Int64("group_id", order.ClientDetails.GroupId),
-			).Debug("b2b client; order skipped")
+			log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client; order skipped")
 			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
 			continue
 		}
 
-		contactID, err := c.zoho.CreateContact(order.ClientDetails)
+		zohoId, err := c.processOrder(order)
 		if err != nil {
-			log.With(
-				slog.String("email", order.ClientDetails.Email),
-				slog.String("phone", order.ClientDetails.Phone),
-				sl.Err(err),
-			).Error("create contact")
-			_ = c.repo.ChangeOrderStatus(order.OrderId, entity.OrderStatusCanceled, fmt.Sprintf("Zoho: %v", err))
+			log.With(sl.Err(err)).Error("process order failed")
 			continue
 		}
 
-		if e := hasEmptyUid(order.LineItems); e != nil {
-			log.With(
-				sl.Err(e),
-			).Warn("order has product(s) without UID")
-			continue
-		}
-
-		if e := hasEmptyZohoID(order.LineItems); e != nil {
-			// Try to fetch Zoho IDs for products without them
-			c.processProductsWithoutZohoID(order.LineItems)
-
-			// Check if there are still products without Zoho IDs
-			if ee := hasEmptyZohoID(order.LineItems); ee != nil {
-				log.With(
-					sl.Err(ee),
-				).Error("order has product(s) without Zoho ID")
-				continue // leave in queue
-			}
-		}
-
-		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
-
-		orderZohoId, err := c.zoho.CreateOrder(zohoOrder)
-		if err != nil {
-			log.With(sl.Err(err)).Error("create Zoho order")
-			continue
-		}
-
-		for i, chunk := range chunkedItems {
-			_, err = c.zoho.AddItemsToOrder(orderZohoId, chunk)
-			if err != nil {
-				log.With(
-					sl.Err(err),
-					slog.Int("chunk", i+1),
-				).Error("add items to order")
-				break
-			}
-		}
-		if err != nil {
-			continue
-		}
-
-		log.With(
-			slog.String("zoho_id", orderZohoId),
-		).Info("order created")
-
-		err = c.repo.ChangeOrderZohoId(order.OrderId, orderZohoId)
+		err = c.repo.ChangeOrderZohoId(order.OrderId, zohoId)
 		if err != nil {
 			log.With(sl.Err(err)).Error("update order zoho_id")
 		}
 	}
-
 }
 
 // hasEmptyZohoID checks if any product in the slice has an empty ZohoId.
@@ -276,33 +214,47 @@ func buildOrderedItem(lineItem *entity.LineItem, discountP float64) entity.Order
 // buildZohoOrder constructs a ZohoOrder from CheckoutParams. Returns the order and any
 // additional item chunks that exceed ChunkSize (100 items) for subsequent API calls.
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
-	var orderedItems []entity.OrderedItem
-	var chunkedItems [][]*entity.OrderedItem
-	var chunk []*entity.OrderedItem
-
 	discount, discountP := oc.Discount()
 	discountP = round0(discountP)
 
-	for _, d := range oc.LineItems {
-		item := buildOrderedItem(d, discountP)
+	lineItems := oc.LineItems
 
-		// First ChunkSize items go into orderedItems (initial order creation)
-		if len(orderedItems) < ChunkSize {
-			orderedItems = append(orderedItems, item)
-		} else {
-			// Subsequent items go into chunks for AddItemsToOrder calls
-			itemCopy := item
-			chunk = append(chunk, &itemCopy)
-			if len(chunk) >= ChunkSize {
-				chunkedItems = append(chunkedItems, chunk)
-				chunk = []*entity.OrderedItem{}
-			}
+	// Build all ordered items
+	allItems := make([]entity.OrderedItem, 0, len(lineItems))
+	for _, d := range lineItems {
+		allItems = append(allItems, buildOrderedItem(d, discountP))
+	}
+	// Add shipping as item without discount
+	if oc.Shipping > 0 {
+		shippingItem := &entity.LineItem{
+			ZohoId: c.shippingItemZohoId,
+			Qty:    1,
+			Price:  oc.Shipping,
 		}
+		allItems = append(allItems, buildOrderedItem(shippingItem, 0))
 	}
 
-	// Don't forget remaining items in the last chunk
-	if len(chunk) > 0 {
-		chunkedItems = append(chunkedItems, chunk)
+	// Split into main order items and chunks
+	var orderedItems []entity.OrderedItem
+	var chunkedItems [][]*entity.OrderedItem
+
+	if len(allItems) <= ChunkSize {
+		orderedItems = allItems
+	} else {
+		orderedItems = allItems[:ChunkSize]
+		remaining := allItems[ChunkSize:]
+
+		for i := 0; i < len(remaining); i += ChunkSize {
+			end := i + ChunkSize
+			if end > len(remaining) {
+				end = len(remaining)
+			}
+			chunk := make([]*entity.OrderedItem, end-i)
+			for j := i; j < end; j++ {
+				chunk[j-i] = &remaining[j]
+			}
+			chunkedItems = append(chunkedItems, chunk)
+		}
 	}
 
 	// if an order has coupon set, move discount percent to promocode
