@@ -256,7 +256,7 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 
 // buildOrderedItem converts a LineItem to a Zoho OrderedItem with the given discount percentage.
 func buildOrderedItem(lineItem *entity.LineItem, discountP float64) entity.OrderedItem {
-	totalWithDiscount := lineItem.Qty * lineItem.Price * discountP / 100
+	totalWithDiscount := round2(lineItem.Qty * lineItem.Price * discountP / 100)
 	return entity.OrderedItem{
 		Product: entity.ZohoProduct{
 			ID: lineItem.ZohoId,
@@ -277,7 +277,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	var chunk []*entity.OrderedItem
 
 	discount, discountP := oc.Discount()
-	discountP = roundFloat(discountP)
+	discountP = round0(discountP)
 
 	for _, d := range oc.LineItems {
 		item := buildOrderedItem(d, discountP)
@@ -304,15 +304,15 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	return entity.ZohoOrder{
 		ContactName:        entity.ContactName{ID: contactID},
 		OrderedItems:       orderedItems,
-		Discount:           discount,
-		DiscountP:          discountP,
+		Discount:           round2(discount),
+		DiscountP:          round0(discountP),
 		Description:        oc.Comment,
 		CustomerNo:         "",
 		ShippingState:      "",
 		Tax:                0,
-		VAT:                oc.TaxRate(),
-		GrandTotal:         oc.Total,
-		SubTotal:           oc.Total - oc.TaxValue,
+		VAT:                round0(oc.TaxRate()),
+		GrandTotal:         round2(oc.Total),
+		SubTotal:           round2(oc.Total - oc.TaxValue),
 		Currency:           oc.Currency,
 		BillingCountry:     oc.ClientDetails.Country,
 		Carrier:            "",
@@ -331,10 +331,18 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	}, chunkedItems
 }
 
-// roundFloat rounds a float64 to the nearest integer, converting negative values to positive.
-func roundFloat(value float64) float64 {
+// round0 rounds a float64 to the nearest integer, converting negative values to positive.
+func round0(value float64) float64 {
 	if value < 0 {
 		value = -value
 	}
 	return math.Round(value)
+}
+
+// round2 rounds a float64 to 2 decimal points
+func round2(value float64) float64 {
+	if value < 0 {
+		value = -value
+	}
+	return math.Round(value*100) / 100
 }

@@ -26,9 +26,9 @@ func TestRoundFloat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := roundFloat(tt.value)
+			result := round0(tt.value)
 			if result != tt.expected {
-				t.Errorf("roundFloat(%v) = %v, want %v", tt.value, result, tt.expected)
+				t.Errorf("round0(%v) = %v, want %v", tt.value, result, tt.expected)
 			}
 		})
 	}
