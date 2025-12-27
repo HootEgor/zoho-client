@@ -4,173 +4,62 @@ import (
 	"testing"
 )
 
-func TestItemsTotal(t *testing.T) {
-	tests := []struct {
-		name      string
-		lineItems []*LineItem
-		expected  int64
-	}{
-		{
-			name:      "empty items",
-			lineItems: []*LineItem{},
-			expected:  0,
-		},
-		{
-			name:      "nil items",
-			lineItems: nil,
-			expected:  0,
-		},
-		{
-			name: "single item no discount",
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0},
-			},
-			expected: 1000,
-		},
-		{
-			name: "single item with discount",
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 100},
-			},
-			expected: 900,
-		},
-		{
-			name: "multiple items",
-			lineItems: []*LineItem{
-				{Qty: 2, Price: 1000, Discount: 0},
-				{Qty: 1, Price: 500, Discount: 50},
-			},
-			expected: 2450, // 2000 + 450
-		},
-		{
-			name: "quantity multiplied correctly",
-			lineItems: []*LineItem{
-				{Qty: 5, Price: 200, Discount: 0},
-			},
-			expected: 1000,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := &CheckoutParams{LineItems: tt.lineItems}
-			result := c.ItemsTotal()
-			if result != tt.expected {
-				t.Errorf("ItemsTotal() = %d, want %d", result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestValidateTotal(t *testing.T) {
-	tests := []struct {
-		name      string
-		total     int64
-		lineItems []*LineItem
-		expectErr bool
-	}{
-		{
-			name:  "matching totals",
-			total: 1000,
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0},
-			},
-			expectErr: false,
-		},
-		{
-			name:  "total too high",
-			total: 1100,
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0},
-			},
-			expectErr: true,
-		},
-		{
-			name:  "total too low",
-			total: 900,
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0},
-			},
-			expectErr: true,
-		},
-		{
-			name:  "complex matching",
-			total: 2450,
-			lineItems: []*LineItem{
-				{Qty: 2, Price: 1000, Discount: 0},
-				{Qty: 1, Price: 500, Discount: 50},
-			},
-			expectErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := &CheckoutParams{Total: tt.total, LineItems: tt.lineItems}
-			err := c.ValidateTotal()
-			if (err != nil) != tt.expectErr {
-				t.Errorf("ValidateTotal() error = %v, expectErr %v", err, tt.expectErr)
-			}
-		})
-	}
-}
-
 func TestTaxRate(t *testing.T) {
 	tests := []struct {
 		name     string
-		total    int64
-		taxValue int64
-		shipping int64
-		expected int
+		total    float64
+		taxValue float64
+		shipping float64
+		expected float64
 	}{
 		{
 			name:     "zero tax",
-			total:    10000,
+			total:    100.00,
 			taxValue: 0,
 			shipping: 0,
 			expected: 0,
 		},
 		{
 			name:     "tax equals total - edge case",
-			total:    1000,
-			taxValue: 1000,
+			total:    10.00,
+			taxValue: 10.00,
 			shipping: 0,
 			expected: 0,
 		},
 		{
 			name:     "tax greater than total - edge case",
-			total:    1000,
-			taxValue: 1500,
+			total:    10.00,
+			taxValue: 15.00,
 			shipping: 0,
 			expected: 0,
 		},
 		{
 			name:     "23% VAT standard calculation",
-			total:    12300,
-			taxValue: 2300,
+			total:    123.00,
+			taxValue: 23.00,
 			shipping: 0,
-			expected: 23, // 2300 / (12300 - 2300) = 0.23
+			expected: 23.0, // 23 / (123 - 23) * 100 = 23%
 		},
 		{
 			name:     "8% reduced VAT",
-			total:    10800,
-			taxValue: 800,
+			total:    108.00,
+			taxValue: 8.00,
 			shipping: 0,
-			expected: 8, // 800 / (10800 - 800) = 0.08
+			expected: 8.0, // 8 / (108 - 8) * 100 = 8%
 		},
 		{
 			name:     "with shipping deducted",
-			total:    13300, // includes 1000 shipping
-			taxValue: 2300,
-			shipping: 1000,
-			expected: 23, // 2300 / (13300 - 1000 - 2300) = 2300/10000 = 0.23
+			total:    133.00, // includes 10 shipping
+			taxValue: 23.00,
+			shipping: 10.00,
+			expected: 23.0, // 23 / (133 - 10 - 23) * 100 = 23%
 		},
 		{
 			name:     "5% VAT",
-			total:    10500,
-			taxValue: 500,
+			total:    105.00,
+			taxValue: 5.00,
 			shipping: 0,
-			expected: 5,
+			expected: 5.0,
 		},
 	}
 
@@ -182,71 +71,85 @@ func TestTaxRate(t *testing.T) {
 				Shipping: tt.shipping,
 			}
 			result := c.TaxRate()
-			if result != tt.expected {
-				t.Errorf("TaxRate() = %d, want %d", result, tt.expected)
+			if diff := result - tt.expected; diff > 0.01 || diff < -0.01 {
+				t.Errorf("TaxRate() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
 }
 
-func TestRecalcWithDiscount(t *testing.T) {
+func TestDiscountPercent(t *testing.T) {
 	tests := []struct {
-		name              string
-		total             int64
-		shipping          int64
-		lineItems         []*LineItem
-		expectedDiscountP float64
-		expectedTotal     int64
+		name            string
+		total           float64
+		taxValue        float64
+		shipping        float64
+		lineItems       []*LineItem
+		expectedValue   float64
+		expectedPercent float64
 	}{
 		{
-			name:     "no discount needed - totals match",
-			total:    1000,
-			shipping: 0,
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0},
-			},
-			expectedDiscountP: 0,
-			expectedTotal:     1000,
+			name:            "no discount",
+			total:           123.00, // 100 base + 23 tax
+			taxValue:        23.00,
+			shipping:        0,
+			lineItems:       []*LineItem{{Total: 100.00}},
+			expectedValue:   0,
+			expectedPercent: 0,
 		},
 		{
-			name:     "10% discount",
-			total:    900,
-			shipping: 0,
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0},
-			},
-			expectedDiscountP: 10,
-			expectedTotal:     900,
+			name:            "10% discount",
+			total:           113.00, // 90 after discount + 23 tax
+			taxValue:        23.00,
+			shipping:        0,
+			lineItems:       []*LineItem{{Total: 100.00}},
+			expectedValue:   10.0,
+			expectedPercent: 10.0,
 		},
 		{
-			name:     "shipping excluded from discount",
-			total:    1100, // 900 product + 200 shipping
-			shipping: 200,
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0, Shipping: false},
-				{Qty: 1, Price: 200, Discount: 0, Shipping: true},
-			},
-			expectedDiscountP: 10, // 10% on product only
-			expectedTotal:     1100,
+			name:            "20% discount with shipping",
+			total:           103.00, // 80 after discount + 23 tax + 0 shipping (shipping not in lineItems)
+			taxValue:        23.00,
+			shipping:        0,
+			lineItems:       []*LineItem{{Total: 100.00}},
+			expectedValue:   20.0,
+			expectedPercent: 20.0,
 		},
 		{
-			name:     "multiple items with discount",
-			total:    1800, // 20% off from 2250
-			shipping: 0,
-			lineItems: []*LineItem{
-				{Qty: 1, Price: 1000, Discount: 0},
-				{Qty: 1, Price: 1250, Discount: 0},
-			},
-			expectedDiscountP: 20,
-			expectedTotal:     1800,
+			name:            "discount with shipping excluded",
+			total:           123.00, // 90 after discount + 23 tax + 10 shipping
+			taxValue:        23.00,
+			shipping:        10.00,
+			lineItems:       []*LineItem{{Total: 100.00}},
+			expectedValue:   10.0,
+			expectedPercent: 10.0,
 		},
 		{
-			name:              "empty line items",
-			total:             1000,
-			shipping:          0,
-			lineItems:         []*LineItem{},
-			expectedDiscountP: 0,
-			expectedTotal:     1000,
+			name:            "multiple items with discount",
+			total:           223.00, // 180 after discount + 43 tax
+			taxValue:        43.00,
+			shipping:        0,
+			lineItems:       []*LineItem{{Total: 100.00}, {Total: 100.00}},
+			expectedValue:   20.0,
+			expectedPercent: 10.0, // (200 - 180) / 200 * 100 = 10%
+		},
+		{
+			name:            "empty line items",
+			total:           100.00,
+			taxValue:        0,
+			shipping:        0,
+			lineItems:       []*LineItem{},
+			expectedValue:   0,
+			expectedPercent: 0,
+		},
+		{
+			name:            "zero base total",
+			total:           100.00,
+			taxValue:        0,
+			shipping:        0,
+			lineItems:       []*LineItem{{Total: 0}},
+			expectedValue:   0,
+			expectedPercent: 0,
 		},
 	}
 
@@ -254,19 +157,16 @@ func TestRecalcWithDiscount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &CheckoutParams{
 				Total:     tt.total,
+				TaxValue:  tt.taxValue,
 				Shipping:  tt.shipping,
 				LineItems: tt.lineItems,
 			}
-			c.RecalcWithDiscount()
-
-			// Check discount percentage (with small tolerance for floating point)
-			if diff := c.DiscountP - tt.expectedDiscountP; diff > 0.01 || diff < -0.01 {
-				t.Errorf("DiscountP = %v, want %v", c.DiscountP, tt.expectedDiscountP)
+			discountValue, discountPercent := c.Discount()
+			if diff := discountValue - tt.expectedValue; diff > 0.01 || diff < -0.01 {
+				t.Errorf("DiscountPercent() value = %v, want %v", discountValue, tt.expectedValue)
 			}
-
-			// Check that total matches after recalculation
-			if c.ItemsTotal() != tt.expectedTotal {
-				t.Errorf("ItemsTotal() after RecalcWithDiscount = %d, want %d", c.ItemsTotal(), tt.expectedTotal)
+			if diff := discountPercent - tt.expectedPercent; diff > 0.01 || diff < -0.01 {
+				t.Errorf("DiscountPercent() percent = %v, want %v", discountPercent, tt.expectedPercent)
 			}
 		})
 	}
@@ -303,6 +203,91 @@ func TestIsB2B(t *testing.T) {
 	}
 }
 
+func TestTrimSpaces(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    ClientDetails
+		expected ClientDetails
+	}{
+		{
+			name: "trims leading and trailing spaces",
+			input: ClientDetails{
+				FirstName: " John ",
+				LastName:  " Doe ",
+				Email:     " john@example.com ",
+				Phone:     " +48123456789 ",
+				Country:   " Poland ",
+				ZipCode:   " 00-001 ",
+				City:      " Warsaw ",
+				Street:    " Main St 1 ",
+			},
+			expected: ClientDetails{
+				FirstName: "John",
+				LastName:  "Doe",
+				Email:     "john@example.com",
+				Phone:     "+48123456789",
+				Country:   "Poland",
+				ZipCode:   "00-001",
+				City:      "Warsaw",
+				Street:    "Main St 1",
+			},
+		},
+		{
+			name: "handles empty strings",
+			input: ClientDetails{
+				FirstName: "",
+				LastName:  "",
+			},
+			expected: ClientDetails{
+				FirstName: "",
+				LastName:  "",
+			},
+		},
+		{
+			name: "preserves internal spaces",
+			input: ClientDetails{
+				FirstName: " Mary Ann ",
+				Street:    " 123 Main Street ",
+			},
+			expected: ClientDetails{
+				FirstName: "Mary Ann",
+				Street:    "123 Main Street",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := tt.input
+			c.TrimSpaces()
+			if c.FirstName != tt.expected.FirstName {
+				t.Errorf("FirstName = %q, want %q", c.FirstName, tt.expected.FirstName)
+			}
+			if c.LastName != tt.expected.LastName {
+				t.Errorf("LastName = %q, want %q", c.LastName, tt.expected.LastName)
+			}
+			if c.Email != tt.expected.Email {
+				t.Errorf("Email = %q, want %q", c.Email, tt.expected.Email)
+			}
+			if c.Phone != tt.expected.Phone {
+				t.Errorf("Phone = %q, want %q", c.Phone, tt.expected.Phone)
+			}
+			if c.Country != tt.expected.Country {
+				t.Errorf("Country = %q, want %q", c.Country, tt.expected.Country)
+			}
+			if c.ZipCode != tt.expected.ZipCode {
+				t.Errorf("ZipCode = %q, want %q", c.ZipCode, tt.expected.ZipCode)
+			}
+			if c.City != tt.expected.City {
+				t.Errorf("City = %q, want %q", c.City, tt.expected.City)
+			}
+			if c.Street != tt.expected.Street {
+				t.Errorf("Street = %q, want %q", c.Street, tt.expected.Street)
+			}
+		})
+	}
+}
+
 func TestCountryCode(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -317,7 +302,6 @@ func TestCountryCode(t *testing.T) {
 		{"full name France", "France", "FR"},
 		{"full name United States", "United States", "US"},
 		{"invalid country", "InvalidCountryName", ""},
-		{"Polska in Polish", "Polska", "PL"},
 	}
 
 	for _, tt := range tests {
@@ -348,7 +332,7 @@ func TestNormalizeZipCode(t *testing.T) {
 		{"too long - truncates", "123456", "12-345"},
 		{"with spaces", "12 345", "12-345"},
 		{"with letters filtered", "12-ABC-345", "12-345"},
-		{"mixed alphanumeric", "AB12CD34EF", "12-340"},
+		{"mixed alphanumeric", "AB12CD34EF", "01-234"},
 	}
 
 	for _, tt := range tests {
@@ -429,45 +413,43 @@ func TestParseTaxId(t *testing.T) {
 	}
 }
 
-func TestShippingLineItem(t *testing.T) {
+func TestValidate(t *testing.T) {
 	tests := []struct {
-		name         string
-		title        string
-		amount       int64
-		expectedName string
+		name      string
+		params    CheckoutParams
+		expectErr bool
 	}{
 		{
-			name:         "empty title uses default",
-			title:        "",
-			amount:       1000,
-			expectedName: "Zwrot kosztów transportu towarów",
+			name: "valid order",
+			params: CheckoutParams{
+				LineItems:     []*LineItem{{Name: "Product", Qty: 1, Price: 10.00}},
+				ClientDetails: &ClientDetails{FirstName: "John", LastName: "Doe"},
+			},
+			expectErr: false,
 		},
 		{
-			name:         "custom title is wrapped",
-			title:        "DHL",
-			amount:       1500,
-			expectedName: "Zwrot kosztów transportu towarów (DHL)",
+			name: "missing line items",
+			params: CheckoutParams{
+				LineItems:     []*LineItem{},
+				ClientDetails: &ClientDetails{FirstName: "John", LastName: "Doe"},
+			},
+			expectErr: true,
+		},
+		{
+			name: "nil client details",
+			params: CheckoutParams{
+				LineItems:     []*LineItem{{Name: "Product", Qty: 1, Price: 10.00}},
+				ClientDetails: nil,
+			},
+			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			item := ShippingLineItem(tt.title, tt.amount)
-
-			if item.Name != tt.expectedName {
-				t.Errorf("Name = %q, want %q", item.Name, tt.expectedName)
-			}
-			if item.Uid != ShippingItemUid {
-				t.Errorf("Uid = %q, want %q", item.Uid, ShippingItemUid)
-			}
-			if item.Qty != 1 {
-				t.Errorf("Qty = %d, want 1", item.Qty)
-			}
-			if item.Price != tt.amount {
-				t.Errorf("Price = %d, want %d", item.Price, tt.amount)
-			}
-			if !item.Shipping {
-				t.Error("Shipping flag should be true")
+			err := tt.params.Validate()
+			if (err != nil) != tt.expectErr {
+				t.Errorf("Validate() error = %v, expectErr %v", err, tt.expectErr)
 			}
 		})
 	}

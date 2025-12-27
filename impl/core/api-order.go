@@ -41,7 +41,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Calculate tax rate from existing order totals
-	taxRate, err := c.calculateTaxRate(orderId, currencyValue)
+	taxRate, err := c.calculateTaxRate(orderId)
 	if err != nil {
 		log.Warn("failed to calculate tax rate, using default", sl.Err(err))
 		taxRate = 0.23 // Default 23% VAT
@@ -124,24 +124,24 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 // calculateTaxRate calculates the tax rate from existing order_total data.
 // Returns tax rate as a decimal (e.g., 0.23 for 23% VAT), rounded to 4 decimal places.
-func (c *Core) calculateTaxRate(orderId int64, currencyValue float64) (float64, error) {
+func (c *Core) calculateTaxRate(orderId int64) (float64, error) {
 	// Get sub_total and tax from order_total table
-	_, subTotalCents, err := c.repo.OrderTotal(orderId, "sub_total", currencyValue)
+	_, subTotal, err := c.repo.OrderTotal(orderId, "sub_total")
 	if err != nil {
 		return 0, fmt.Errorf("failed to get sub_total: %w", err)
 	}
 
-	_, taxCents, err := c.repo.OrderTotal(orderId, "tax", currencyValue)
+	_, tax, err := c.repo.OrderTotal(orderId, "tax")
 	if err != nil {
 		return 0, fmt.Errorf("failed to get tax: %w", err)
 	}
 
-	if subTotalCents == 0 {
+	if subTotal == 0 {
 		return 0, fmt.Errorf("sub_total is zero")
 	}
 
 	// Calculate rate and round to 4 decimals
-	rate := float64(taxCents) / float64(subTotalCents)
+	rate := tax / subTotal
 	return math.Round(rate*10000) / 10000, nil
 }
 

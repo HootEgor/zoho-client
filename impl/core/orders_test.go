@@ -6,31 +6,6 @@ import (
 	"zohoclient/entity"
 )
 
-func TestRoundInt(t *testing.T) {
-	tests := []struct {
-		name     string
-		value    int64
-		expected float64
-	}{
-		{"zero", 0, 0.0},
-		{"one cent", 1, 0.01},
-		{"one dollar", 100, 1.0},
-		{"negative value", -150, -1.5},
-		{"large value", 1234567, 12345.67},
-		{"typical price", 9999, 99.99},
-		{"half cent rounds down", 50, 0.5},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := roundInt(tt.value)
-			if result != tt.expected {
-				t.Errorf("roundInt(%d) = %v, want %v", tt.value, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestRoundFloat(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -40,14 +15,13 @@ func TestRoundFloat(t *testing.T) {
 		{"zero", 0.0, 0.0},
 		{"positive whole number", 5.0, 5.0},
 		{"negative converted to positive", -5.0, 5.0},
-		{"rounds down at .004", 1.234, 1.23},
-		{"rounds up at .005", 1.235, 1.24},
-		{"rounds up at .006", 1.236, 1.24},
-		{"many decimal places rounds", 3.14159, 3.14},
-		{"negative rounds to positive", -2.567, 2.57},
-		{"small negative", -0.01, 0.01},
-		{"precision edge case", 0.995, 1.0},
-		{"precision edge case 2", 0.994, 0.99},
+		{"rounds down at .4", 1.4, 1.0},
+		{"rounds up at .5", 1.5, 2.0},
+		{"rounds up at .6", 1.6, 2.0},
+		{"rounds to nearest integer", 3.7, 4.0},
+		{"negative rounds to positive", -2.6, 3.0},
+		{"small negative", -0.4, 0.0},
+		{"large value", 123.456, 123.0},
 	}
 
 	for _, tt := range tests {
@@ -239,13 +213,13 @@ func TestBuildZohoOrder_Chunking(t *testing.T) {
 					Name:   "Product",
 					ZohoId: "zoho-id",
 					Qty:    1,
-					Price:  1000,
+					Price:  10.00,
 				}
 			}
 
 			order := &entity.CheckoutParams{
 				OrderId:   123,
-				Total:     int64(tt.itemCount * 1000),
+				Total:     float64(tt.itemCount) * 10.00,
 				Currency:  "PLN",
 				StatusId:  1,
 				LineItems: lineItems,

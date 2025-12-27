@@ -52,6 +52,11 @@ func New(conf *config.Config, log *slog.Logger, handler Handler) (*Server, error
 				r.Post("/", order.UpdateOrder(log, handler))
 			})
 		})
+		v1.Route("/push", func(push chi.Router) {
+			push.Route("/order", func(r chi.Router) {
+				r.Get("/{id}", order.PushOrder(log, handler))
+			})
+		})
 	})
 
 	httpLog := slog.NewLogLogger(log.Handler(), slog.LevelError)

@@ -3,7 +3,6 @@ package entity
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -24,51 +23,30 @@ const (
 type CheckoutParams struct {
 	ClientDetails *ClientDetails `json:"client_details" bson:"client_details" validate:"required"`
 	LineItems     []*LineItem    `json:"line_items" bson:"line_items" validate:"required,min=1,dive"`
-	Total         int64          `json:"total" bson:"total" validate:"required,min=1"`
-	Discount      int64          `json:"discount,omitempty" bson:"discount,omitempty"`
-	DiscountP     float64        `json:"discount_p,omitempty" bson:"discount_p,omitempty"`
-	Shipping      int64          `json:"shipping,omitempty" bson:"shipping,omitempty"`
+	Total         float64        `json:"total" bson:"total" validate:"required,min=1"`
+	ShippingTitle string         `json:"shipping_title,omitempty" bson:"shipping_title,omitempty"`
+	Shipping      float64        `json:"shipping,omitempty" bson:"shipping,omitempty"`
+	CouponTitle   string         `json:"coupon_title,omitempty" bson:"coupon_title,omitempty"`
+	Coupon        float64        `json:"coupon,omitempty" bson:"coupon,omitempty"`
 	TaxTitle      string         `json:"tax_title" bson:"tax_title"`
-	TaxValue      int64          `json:"tax_value" bson:"tax_value"`
+	TaxValue      float64        `json:"tax_value" bson:"tax_value"`
 	Currency      string         `json:"currency" bson:"currency" validate:"required,oneof=PLN EUR"`
 	CurrencyValue float64        `json:"currency_value,omitempty" bson:"currency_value,omitempty"`
 	OrderId       int64          `json:"order_id" bson:"order_id" validate:"required"`
-	SuccessUrl    string         `json:"success_url" bson:"success_url" validate:"required,url"`
 	Created       time.Time      `json:"created" bson:"created"`
-	Closed        time.Time      `json:"closed,omitempty" bson:"closed"`
 	Status        string         `json:"status" bson:"status"`
 	StatusId      int            `json:"status_id,omitempty" bson:"status_id,omitempty"`
-	SessionId     string         `json:"session_id,omitempty" bson:"session_id,omitempty"`
-	EventId       string         `json:"event_id,omitempty" bson:"event_id,omitempty"`
 	InvoiceId     string         `json:"invoice_id,omitempty" bson:"invoice_id,omitempty"`
 	InvoiceFile   string         `json:"invoice_file,omitempty" bson:"invoice_file,omitempty"`
 	ProformaId    string         `json:"proforma_id,omitempty" bson:"proforma_id,omitempty"`
 	ProformaFile  string         `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
-	Paid          bool           `json:"paid,omitempty" bson:"paid"`
 	Source        Source         `json:"source,omitempty" bson:"source"`
 	Comment       string         `json:"comment,omitempty" bson:"comment,omitempty"`
-	Payload       interface{}    `json:"payload,omitempty" bson:"payload,omitempty"`
 }
 
 func (c *CheckoutParams) Bind(_ *http.Request) error {
 	c.Created = time.Now()
 	return validate.Struct(c)
-}
-
-func (c *CheckoutParams) ItemsTotal() int64 {
-	var total int64
-	for _, item := range c.LineItems {
-		total += item.Qty*item.Price - item.Discount
-	}
-	return total
-}
-
-func (c *CheckoutParams) ValidateTotal() error {
-	total := c.ItemsTotal()
-	if c.Total == total {
-		return nil
-	}
-	return fmt.Errorf("total amount %d does not match sum of line items %d", c.Total, total)
 }
 
 func (c *CheckoutParams) Validate() error {
@@ -81,100 +59,42 @@ func (c *CheckoutParams) Validate() error {
 	return nil
 }
 
-func (c *CheckoutParams) AddShipping(title string, amount int64) {
-	c.Shipping = amount
-	c.LineItems = append(c.LineItems, ShippingLineItem(title, amount))
-}
-
-func (c *CheckoutParams) RecalcWithDiscount() {
-	if len(c.LineItems) == 0 {
-		return
-	}
-	itemsTotal := c.ItemsTotal()
-	if c.Total == itemsTotal || itemsTotal == 0 {
-		return
-	}
-	k := float64(c.Total-c.Shipping) / float64(itemsTotal-c.Shipping)
-	c.DiscountP = 100 - k*100
-	for _, item := range c.LineItems {
-		if item.Shipping {
-			continue
-		}
-		item.Discount = int64(math.Round(float64(item.Price) * (1 - k)))
-		item.DiscountP = c.DiscountP
-	}
-	itemsTotal = c.ItemsTotal()
-	diff := c.Total - itemsTotal
-	if diff == 0 {
-		return
-	}
-	for _, item := range c.LineItems {
-		if item.Shipping || item.Discount == 0 {
-			continue
-		}
-		if diff < 0 {
-			item.Discount--
-			diff++
-		} else {
-			item.Discount++
-			diff--
-		}
-		if diff == 0 {
-			break
-		}
-	}
-
-	for _, item := range c.LineItems {
-		c.Discount += item.Discount
-	}
-}
-
 // TaxRate calculates the tax rate as a percentage based on the tax value and total amount. Returns 0 if not applicable.
-func (c *CheckoutParams) TaxRate() int {
+func (c *CheckoutParams) TaxRate() float64 {
 	if c.TaxValue == 0 || c.Total <= c.TaxValue {
-		return 0
-	} else {
-		return int(math.Round(float64(c.TaxValue) * 100 / (float64(c.Total-c.Shipping) - float64(c.TaxValue))))
+		return 0.0
 	}
+	return c.TaxValue * 100 / ((c.Total - c.Shipping) - c.TaxValue)
 }
 
-func (c *CheckoutParams) TrimSpaces() {
-	c.ClientDetails.FirstName = strings.TrimPrefix(strings.TrimSuffix(c.ClientDetails.FirstName, " "), " ")
-	c.ClientDetails.LastName = strings.TrimPrefix(strings.TrimSuffix(c.ClientDetails.LastName, " "), " ")
-	c.ClientDetails.Email = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Email, " "), " ")
-	c.ClientDetails.Phone = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Phone, " "), " ")
-	c.ClientDetails.Country = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Country, " "), " ")
-	c.ClientDetails.ZipCode = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.ZipCode, " "), " ")
-	c.ClientDetails.City = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.City, " "), " ")
-	c.ClientDetails.Street = strings.TrimSuffix(strings.TrimPrefix(c.ClientDetails.Street, " "), " ")
+// Discount calculates the discount applied to the order.
+// Base total = sum of LineItem.Total (without tax).
+// Discount = Base total - (Total - TaxValue - Shipping).
+// Returns: discount value, discount percentage (e.g., 10.0 for 10%).
+func (c *CheckoutParams) Discount() (float64, float64) {
+	var baseTotal float64
+	for _, item := range c.LineItems {
+		baseTotal += item.Total
+	}
+	if baseTotal == 0 {
+		return 0, 0
+	}
+	actualTotal := c.Total - c.TaxValue - c.Shipping
+	discount := baseTotal - actualTotal
+	percent := (discount / baseTotal) * 100
+	return discount, percent
 }
 
 type LineItem struct {
-	Name      string  `json:"name" validate:"required"`
-	Id        int64   `json:"id,omitempty" bson:"id"`
-	Uid       string  `json:"uid,omitempty" bson:"uid"`
-	ZohoId    string  `json:"zoho_id,omitempty" bson:"zoho_id"`
-	Qty       int64   `json:"qty" validate:"required,min=1"`
-	Price     int64   `json:"price" validate:"required,min=1"`
-	Discount  int64   `json:"discount,omitempty" bson:"discount"`
-	DiscountP float64 `json:"discount_p,omitempty" bson:"discount_p"`
-	Sku       string  `json:"sku,omitempty" bson:"sku"`
-	Shipping  bool    `json:"shipping,omitempty" bson:"shipping"`
-}
-
-func ShippingLineItem(title string, amount int64) *LineItem {
-	if title == "" {
-		title = "Zwrot kosztów transportu towarów"
-	} else {
-		title = fmt.Sprintf("Zwrot kosztów transportu towarów (%s)", title)
-	}
-	return &LineItem{
-		Name:     title,
-		Uid:      ShippingItemUid,
-		Qty:      1,
-		Price:    amount,
-		Shipping: true,
-	}
+	Name   string  `json:"name" validate:"required"`
+	Id     int64   `json:"id,omitempty" bson:"id"`
+	Uid    string  `json:"uid,omitempty" bson:"uid"`
+	ZohoId string  `json:"zoho_id,omitempty" bson:"zoho_id"`
+	Qty    float64 `json:"qty" validate:"required,min=1"`
+	Price  float64 `json:"price" validate:"required,min=1"`
+	Tax    float64 `json:"tax" validate:"required,min=1"`
+	Total  float64 `json:"total" validate:"required,min=1"`
+	Sku    string  `json:"sku,omitempty" bson:"sku"`
 }
 
 type ClientDetails struct {
@@ -192,6 +112,17 @@ type ClientDetails struct {
 
 func (c *ClientDetails) IsB2B() bool {
 	return c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16 || c.GroupId == 18 || c.GroupId == 19
+}
+
+func (c *ClientDetails) TrimSpaces() {
+	c.FirstName = strings.TrimSpace(c.FirstName)
+	c.LastName = strings.TrimSpace(c.LastName)
+	c.Email = strings.TrimSpace(c.Email)
+	c.Phone = strings.TrimSpace(c.Phone)
+	c.Country = strings.TrimSpace(c.Country)
+	c.ZipCode = strings.TrimSpace(c.ZipCode)
+	c.City = strings.TrimSpace(c.City)
+	c.Street = strings.TrimSpace(c.Street)
 }
 
 func (c *ClientDetails) CountryCode() string {
@@ -254,11 +185,4 @@ func (c *ClientDetails) ParseTaxId(fieldId, raw string) error {
 	}
 	c.TaxId = data[fieldId]
 	return nil
-}
-
-func absInt64(i int64) int64 {
-	if i < 0 {
-		return -i
-	}
-	return i
 }
