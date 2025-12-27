@@ -244,5 +244,5 @@ func roundFloat(value float64) float64 {
 	if value < 0 {
 		value = -value
 	}
-	return math.Round(value*100) / 100
+	return math.Round(value)
 }
