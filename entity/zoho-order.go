@@ -5,7 +5,7 @@ type ZohoOrder struct {
 	OrderedItems       []OrderedItem   `json:"Ordered_Items"`
 	Discount           float64         `json:"Discount"`
 	DiscountP          float64         `json:"DiscountP"`
-	CouponTitle        string          `json:"CouponTitle"`
+	CouponTitle        string          `json:"Promocode"`
 	CouponValue        float64         `json:"Promocode_discount"`
 	Description        string          `json:"Description"`
 	CustomerNo         string          `json:"Customer_No"`
