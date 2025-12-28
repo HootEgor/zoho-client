@@ -62,10 +62,15 @@ func (c *CheckoutParams) Validate() error {
 
 // TaxRate calculates the tax rate as a percentage based on the tax value and total amount. Returns 0 if not applicable.
 func (c *CheckoutParams) TaxRate() float64 {
-	if c.TaxValue == 0 || c.SubTotal == 0 {
+	if c.TaxValue == 0 {
 		return 0.0
 	}
-	return c.TaxValue * 100 / c.SubTotal
+	// coupon value is stored as negative !!
+	subTotal := c.SubTotal + c.Coupon
+	if subTotal <= 0 {
+		return 0.0
+	}
+	return c.TaxValue * 100 / subTotal
 }
 
 // Discount calculates the discount applied to the order.
