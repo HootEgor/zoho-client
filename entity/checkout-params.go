@@ -24,6 +24,7 @@ type CheckoutParams struct {
 	ClientDetails *ClientDetails `json:"client_details" bson:"client_details" validate:"required"`
 	LineItems     []*LineItem    `json:"line_items" bson:"line_items" validate:"required,min=1,dive"`
 	Total         float64        `json:"total" bson:"total" validate:"required,min=1"`
+	SubTotal      float64        `json:"sub_total" bson:"sub_total"`
 	ShippingTitle string         `json:"shipping_title,omitempty" bson:"shipping_title,omitempty"`
 	Shipping      float64        `json:"shipping,omitempty" bson:"shipping,omitempty"`
 	CouponTitle   string         `json:"coupon_title,omitempty" bson:"coupon_title,omitempty"`
@@ -61,10 +62,10 @@ func (c *CheckoutParams) Validate() error {
 
 // TaxRate calculates the tax rate as a percentage based on the tax value and total amount. Returns 0 if not applicable.
 func (c *CheckoutParams) TaxRate() float64 {
-	if c.TaxValue == 0 || c.Total <= c.TaxValue {
+	if c.TaxValue == 0 || c.SubTotal == 0 {
 		return 0.0
 	}
-	return c.TaxValue * 100 / ((c.Total - c.Shipping) - c.TaxValue)
+	return c.TaxValue * 100 / c.SubTotal
 }
 
 // Discount calculates the discount applied to the order.

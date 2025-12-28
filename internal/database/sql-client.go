@@ -353,6 +353,11 @@ func (s *MySql) GetOrderProductTotals(orderId int64) (totalSum int64, taxSum int
 // addOrderData retrieves tax, line items, shipping and coupon for a specific order.
 func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*entity.CheckoutParams, error) {
 	var err error
+	// get sub total
+	_, order.SubTotal, err = s.OrderTotal(orderId, subTotalCode)
+	if err != nil {
+		return nil, fmt.Errorf("get order sub total: %w", err)
+	}
 	// get order tax
 	order.TaxTitle, order.TaxValue, err = s.OrderTotal(orderId, totalCodeTax)
 	if err != nil {
