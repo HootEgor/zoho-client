@@ -258,11 +258,11 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	}
 
 	// if an order has coupon set, move discount percent to promocode
-	promocode := ""
-	promocodeP := 0.0
+	couponTitle := ""
+	couponValue := 0.0
 	if oc.CouponTitle != "" {
-		promocode = oc.CouponTitle
-		promocodeP = discountP
+		couponTitle = oc.CouponTitle
+		couponValue = discount
 		discount = 0
 		discountP = 0.0
 	}
@@ -272,8 +272,8 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		OrderedItems:       orderedItems,
 		Discount:           round2(discount),
 		DiscountP:          round0(discountP),
-		Promocode:          promocode,
-		PromocodeP:         round0(promocodeP),
+		CouponTitle:        couponTitle,
+		CouponValue:        round2(couponValue),
 		Description:        oc.Comment,
 		CustomerNo:         "",
 		ShippingState:      "",
