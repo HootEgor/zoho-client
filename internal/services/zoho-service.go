@@ -213,6 +213,7 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 		slog.String("subject", orderData.Subject),
 		slog.Float64("vat", orderData.VAT),
 		slog.Float64("discount", orderData.DiscountP),
+		slog.Float64("coupon", orderData.CouponValue),
 		slog.Float64("sub_total", orderData.SubTotal),
 		slog.Float64("total", orderData.GrandTotal),
 	)
@@ -224,6 +225,8 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 			log.With(
 				sl.Err(err),
 			).Error("order not created")
+		} else {
+			log.Debug("order created")
 		}
 	}()
 
