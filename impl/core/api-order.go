@@ -89,6 +89,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			slog.Float64("zoho_price", item.Price),
 			slog.Float64("price", itemPrice),
 			slog.Int("quantity", item.Quantity),
+			slog.Float64("zoho_total", lineTotal),
 			slog.Float64("line_total", lineTotal),
 			slog.Float64("tax_per_unit", taxPerUnit),
 		).Debug("item")
