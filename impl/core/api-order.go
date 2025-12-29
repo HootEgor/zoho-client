@@ -95,7 +95,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Calculate discount and final total
-	discount := int64(math.Round(float64(itemsTotal+taxTotal+shippingTotal) * discountPercent))
+	discount := int64(math.Round(float64(itemsTotal+taxTotal) * discountPercent))
 	total := itemsTotal + taxTotal + shippingTotal - discount
 
 	coupon := int64(0)
@@ -128,7 +128,9 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	log.With(
 		slog.Int64("sub_total", itemsTotal),
 		slog.Int64("shipping", shippingTotal),
+		slog.Float64("discountP", discountPercent),
 		slog.Int64("discount", discount),
+		slog.Int64("coupon", coupon),
 		slog.Int64("tax_total", taxTotal),
 		slog.Float64("tax_rate", taxRate),
 		slog.Int64("total", total),
