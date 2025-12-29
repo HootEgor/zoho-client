@@ -67,8 +67,8 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 
 		// Calculate tax per unit
-		taxPerUnit := item.Price * taxRate / (1 + taxRate)
-		itemPrice := item.Price / (1 + taxRate)
+		taxPerUnit := item.Price * taxRate /// (1 + taxRate)
+		itemPrice := item.Price            /// (1 + taxRate)
 
 		// Calculate line total (price × quantity, no discount)
 		lineTotal := itemPrice * float64(item.Quantity)
