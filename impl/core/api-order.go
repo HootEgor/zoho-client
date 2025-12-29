@@ -84,6 +84,14 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 		itemsTotal += int64(math.Round(lineTotal * 100))
 		taxTotal += int64(math.Round(taxPerUnit*100)) * int64(item.Quantity)
+
+		log.With(
+			slog.Float64("zoho_price", item.Price),
+			slog.Float64("price", itemPrice),
+			slog.Int("quantity", item.Quantity),
+			slog.Float64("line_total", lineTotal),
+			slog.Float64("tax_per_unit", taxPerUnit),
+		).Debug("item")
 	}
 
 	// Calculate discount and final total
