@@ -161,7 +161,7 @@ func TestDiscountPercent(t *testing.T) {
 				Shipping:  tt.shipping,
 				LineItems: tt.lineItems,
 			}
-			discountValue, discountPercent := c.Discount()
+			discountValue, discountPercent := c.GetDiscount()
 			if diff := discountValue - tt.expectedValue; diff > 0.01 || diff < -0.01 {
 				t.Errorf("DiscountPercent() value = %v, want %v", discountValue, tt.expectedValue)
 			}

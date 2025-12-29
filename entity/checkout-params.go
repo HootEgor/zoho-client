@@ -31,6 +31,8 @@ type CheckoutParams struct {
 	Coupon        float64        `json:"coupon,omitempty" bson:"coupon,omitempty"`
 	TaxTitle      string         `json:"tax_title" bson:"tax_title"`
 	TaxValue      float64        `json:"tax_value" bson:"tax_value"`
+	DiscountTitle string         `json:"discount_title,omitempty" bson:"discount_title,omitempty"`
+	Discount      float64        `json:"discount,omitempty" bson:"discount,omitempty"`
 	Currency      string         `json:"currency" bson:"currency" validate:"required,oneof=PLN EUR"`
 	CurrencyValue float64        `json:"currency_value,omitempty" bson:"currency_value,omitempty"`
 	OrderId       int64          `json:"order_id" bson:"order_id" validate:"required"`
@@ -73,11 +75,11 @@ func (c *CheckoutParams) TaxRate() float64 {
 	return c.TaxValue * 100 / subTotal
 }
 
-// Discount calculates the discount applied to the order.
+// GetDiscount calculates the discount applied to the order.
 // Base total = sum of LineItem.Total (without tax).
 // Discount = Base total - (Total - TaxValue - Shipping).
 // Returns: discount value, discount percentage (e.g., 10.0 for 10%).
-func (c *CheckoutParams) Discount() (float64, float64) {
+func (c *CheckoutParams) GetDiscount() (float64, float64) {
 	var baseTotal float64
 	for _, item := range c.LineItems {
 		baseTotal += item.Total

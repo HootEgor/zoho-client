@@ -90,8 +90,14 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	discount := int64(math.Round(float64(itemsTotal+taxTotal+shippingTotal) * discountPercent))
 	total := itemsTotal + taxTotal + shippingTotal - discount
 
+	coupon := int64(0)
+	if orderDetails.Coupon != "" {
+		coupon = discount
+		discount = 0
+	}
+
 	// Execute entire update in a single transaction
-	txData := database.OrderUpdateTransaction{
+	_ = database.OrderUpdateTransaction{
 		OrderID:       orderId,
 		Items:         productData,
 		CurrencyValue: currencyValue,
@@ -102,13 +108,14 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			Discount: discount,
 			Shipping: shippingTotal,
 			Total:    total,
+			Coupon:   coupon,
 		},
 	}
 
-	err = c.repo.UpdateOrderWithTransaction(txData)
-	if err != nil {
-		return fmt.Errorf("failed to update order: %w", err)
-	}
+	//err = c.repo.UpdateOrderWithTransaction(txData)
+	//if err != nil {
+	//	return fmt.Errorf("failed to update order: %w", err)
+	//}
 
 	log.With(
 		slog.Int64("sub_total", itemsTotal),
@@ -117,6 +124,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		slog.Int64("tax_total", taxTotal),
 		slog.Float64("tax_rate", taxRate),
 		slog.Int64("total", total),
+		slog.Int64("zoho_total", int64(math.Round(orderDetails.GrandTotal*100))),
 	).Debug("order updated")
 
 	return nil
@@ -153,6 +161,9 @@ func (c *Core) calculateDiscountPercent(items []entity.ApiOrderedItem) float64 {
 	var sumFullTotals float64 = 0
 
 	for _, item := range items {
+		if item.ZohoID == c.shippingItemZohoId {
+			continue
+		}
 		sumApiTotals += item.Total                           // Discounted total from API
 		sumFullTotals += item.Price * float64(item.Quantity) // Full price
 	}

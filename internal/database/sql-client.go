@@ -363,6 +363,11 @@ func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*enti
 	if err != nil {
 		return nil, fmt.Errorf("get order tax: %w", err)
 	}
+	//get discount
+	order.DiscountTitle, order.Discount, err = s.OrderTotal(orderId, discountCode)
+	if err != nil {
+		return nil, fmt.Errorf("get order discount: %w", err)
+	}
 	// get shipping
 	order.ShippingTitle, order.Shipping, err = s.OrderTotal(orderId, totalCodeShipping)
 	if err != nil {
@@ -487,6 +492,8 @@ type OrderTotalsData struct {
 	DiscountTitle string
 	Shipping      int64 // in cents
 	ShippingTitle string
+	Coupon        int64
+	CouponTitle   string
 	Total         int64 // in cents
 }
 
@@ -575,6 +582,7 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		{totalCodeTax, data.Totals.Tax},
 		{discountCode, data.Totals.Discount},
 		{totalCodeShipping, data.Totals.Shipping},
+		{totalCodeCoupon, data.Totals.Coupon},
 		{totalCodeTotal, data.Totals.Total},
 	}
 

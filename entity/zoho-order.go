@@ -3,7 +3,7 @@ package entity
 type ZohoOrder struct {
 	ContactName        ContactName     `json:"Contact_Name"`
 	OrderedItems       []OrderedItem   `json:"Ordered_Items"`
-	Discount           float64         `json:"Discount"`
+	Discount           float64         `json:"GetDiscount"`
 	DiscountP          float64         `json:"DiscountP"`
 	CouponTitle        string          `json:"Promocode"`
 	CouponValue        float64         `json:"Promocode_discount"`
@@ -38,7 +38,7 @@ type ContactName struct {
 type OrderedItem struct {
 	Product   ZohoProduct `json:"Product_Name"`
 	Quantity  int64       `json:"Quantity"`
-	Discount  float64     `json:"Discount"`
+	Discount  float64     `json:"GetDiscount"`
 	DiscountP float64     `json:"DiscountP"`
 	ListPrice float64     `json:"List_Price"`
 	Total     float64     `json:"Total"`
@@ -52,7 +52,7 @@ type ZohoProduct struct {
 type ProductDetail struct {
 	Product     ProductID `json:"product"`
 	Quantity    int       `json:"quantity"`
-	Discount    float64   `json:"Discount"`
+	Discount    float64   `json:"GetDiscount"`
 	ProductDesc string    `json:"product_description"`
 	UnitPrice   float64   `json:"Unit Price"`
 	LineTax     []LineTax `json:"line_tax"`

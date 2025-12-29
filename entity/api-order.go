@@ -9,6 +9,7 @@ type ApiOrder struct {
 	ZohoID       string           `json:"zoho_id" validate:"required"`
 	Status       string           `json:"status" validate:"required"`
 	GrandTotal   float64          `json:"grand_total" validate:"gt=0"`
+	Coupon       string           `json:"coupon"`
 	OrderedItems []ApiOrderedItem `json:"ordered_items" validate:"required,dive"`
 }
 

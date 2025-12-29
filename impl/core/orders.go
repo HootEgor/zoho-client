@@ -214,7 +214,7 @@ func buildOrderedItem(lineItem *entity.LineItem, discountP float64) entity.Order
 // buildZohoOrder constructs a ZohoOrder from CheckoutParams. Returns the order and any
 // additional item chunks that exceed ChunkSize (100 items) for subsequent API calls.
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
-	discount, discountP := oc.Discount()
+	discount, discountP := oc.GetDiscount()
 	discountP = round0(discountP)
 
 	lineItems := oc.LineItems
