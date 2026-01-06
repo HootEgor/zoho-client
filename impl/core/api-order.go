@@ -83,7 +83,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	taxTotal := int64(math.Round(float64(itemsTotal) * taxRate * (1 - discountPercent)))
 	total := itemsTotal + taxTotal + shippingTotal - discount
 
-	zohoTax := int64(math.Round(orderDetails.GrandTotal)) - (itemsTotal + shippingTotal - discount)
+	zohoTax := int64(math.Round(orderDetails.GrandTotal*100)) - (itemsTotal + shippingTotal - discount)
 	zohoTaxRate := float64(zohoTax) / float64(itemsTotal-discount)
 
 	coupon := int64(0)
