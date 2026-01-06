@@ -41,7 +41,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Calculate tax rate from existing order totals
-	taxRate := orderParams.TaxRate()
+	taxRate := orderParams.TaxRate() / 100
 
 	// Calculate discount percentage from API items
 	discountPercent := c.calculateDiscountPercent(orderDetails.OrderedItems)
