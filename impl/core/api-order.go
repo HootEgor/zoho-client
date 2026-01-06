@@ -41,17 +41,12 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Calculate tax rate from existing order totals
-	taxRate, err := c.calculateTaxRate(orderId)
-	if err != nil {
-		log.Warn("failed to calculate tax rate, using default", sl.Err(err))
-		taxRate = 0.23 // Default 23% VAT
-	}
+	taxRate := orderParams.TaxRate()
 
 	// Calculate discount percentage from API items
 	discountPercent := c.calculateDiscountPercent(orderDetails.OrderedItems)
 
 	var itemsTotal int64
-	var taxTotal int64
 	var shippingTotal int64
 
 	// Prepare product data with calculated tax
@@ -80,12 +75,16 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		})
 
 		itemsTotal += int64(math.Round(lineTotal * 100))
-		taxTotal += int64(math.Round(taxPerUnit*100)) * int64(item.Quantity)
+		//taxTotal += int64(math.Round(taxPerUnit*100)) * int64(item.Quantity)
 	}
 
 	// Calculate discount and final total
-	discount := int64(math.Round(float64(itemsTotal+taxTotal) * discountPercent))
+	discount := int64(math.Round(float64(itemsTotal) * discountPercent))
+	taxTotal := int64(math.Round(float64(itemsTotal) * taxRate * (1 - discountPercent)))
 	total := itemsTotal + taxTotal + shippingTotal - discount
+
+	zohoTax := int64(math.Round(orderDetails.GrandTotal)) - (itemsTotal + shippingTotal - discount)
+	zohoTaxRate := float64(zohoTax) / float64(itemsTotal-discount)
 
 	coupon := int64(0)
 	if orderDetails.Coupon != "" {
@@ -122,6 +121,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		slog.Int64("coupon", coupon),
 		slog.Int64("tax_total", taxTotal),
 		slog.Float64("tax_rate", taxRate),
+		slog.Float64("zoho_tax_rate", zohoTaxRate),
 		slog.Int64("total", total),
 		slog.Int64("zoho_total", int64(math.Round(orderDetails.GrandTotal*100))),
 	).Debug("order updated")

@@ -68,6 +68,9 @@ func (c *CheckoutParams) TaxRate() float64 {
 		return 0.0
 	}
 	// coupon value is stored as negative !!
+	if c.Coupon > 0 {
+		c.Coupon = -c.Coupon
+	}
 	subTotal := c.SubTotal + c.Coupon
 	if subTotal <= 0 {
 		return 0.0
