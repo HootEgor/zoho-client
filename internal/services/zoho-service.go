@@ -225,8 +225,6 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 			log.With(
 				sl.Err(err),
 			).Error("order not created")
-		} else {
-			log.Debug("order created")
 		}
 	}()
 
