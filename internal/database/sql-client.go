@@ -91,14 +91,18 @@ func (s *MySql) Close() {
 	_ = s.db.Close()
 }
 
+// Stats returns database info only if there are connections inUse
 func (s *MySql) Stats() string {
 	stats := s.db.Stats()
-	return fmt.Sprintf("open: %d, inuse: %d, idle: %d, stmts: %d, structure: %d",
-		stats.OpenConnections,
-		stats.InUse,
-		stats.Idle,
-		len(s.statements),
-		len(s.structure))
+	if stats.InUse > 0 {
+		return fmt.Sprintf("open: %d, inuse: %d, idle: %d, stmts: %d, structure: %d",
+			stats.OpenConnections,
+			stats.InUse,
+			stats.Idle,
+			len(s.statements),
+			len(s.structure))
+	}
+	return ""
 }
 
 func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {

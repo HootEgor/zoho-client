@@ -69,12 +69,15 @@ func main() {
 
 		lg.Debug("mysql stats", slog.String("connections", db.Stats()))
 		go func() {
-			ticker := time.NewTicker(6 * time.Hour)
+			ticker := time.NewTicker(1 * time.Hour)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
-					lg.Debug("mysql", slog.String("stats", db.Stats()))
+					stats := db.Stats()
+					if stats != "" {
+						lg.Info("mysql", slog.String("stats", stats))
+					}
 				}
 			}
 		}()
