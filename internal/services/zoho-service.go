@@ -426,6 +426,10 @@ func (s *ZohoService) AddItemsToOrderB2B(orderID string, items []*entity.Good) (
 		return "", err
 	}
 
+	s.log.With(
+		slog.String("body", fmt.Sprintf("%s", body)),
+	).Debug("goods updated")
+
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
