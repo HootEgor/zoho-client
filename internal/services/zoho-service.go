@@ -353,7 +353,7 @@ func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, err
 	)
 
 	log.With(
-		slog.Any("order body", body),
+		slog.String("order body", fmt.Sprintf("%s", body)),
 	).Debug("B2B order created successfully")
 
 	return success.ID, nil
