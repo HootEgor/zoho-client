@@ -272,6 +272,90 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 
 }
 
+func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error) {
+	log := s.log.With(
+		slog.String("subject", orderData.Subject),
+		slog.Float64("vat", orderData.VAT),
+		slog.Float64("discount", orderData.DiscountP),
+	)
+
+	if orderData.GrandTotalUAH > 0 {
+		log = log.With(
+			slog.Float64("total_UAH", orderData.GrandTotalUAH),
+			slog.Float64("sub_total_UAH", orderData.GrandTotalUAH),
+		)
+	} else if orderData.GrandTotalPLN > 0 {
+		log = log.With(
+			slog.Float64("total_PLN", orderData.GrandTotalPLN),
+			slog.Float64("sub_total_PLN", orderData.GrandTotalPLN),
+		)
+	} else if orderData.GrandTotalUSD > 0 {
+		log = log.With(
+			slog.Float64("total_USD", orderData.GrandTotalUSD),
+			slog.Float64("sub_total_USD", orderData.GrandTotalUSD),
+		)
+	} else if orderData.GrandTotalEUR > 0 {
+		log = log.With(
+			slog.Float64("total_EUR", orderData.GrandTotalEUR),
+			slog.Float64("sub_total_EUR", orderData.GrandTotalEUR),
+		)
+	}
+
+	t := time.Now()
+	var err error
+	defer func() {
+		log = log.With(slog.Duration("duration", time.Since(t)))
+		if err != nil {
+			log.With(
+				sl.Err(err),
+			).Error("order not created")
+		}
+	}()
+
+	payload := map[string]interface{}{
+		"data": []entity.ZohoOrderB2B{orderData},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	apiResp, err := s.doRequest(http.MethodPost, body, "Deals")
+	if err != nil {
+		return "", err
+	}
+
+	item := apiResp.Data[0]
+
+	if item.Status != "success" {
+		// Decode error details
+		var errDetails entity.ErrorDetails
+		_ = json.Unmarshal(item.Details, &errDetails)
+
+		err = fmt.Errorf(
+			"order not created: [%s] %s (field: %s, path: %s)",
+			item.Code,
+			item.Message,
+			errDetails.APIName,
+			errDetails.JSONPath,
+		)
+		return "", err
+	}
+
+	// Decode success
+	var success entity.SuccessOrderDetails
+	if err = json.Unmarshal(item.Details, &success); err != nil {
+		return "", fmt.Errorf("failed to parse order ID: %w", err)
+	}
+
+	log = log.With(
+		slog.String("id", success.ID),
+	)
+
+	return success.ID, nil
+
+}
+
 func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error) {
 	// This is based on the user's sample input for updating a subform.
 	// We create a payload for a bulk/mass update, but only for a single record.
@@ -290,6 +374,50 @@ func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedIte
 	}
 
 	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders")
+	if err != nil {
+		return "", err
+	}
+
+	item := apiResp.Data[0]
+
+	if item.Status != "success" {
+		var errDetails entity.ErrorDetails
+		_ = json.Unmarshal(item.Details, &errDetails)
+		return "", fmt.Errorf(
+			"items not added: [%s] %s (field: %s, path: %s)",
+			item.Code,
+			item.Message,
+			errDetails.APIName,
+			errDetails.JSONPath,
+		)
+	}
+
+	var success entity.SuccessOrderDetails
+	if err := json.Unmarshal(item.Details, &success); err != nil {
+		return "", fmt.Errorf("failed to parse success response: %w", err)
+	}
+
+	return success.ID, nil
+}
+
+func (s *ZohoService) AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error) {
+	// This is based on the user's sample input for updating a subform.
+	// We create a payload for a bulk/mass update, but only for a single record.
+	updateData := map[string]interface{}{
+		"id":    orderID,
+		"Goods": items,
+	}
+
+	payload := map[string]interface{}{
+		"data": []interface{}{updateData},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	apiResp, err := s.doRequest(http.MethodPut, body, "Deals")
 	if err != nil {
 		return "", err
 	}

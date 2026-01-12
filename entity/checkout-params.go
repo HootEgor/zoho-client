@@ -18,6 +18,11 @@ type Source string
 const (
 	SourceOpenCart  Source = "opencart"
 	ShippingItemUid        = "cd3cc23c-6dfb-11ec-b75f-00155d018000"
+
+	CurrencyUAH = "UAH"
+	CurrencyPLN = "PLN"
+	CurrencyEUR = "EUR"
+	CurrencyUSD = "USD"
 )
 
 type CheckoutParams struct {

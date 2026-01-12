@@ -33,7 +33,9 @@ type Zoho interface {
 	RefreshToken() error
 	CreateContact(contactData *entity.ClientDetails) (string, error)
 	CreateOrder(orderData entity.ZohoOrder) (string, error)
+	CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error)
 	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
+	AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error)
 	UpdateOrder(orderData entity.ZohoOrder, id string) error
 }
 
