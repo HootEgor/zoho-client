@@ -8,6 +8,7 @@ func TestTaxRate(t *testing.T) {
 	tests := []struct {
 		name     string
 		total    float64
+		subTotal float64
 		taxValue float64
 		shipping float64
 		expected float64
@@ -36,27 +37,31 @@ func TestTaxRate(t *testing.T) {
 		{
 			name:     "23% VAT standard calculation",
 			total:    123.00,
+			subTotal: 100.00,
 			taxValue: 23.00,
 			shipping: 0,
-			expected: 23.0, // 23 / (123 - 23) * 100 = 23%
+			expected: 23.0, // 23 / 100 * 100 = 23%
 		},
 		{
 			name:     "8% reduced VAT",
 			total:    108.00,
+			subTotal: 100.00,
 			taxValue: 8.00,
 			shipping: 0,
-			expected: 8.0, // 8 / (108 - 8) * 100 = 8%
+			expected: 8.0, // 8 / 100 * 100 = 8%
 		},
 		{
 			name:     "with shipping deducted",
 			total:    133.00, // includes 10 shipping
+			subTotal: 100.00,
 			taxValue: 23.00,
 			shipping: 10.00,
-			expected: 23.0, // 23 / (133 - 10 - 23) * 100 = 23%
+			expected: 23.0, // 23 / 100 * 100 = 23%
 		},
 		{
 			name:     "5% VAT",
 			total:    105.00,
+			subTotal: 100.00,
 			taxValue: 5.00,
 			shipping: 0,
 			expected: 5.0,
@@ -67,6 +72,7 @@ func TestTaxRate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &CheckoutParams{
 				Total:    tt.total,
+				SubTotal: tt.subTotal,
 				TaxValue: tt.taxValue,
 				Shipping: tt.shipping,
 			}

@@ -258,7 +258,7 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 		break
 	case entity.CurrencyPLN:
 		good.PricePLN = lineItem.Price
-		good.PricePLN = totalWithDiscount
+		good.TotalPLN = totalWithDiscount
 		break
 	case entity.CurrencyUSD:
 		good.PriceUSD = round2(lineItem.Price * currency.Rate)

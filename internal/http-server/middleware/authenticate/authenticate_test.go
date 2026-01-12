@@ -1,6 +1,7 @@
 package authenticate
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,7 +19,7 @@ func (m *MockAuth) AuthenticateByToken(token string) (*entity.UserAuth, error) {
 	if username, ok := m.validTokens[token]; ok {
 		return &entity.UserAuth{Name: username}, nil
 	}
-	return nil, nil
+	return nil, fmt.Errorf("invalid token")
 }
 
 func TestAuthenticate_TokenExtraction(t *testing.T) {

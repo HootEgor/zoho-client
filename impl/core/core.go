@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
@@ -53,6 +54,7 @@ type Core struct {
 	statusesB2B        map[int]string
 	authKey            string
 	keys               map[string]string
+	keysMu             sync.RWMutex
 	log                *slog.Logger
 	stopCh             chan struct{}
 }

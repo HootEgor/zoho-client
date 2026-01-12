@@ -161,7 +161,7 @@ func (c *Core) calculateDiscountPercent(items []entity.ApiOrderedItem) float64 {
 	var sumFullTotals float64 = 0
 
 	for _, item := range items {
-		if item.ZohoID == c.shippingItemZohoId {
+		if c.shippingItemZohoId != "" && item.ZohoID == c.shippingItemZohoId {
 			continue
 		}
 		sumApiTotals += item.Total                           // Discounted total from API
