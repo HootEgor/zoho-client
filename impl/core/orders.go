@@ -91,6 +91,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 	// Build and create Zoho order
 
 	zohoId := ""
+	infoTag := "order created"
 	if !isB2B {
 		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
 		zohoId, err = c.zoho.CreateOrder(zohoOrder)
@@ -127,9 +128,11 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 				return "", fmt.Errorf("add items to order (chunk %d): %w", i+1, err)
 			}
 		}
+
+		infoTag = "B2B order created"
 	}
 
-	log.With(slog.String("zoho_id", zohoId)).Info("order created")
+	log.With(slog.String("zoho_id", zohoId)).Info(infoTag)
 
 	return zohoId, nil
 }
