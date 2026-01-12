@@ -388,27 +388,39 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 	}
 
 	// Split into main order items and chunks
-	var orderedItems []entity.Good
+	//var orderedItems []entity.Good
 	var chunkedItems [][]*entity.Good
 
-	if len(allItems) <= ChunkSize {
-		orderedItems = allItems
-	} else {
-		orderedItems = allItems[:ChunkSize]
-		remaining := allItems[ChunkSize:]
-
-		for i := 0; i < len(remaining); i += ChunkSize {
-			end := i + ChunkSize
-			if end > len(remaining) {
-				end = len(remaining)
-			}
-			chunk := make([]*entity.Good, end-i)
-			for j := i; j < end; j++ {
-				chunk[j-i] = &remaining[j]
-			}
-			chunkedItems = append(chunkedItems, chunk)
+	for i := 0; i < len(allItems); i += ChunkSize {
+		end := i + ChunkSize
+		if end > len(allItems) {
+			end = len(allItems)
 		}
+		chunk := make([]*entity.Good, end-i)
+		for j := i; j < end; j++ {
+			chunk[j-i] = &allItems[j]
+		}
+		chunkedItems = append(chunkedItems, chunk)
 	}
+
+	//if len(allItems) <= ChunkSize {
+	//	orderedItems = allItems
+	//} else {
+	//	orderedItems = allItems[:ChunkSize]
+	//	remaining := allItems[ChunkSize:]
+	//
+	//	for i := 0; i < len(remaining); i += ChunkSize {
+	//		end := i + ChunkSize
+	//		if end > len(remaining) {
+	//			end = len(remaining)
+	//		}
+	//		chunk := make([]*entity.Good, end-i)
+	//		for j := i; j < end; j++ {
+	//			chunk[j-i] = &remaining[j]
+	//		}
+	//		chunkedItems = append(chunkedItems, chunk)
+	//	}
+	//}
 
 	// if an order has coupon set, move discount percent to promocode
 	//couponTitle := ""
@@ -422,7 +434,7 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 
 	order := entity.ZohoOrderB2B{
 		ContactName: entity.ContactName{ID: contactID},
-		Goods:       orderedItems,
+		//Goods:       orderedItems,
 		//Discount:           round2(discount),
 		DiscountP:   round0(discountP),
 		Description: oc.Comment,
