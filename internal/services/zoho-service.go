@@ -507,6 +507,12 @@ func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...stri
 		}
 	}(resp.Body)
 
+	// Check for rate limiting (v8 API has stricter limits)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		retryAfter := resp.Header.Get("Retry-After")
+		return nil, fmt.Errorf("rate limited by Zoho API, retry after: %s", retryAfter)
+	}
+
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)

@@ -24,7 +24,7 @@ zoho:
   refresh_url: zoho_refresh_url
   crm_url: zoho_crm_url
   scope: crm
-  api_version: v6
+  api_version: v8
 prod_repo:
   login: repo_login
   password: repo_password

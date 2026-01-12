@@ -23,7 +23,7 @@ zoho:
   refresh_url: ${ZOHO_REFRESH_URL}
   crm_url: ${ZOHO_CRM_URL}
   scope: crm
-  api_version: v6
+  api_version: v8
 prod_repo:
   login: ${REPO_LOGIN}
   password: ${REPO_PASSWORD}
