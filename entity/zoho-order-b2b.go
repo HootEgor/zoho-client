@@ -2,7 +2,7 @@ package entity
 
 type ZohoOrderB2B struct {
 	ContactName ContactName `json:"Contact_Name"`
-	Goods       []Good      `json:"Goods"`
+	Goods       []Good      `json:"Products"`
 	DiscountP   float64     `json:"total_discount"`
 	Description string      `json:"Description"`
 	//CustomerNo  string      `json:"Customer_No"`
