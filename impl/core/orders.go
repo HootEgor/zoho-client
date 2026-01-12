@@ -151,8 +151,8 @@ func (c *Core) ProcessOrders() {
 
 		if order.ClientDetails.IsB2B() {
 			log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client")
-			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
-			continue
+			//_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
+			//continue
 		}
 
 		zohoId, err := c.processOrder(order, order.ClientDetails.IsB2B())
@@ -428,7 +428,7 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 		Currency:       oc.Currency,
 		BillingCountry: oc.ClientDetails.Country,
 		Status:         c.statuses[oc.StatusId],
-		Pipeline:       c.statuses[oc.StatusId],
+		Pipeline:       "B2B",
 		BillingStreet:  oc.ClientDetails.Street,
 		Subject:        fmt.Sprintf("Order #%d", oc.OrderId),
 		Location:       ZohoLocation,
