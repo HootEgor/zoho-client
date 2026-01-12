@@ -91,7 +91,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 	// Build and create Zoho order
 
 	zohoId := ""
-	if isB2B {
+	if !isB2B {
 		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
 		zohoId, err = c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
