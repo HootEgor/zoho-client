@@ -110,23 +110,23 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 			}
 		}
 	} else {
-		zohoOrder, chunkedItems := c.buildZohoOrderB2B(order, contactID)
-		zohoId, err = c.zoho.CreateB2BOrder(zohoOrder)
-		if err != nil {
-			return "", fmt.Errorf("create Zoho order: %w", err)
-		}
-
-		// Add remaining items in chunks
-		for i, chunk := range chunkedItems {
-			_, err = c.zoho.AddItemsToOrderB2B(zohoId, chunk)
-			if err != nil {
-				log.With(
-					sl.Err(err),
-					slog.Int("chunk", i+1),
-				).Error("add items to order")
-				return "", fmt.Errorf("add items to order (chunk %d): %w", i+1, err)
-			}
-		}
+		//zohoOrder, chunkedItems := c.buildZohoOrderB2B(order, contactID)
+		//zohoId, err = c.zoho.CreateB2BOrder(zohoOrder)
+		//if err != nil {
+		//	return "", fmt.Errorf("create Zoho order: %w", err)
+		//}
+		//
+		//// Add remaining items in chunks
+		//for i, chunk := range chunkedItems {
+		//	_, err = c.zoho.AddItemsToOrderB2B(zohoId, chunk)
+		//	if err != nil {
+		//		log.With(
+		//			sl.Err(err),
+		//			slog.Int("chunk", i+1),
+		//		).Error("add items to order")
+		//		return "", fmt.Errorf("add items to order (chunk %d): %w", i+1, err)
+		//	}
+		//}
 	}
 
 	log.With(slog.String("zoho_id", zohoId)).Info("order created")
@@ -149,11 +149,11 @@ func (c *Core) ProcessOrders() {
 			slog.Int64("order_id", order.OrderId),
 		)
 
-		if order.ClientDetails.IsB2B() {
-			log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client")
-			//_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
-			//continue
-		}
+		//if order.ClientDetails.IsB2B() {
+		//	log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client")
+		//	//_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
+		//	//continue
+		//}
 
 		zohoId, err := c.processOrder(order, order.ClientDetails.IsB2B())
 		if err != nil {
