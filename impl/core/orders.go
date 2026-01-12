@@ -428,6 +428,7 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 		Currency:       oc.Currency,
 		BillingCountry: oc.ClientDetails.Country,
 		Status:         c.statuses[oc.StatusId],
+		Pipeline:       c.statuses[oc.StatusId],
 		BillingStreet:  oc.ClientDetails.Street,
 		Subject:        fmt.Sprintf("Order #%d", oc.OrderId),
 		Location:       ZohoLocation,

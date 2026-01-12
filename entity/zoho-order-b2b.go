@@ -19,6 +19,7 @@ type ZohoOrderB2B struct {
 	Currency       string  `json:"Currency"`
 	BillingCountry string  `json:"Country"`
 	Status         string  `json:"Stage"`
+	Pipeline       string  `json:"Pipeline"`
 	BillingStreet  string  `json:"delivery_street"`
 	//TermsAndConditions string          `json:"Terms_and_Conditions"`
 	//BillingCode    string          `json:"Billing_Code"`
