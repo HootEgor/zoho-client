@@ -352,9 +352,7 @@ func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, err
 		slog.String("id", success.ID),
 	)
 
-	log.With(
-		slog.String("order body", fmt.Sprintf("%s", body)),
-	).Debug("B2B order created successfully")
+	log.Debug("B2B order created successfully")
 
 	return success.ID, nil
 
@@ -427,8 +425,8 @@ func (s *ZohoService) AddItemsToOrderB2B(orderID string, items []*entity.Good) (
 	}
 
 	s.log.With(
-		slog.String("body", fmt.Sprintf("%s", body)),
-	).Debug("goods updated")
+		slog.String("body", fmt.Sprintf("%s", apiResp)),
+	).Debug("goods response")
 
 	item := apiResp.Data[0]
 
