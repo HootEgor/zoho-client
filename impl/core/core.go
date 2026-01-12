@@ -50,6 +50,7 @@ type Core struct {
 	ms                 MessageService
 	shippingItemZohoId string
 	statuses           map[int]string
+	statusesB2B        map[int]string
 	authKey            string
 	keys               map[string]string
 	log                *slog.Logger
@@ -63,6 +64,11 @@ func New(log *slog.Logger, conf config.Config) *Core {
 			entity.OrderStatusNew:                "Нове",
 			entity.OrderStatusPayed:              "Оплачено, формування ТТН",
 			entity.OrderStatusPrepareForShipping: "Перевірка та збір",
+		},
+		statusesB2B: map[int]string{
+			entity.OrderStatusNew:                "Нове замовлення",
+			entity.OrderStatusPayed:              "Оплачено формування ТТН",
+			entity.OrderStatusPrepareForShipping: "Передано на збір",
 		},
 		authKey: conf.Listen.ApiKey,
 		keys:    make(map[string]string),
