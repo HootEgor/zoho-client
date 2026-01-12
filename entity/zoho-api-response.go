@@ -15,10 +15,12 @@ type ZohoAPIResponse struct {
 }
 
 type ZohoResponseItem struct {
-	Status  string          `json:"status,omitempty"`
-	Message string          `json:"message,omitempty"`
-	Code    string          `json:"code,omitempty"`
-	Details json.RawMessage `json:"details,omitempty"`
+	Status         string          `json:"status,omitempty"`
+	Message        string          `json:"message,omitempty"`
+	Code           string          `json:"code,omitempty"`
+	Details        json.RawMessage `json:"details,omitempty"`
+	Action         string          `json:"action,omitempty"`          // "create" or "update" for upsert
+	DuplicateField string          `json:"duplicate_field,omitempty"` // field used for duplicate check
 }
 
 type MultipleErrors struct {

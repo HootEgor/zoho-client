@@ -164,41 +164,25 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	apiResp, err := s.doRequest(http.MethodPost, body, "Contacts")
+	apiResp, err := s.doRequest(http.MethodPost, body, "Contacts", "upsert")
 	if err != nil {
 		return "", err
 	}
 
 	item := apiResp.Data[0]
 
-	// Handle DUPLICATE_DATA gracefully
-	if item.Status == "error" {
-		id := ""
-		if item.Code == "DUPLICATE_DATA" {
-			var dup entity.DuplicateDetails
-			if err = json.Unmarshal(item.Details, &dup); err != nil {
-				return "", fmt.Errorf("failed to parse duplicate details: %w", err)
-			}
-			id = dup.DuplicateRecord.ID
-			if id != "" {
-				return id, nil
-			}
-		}
-
-		if item.Code == "MULTIPLE_OR_MULTI_ERRORS" {
-			var multiErr entity.MultipleErrors
-			if err = json.Unmarshal(item.Details, &multiErr); err != nil {
-				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
-			}
-			id = multiErr.Errors[0].Details.DuplicateRecord.ID
-			if id != "" {
-				return id, nil
-			}
-		}
+	if item.Status != "success" {
 		return "", fmt.Errorf("zoho error: %s", item)
 	}
 
-	// Success path: extract the record ID
+	// Log whether contact was created or updated
+	if item.Action == "update" {
+		log.Debug("contact updated via upsert", slog.String("duplicate_field", item.DuplicateField))
+	} else {
+		log.Debug("contact created via upsert")
+	}
+
+	// Extract the record ID
 	var successDetails entity.SuccessContactDetails
 	if err = json.Unmarshal(item.Details, &successDetails); err != nil {
 		return "", fmt.Errorf("failed to parse success ID: %w", err)
@@ -509,7 +493,7 @@ func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...stri
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+s.refreshToken)
+	req.Header.Set("Authorization", "Zoho-oauthtoken "+s.refreshToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(req)
