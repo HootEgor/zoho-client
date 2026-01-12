@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 	"zohoclient/internal/config"
+	"zohoclient/internal/http-server/handlers/b2b"
 	"zohoclient/internal/http-server/handlers/errors"
 	"zohoclient/internal/http-server/handlers/order"
 	"zohoclient/internal/http-server/middleware/authenticate"
@@ -28,6 +29,7 @@ type Server struct {
 type Handler interface {
 	authenticate.Authenticate
 	order.Core
+	b2b.Core
 }
 
 func New(conf *config.Config, log *slog.Logger, handler Handler) (*Server, error) {
@@ -50,6 +52,9 @@ func New(conf *config.Config, log *slog.Logger, handler Handler) (*Server, error
 		v1.Route("/webhook", func(webhook chi.Router) {
 			webhook.Route("/order", func(r chi.Router) {
 				r.Post("/", order.UpdateOrder(log, handler))
+			})
+			webhook.Route("/b2b", func(r chi.Router) {
+				r.Post("/", b2b.Webhook(log, handler))
 			})
 		})
 		v1.Route("/push", func(push chi.Router) {

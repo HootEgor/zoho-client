@@ -149,4 +149,76 @@ listen:
     }
     ```
 
+### Webhooks
+
+#### B2B Portal Webhook
+- **Endpoint:** `/zoho/webhook/b2b`
+- **Method:** `POST`
+- **Description:** Receives webhooks from B2B portal and creates Zoho Deals.
+- **Request Body:**
+  ```json
+  {
+    "data": [
+      {
+        "event": "order_confirmed",
+        "timestamp": "2024-01-15T10:30:00Z",
+        "data": {
+          "order_uid": "ord_abc123def456",
+          "order_number": "1-1234",
+          "client_uid": "cli_xyz789",
+          "store_uid": "store_001",
+          "status": "new",
+          "total": 1249.99,
+          "subtotal": 1041.66,
+          "total_vat": 208.33,
+          "discount_percent": 10,
+          "discount_amount": 115.74,
+          "currency_code": "USD",
+          "shipping_address": "123 Main St, New York, NY 10001",
+          "comment": "Please deliver before noon",
+          "created_at": "2024-01-15T10:29:45Z",
+          "items": [
+            {
+              "product_uid": "prod_001",
+              "product_sku": "SKU-12345",
+              "quantity": 2,
+              "price": 574.99,
+              "discount": 10,
+              "price_discount": 517.49,
+              "tax": 103.50,
+              "total": 621.48
+            }
+          ],
+          "client_name": "John Doe",
+          "client_email": "john@example.com",
+          "client_phone": "+1234567890"
+        }
+      }
+    ]
+  }
+  ```
+- **Response (Success):**
+  ```json
+  {
+    "data": {
+      "zoho_id": "5234567890123456789"
+    },
+    "success": true,
+    "status_message": "Success",
+    "timestamp": "2024-01-15T10:30:05Z"
+  }
+  ```
+- **Response (Error):**
+  ```json
+  {
+    "success": false,
+    "status_message": "Error",
+    "timestamp": "2024-01-15T10:30:05Z",
+    "error": {
+      "code": "INTERNAL_ERROR",
+      "message": "Failed to process B2B webhook"
+    }
+  }
+  ```
+
 ### Order Retrieval (Coming Soon)
