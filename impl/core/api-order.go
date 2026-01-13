@@ -28,20 +28,20 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		slog.Int64("order_id", orderId),
 	)
 
-	// Check invoice_no and reset to 0 if != 0
-	//invoiceNo, err := c.repo.GetOrderInvoiceNo(orderId)
-	//if err != nil {
-	//	return fmt.Errorf("failed to get invoice_no: %w", err)
-	//}
-	//
-	//if invoiceNo != 0 {
-	//	err = c.repo.UpdateOrderInvoiceNo(orderId, 0)
-	//	if err != nil {
-	//		return fmt.Errorf("failed to reset invoice_no: %w", err)
-	//	}
-	//	log.Debug("invoice_no reset to 0, skipping order update")
-	//	return nil
-	//}
+	// Check tracking and reset to "" if not empty
+	tracking, err := c.repo.GetOrderTracking(orderId)
+	if err != nil {
+		return fmt.Errorf("failed to get tracking: %w", err)
+	}
+
+	if tracking != "" {
+		err = c.repo.UpdateOrderTracking(orderId, "")
+		if err != nil {
+			return fmt.Errorf("failed to reset tracking: %w", err)
+		}
+		log.With(slog.String("tracking", tracking)).Debug("tracking reset to empty")
+		//return nil
+	}
 
 	// Update status if provided (done separately before transaction)
 	if orderDetails.Status != "" {

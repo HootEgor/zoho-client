@@ -176,31 +176,31 @@ func (s *MySql) ChangeOrderZohoId(orderId int64, zohoId string) error {
 	return nil
 }
 
-func (s *MySql) UpdateOrderInvoiceNo(orderId int64, invoiceNo int) error {
-	stmt, err := s.stmtUpdateOrderInvoiceNo()
+func (s *MySql) UpdateOrderTracking(orderId int64, tracking string) error {
+	stmt, err := s.stmtUpdateOrderTracking()
 	if err != nil {
 		return err
 	}
 
-	_, err = stmt.Exec(invoiceNo, orderId)
+	_, err = stmt.Exec(tracking, orderId)
 	if err != nil {
-		return fmt.Errorf("update invoice_no: %w", err)
+		return fmt.Errorf("update tracking: %w", err)
 	}
 	return nil
 }
 
-func (s *MySql) GetOrderInvoiceNo(orderId int64) (int, error) {
-	stmt, err := s.stmtSelectOrderInvoiceNo()
+func (s *MySql) GetOrderTracking(orderId int64) (string, error) {
+	stmt, err := s.stmtSelectOrderTracking()
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 
-	var invoiceNo int
-	err = stmt.QueryRow(orderId).Scan(&invoiceNo)
+	var tracking string
+	err = stmt.QueryRow(orderId).Scan(&tracking)
 	if err != nil {
-		return 0, fmt.Errorf("query invoice_no: %w", err)
+		return "", fmt.Errorf("query tracking: %w", err)
 	}
-	return invoiceNo, nil
+	return tracking, nil
 }
 
 func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {

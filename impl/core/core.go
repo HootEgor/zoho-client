@@ -26,8 +26,8 @@ type Repository interface {
 	GetProductZohoIdByUid(productUID string) (string, error)
 	GetProductByUid(productUID string) (name string, zohoId string, err error)
 
-	UpdateOrderInvoiceNo(orderId int64, invoiceNo int) error
-	GetOrderInvoiceNo(orderId int64) (int, error)
+	UpdateOrderTracking(orderId int64, tracking string) error
+	GetOrderTracking(orderId int64) (string, error)
 }
 
 type ProductRepository interface {
