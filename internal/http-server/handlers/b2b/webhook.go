@@ -74,7 +74,7 @@ func Webhook(logger *slog.Logger, core Core) http.HandlerFunc {
 			return
 		}
 
-		log.Info("B2B webhook processed successfully", slog.String("zoho_id", zohoId))
+		//log.Info("B2B webhook processed successfully", slog.String("zoho_id", zohoId))
 		render.JSON(w, r, response.Ok(map[string]string{
 			"zoho_id": zohoId,
 		}))

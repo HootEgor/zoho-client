@@ -183,3 +183,19 @@ func (s *MySql) stmtSelectOrderByZohoId() (*sql.Stmt, error) {
 	)
 	return s.prepareStmt("selectOrderByZohoId", query)
 }
+
+func (s *MySql) stmtUpdateOrderInvoiceNo() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET invoice_no = ? WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateOrderInvoiceNo", query)
+}
+
+func (s *MySql) stmtSelectOrderInvoiceNo() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT invoice_no FROM %sorder WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("selectOrderInvoiceNo", query)
+}
