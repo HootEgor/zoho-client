@@ -386,16 +386,28 @@ func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedIte
 	return success.ID, nil
 }
 
-func (s *ZohoService) AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error) {
-	// This is based on the user's sample input for updating a subform.
-	// We create a payload for a bulk/mass update, but only for a single record.
-	updateData := map[string]interface{}{
-		"id":    orderID,
-		"Goods": items,
+func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string, error) {
+	// Build items in the format expected by Goods API
+	dataItems := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		dataItems = append(dataItems, map[string]interface{}{
+			"Product":        item.Product,
+			"Deal":           item.Deal,
+			"Goods_quantity": item.Quantity,
+			"Discount":       item.DiscountP,
+			"Good_price":     item.PriceUAH,
+			"Price_USD":      item.PriceUSD,
+			"Price_EUR":      item.PriceEUR,
+			"Price_PLN":      item.PricePLN,
+			"Total":          item.TotalUAH,
+			"Total_USD":      item.TotalUSD,
+			"Total_EUR":      item.TotalEUR,
+			"Total_PLN":      item.TotalPLN,
+		})
 	}
 
 	payload := map[string]interface{}{
-		"data": []interface{}{updateData},
+		"data": dataItems,
 	}
 
 	body, err := json.Marshal(payload)
@@ -403,7 +415,7 @@ func (s *ZohoService) AddItemsToOrderB2B(orderID string, items []*entity.Good) (
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	apiResp, err := s.doRequest(http.MethodPut, body, "Deals")
+	apiResp, err := s.doRequest(http.MethodPost, body, "Goods")
 	if err != nil {
 		return "", err
 	}

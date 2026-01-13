@@ -100,35 +100,19 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 		}
 
 		// Add remaining items in chunks
-		for i, chunk := range chunkedItems {
-			_, err = c.zoho.AddItemsToOrder(zohoId, chunk)
-			if err != nil {
-				log.With(
-					sl.Err(err),
-					slog.Int("chunk", i+1),
-				).Error("add items to order")
-				return "", fmt.Errorf("add items to order (chunk %d): %w", i+1, err)
-			}
+		if err := addChunkedItems(chunkedItems, func(chunk []*entity.OrderedItem) (string, error) {
+			return c.zoho.AddItemsToOrder(zohoId, chunk)
+		}); err != nil {
+			log.With(sl.Err(err)).Error("add items to order")
+			return "", err
 		}
 	} else {
 		zohoOrder, chunkedItems := c.buildZohoOrderB2B(order, contactID)
-		zohoId, err = c.zoho.CreateB2BOrder(zohoOrder)
+		zohoId, err = c.createB2BDealWithItems(zohoOrder, chunkedItems)
 		if err != nil {
-			return "", fmt.Errorf("create Zoho order: %w", err)
+			log.With(sl.Err(err)).Error("create B2B deal")
+			return "", err
 		}
-
-		// Add remaining items in chunks
-		for i, chunk := range chunkedItems {
-			_, err = c.zoho.AddItemsToOrderB2B(zohoId, chunk)
-			if err != nil {
-				log.With(
-					sl.Err(err),
-					slog.Int("chunk", i+1),
-				).Error("add items to order")
-				return "", fmt.Errorf("add items to order (chunk %d): %w", i+1, err)
-			}
-		}
-
 		infoTag = "B2B order created"
 	}
 
@@ -296,7 +280,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		allItems = append(allItems, buildOrderedItem(shippingItem, 0))
 	}
 
-	// Split into main order items and chunks
+	// Split into main order items (first chunk) and remaining chunks
 	var orderedItems []entity.OrderedItem
 	var chunkedItems [][]*entity.OrderedItem
 
@@ -305,18 +289,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	} else {
 		orderedItems = allItems[:ChunkSize]
 		remaining := allItems[ChunkSize:]
-
-		for i := 0; i < len(remaining); i += ChunkSize {
-			end := i + ChunkSize
-			if end > len(remaining) {
-				end = len(remaining)
-			}
-			chunk := make([]*entity.OrderedItem, end-i)
-			for j := i; j < end; j++ {
-				chunk[j-i] = &remaining[j]
-			}
-			chunkedItems = append(chunkedItems, chunk)
-		}
+		chunkedItems = chunkSlice(remaining, ChunkSize)
 	}
 
 	// if an order has coupon set, move discount percent to promocode
@@ -387,50 +360,8 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 		allItems = append(allItems, buildGood(shippingItem, orderCurrency, 0))
 	}
 
-	// Split into main order items and chunks
-	//var orderedItems []entity.Good
-	var chunkedItems [][]*entity.Good
-
-	for i := 0; i < len(allItems); i += ChunkSize {
-		end := i + ChunkSize
-		if end > len(allItems) {
-			end = len(allItems)
-		}
-		chunk := make([]*entity.Good, end-i)
-		for j := i; j < end; j++ {
-			chunk[j-i] = &allItems[j]
-		}
-		chunkedItems = append(chunkedItems, chunk)
-	}
-
-	//if len(allItems) <= ChunkSize {
-	//	orderedItems = allItems
-	//} else {
-	//	orderedItems = allItems[:ChunkSize]
-	//	remaining := allItems[ChunkSize:]
-	//
-	//	for i := 0; i < len(remaining); i += ChunkSize {
-	//		end := i + ChunkSize
-	//		if end > len(remaining) {
-	//			end = len(remaining)
-	//		}
-	//		chunk := make([]*entity.Good, end-i)
-	//		for j := i; j < end; j++ {
-	//			chunk[j-i] = &remaining[j]
-	//		}
-	//		chunkedItems = append(chunkedItems, chunk)
-	//	}
-	//}
-
-	// if an order has coupon set, move discount percent to promocode
-	//couponTitle := ""
-	//couponValue := 0.0
-	//if oc.CouponTitle != "" {
-	//	couponTitle = oc.CouponTitle
-	//	couponValue = discount
-	//	discount = 0
-	//	discountP = 0.0
-	//}
+	// Split into chunks
+	chunkedItems := chunkSlice(allItems, ChunkSize)
 
 	order := entity.ZohoOrderB2B{
 		ContactName: entity.ContactName{ID: contactID},
@@ -470,6 +401,61 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 	}
 
 	return order, chunkedItems
+}
+
+// createB2BDealWithItems creates a B2B deal in Zoho and adds all items.
+// Handles the full flow: create deal, fill deal ID into items, add items in chunks.
+func (c *Core) createB2BDealWithItems(order entity.ZohoOrderB2B, chunkedItems [][]*entity.Good) (string, error) {
+	// Create deal
+	zohoId, err := c.zoho.CreateB2BOrder(order)
+	if err != nil {
+		return "", fmt.Errorf("create Zoho deal: %w", err)
+	}
+
+	// Fill deal ID into all goods items
+	for _, chunk := range chunkedItems {
+		for _, item := range chunk {
+			item.Deal = entity.ZohoDeal{ID: zohoId}
+		}
+	}
+
+	// Add items in chunks
+	if err := addChunkedItems(chunkedItems, func(chunk []*entity.Good) (string, error) {
+		return c.zoho.AddItemsToOrderB2B(zohoId, chunk)
+	}); err != nil {
+		return zohoId, err
+	}
+
+	return zohoId, nil
+}
+
+// addChunkedItems iterates over chunks and calls the provided addFunc for each.
+// Returns an error if any chunk fails to be added.
+func addChunkedItems[T any](chunks [][]*T, addFunc func([]*T) (string, error)) error {
+	for i, chunk := range chunks {
+		_, err := addFunc(chunk)
+		if err != nil {
+			return fmt.Errorf("add items to order (chunk %d): %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+// chunkSlice splits a slice into chunks of the specified size, returning pointers to elements.
+func chunkSlice[T any](items []T, size int) [][]*T {
+	var chunks [][]*T
+	for i := 0; i < len(items); i += size {
+		end := i + size
+		if end > len(items) {
+			end = len(items)
+		}
+		chunk := make([]*T, end-i)
+		for j := i; j < end; j++ {
+			chunk[j-i] = &items[j]
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks
 }
 
 // round0 rounds a float64 to the nearest integer, converting negative values to positive.

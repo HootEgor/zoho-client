@@ -39,23 +39,11 @@ func (c *Core) ProcessB2BWebhook(payload *entity.B2BWebhookPayload) (string, err
 	// Step 3: Build Zoho B2B order
 	zohoOrder, chunkedItems := c.buildZohoOrderFromWebhook(&payload.Data, contactID, lineItems)
 
-	// Step 4: Create Deal in Zoho
-	zohoId, err := c.zoho.CreateB2BOrder(zohoOrder)
+	// Step 4: Create Deal in Zoho with items
+	zohoId, err := c.createB2BDealWithItems(zohoOrder, chunkedItems)
 	if err != nil {
 		log.With(sl.Err(err)).Error("failed to create Zoho Deal")
-		return "", fmt.Errorf("create Zoho Deal: %w", err)
-	}
-
-	// Step 5: Add items in chunks
-	for i, chunk := range chunkedItems {
-		_, err = c.zoho.AddItemsToOrderB2B(zohoId, chunk)
-		if err != nil {
-			log.With(
-				sl.Err(err),
-				slog.Int("chunk", i+1),
-			).Error("add items to Deal")
-			return "", fmt.Errorf("add items to Deal (chunk %d): %w", i+1, err)
-		}
+		return "", err
 	}
 
 	log.With(slog.String("zoho_id", zohoId)).Info("B2B Deal created from webhook")
@@ -150,18 +138,7 @@ func (c *Core) buildZohoOrderFromWebhook(
 	}
 
 	// Chunk items for Zoho API (max 100 per call)
-	var chunkedItems [][]*entity.Good
-	for i := 0; i < len(allItems); i += ChunkSize {
-		end := i + ChunkSize
-		if end > len(allItems) {
-			end = len(allItems)
-		}
-		chunk := make([]*entity.Good, end-i)
-		for j := i; j < end; j++ {
-			chunk[j-i] = &allItems[j]
-		}
-		chunkedItems = append(chunkedItems, chunk)
-	}
+	chunkedItems := chunkSlice(allItems, ChunkSize)
 
 	// Calculate VAT rate from totals
 	vatRate := 0.0

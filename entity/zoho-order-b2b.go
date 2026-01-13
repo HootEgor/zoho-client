@@ -30,6 +30,7 @@ type ZohoOrderB2B struct {
 
 type Good struct {
 	Product   ZohoProduct `json:"Product"`
+	Deal      ZohoDeal    `json:"Deal"`
 	Quantity  int64       `json:"Goods_quantity"`
 	DiscountP float64     `json:"Discount"`
 	PriceUAH  float64     `json:"Good_price,omitempty"`
@@ -40,4 +41,8 @@ type Good struct {
 	TotalUSD  float64     `json:"Total_USD,omitempty"`
 	TotalEUR  float64     `json:"Total_EUR,omitempty"`
 	TotalPLN  float64     `json:"Total_PLN,omitempty"`
+}
+
+type ZohoDeal struct {
+	ID string `json:"id"`
 }
