@@ -56,6 +56,7 @@ func Webhook(logger *slog.Logger, core Core) http.HandlerFunc {
 		}
 
 		if len(payloads) == 0 {
+			log.Debug("no webhook payload found")
 			render.JSON(w, r, response.OkWithMessage("No webhook data provided", "success"))
 			return
 		}
