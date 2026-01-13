@@ -50,7 +50,8 @@ func (c *Core) ProcessB2BWebhook(payload *entity.B2BWebhookPayload) (string, err
 	return zohoId, nil
 }
 
-// resolveB2BWebhookProducts fetches Zoho IDs for all products in the webhook
+// resolveB2BWebhookProducts fetches product data from local database.
+// If ZohoId is missing in database, resolves it via product repository.
 func (c *Core) resolveB2BWebhookProducts(items []entity.B2BWebhookItem) ([]*entity.LineItem, error) {
 	lineItems := make([]*entity.LineItem, 0, len(items))
 
@@ -59,17 +60,39 @@ func (c *Core) resolveB2BWebhookProducts(items []entity.B2BWebhookItem) ([]*enti
 			return nil, fmt.Errorf("product has empty UID (SKU: %s)", item.ProductSKU)
 		}
 
-		// Fetch Zoho ID from product repository
-		zohoID, err := c.prodRepo.GetProductZohoID(item.ProductUID)
+		// Get product name and zoho_id from local database
+		name, zohoID, err := c.repo.GetProductByUid(item.ProductUID)
 		if err != nil {
-			return nil, fmt.Errorf("get Zoho ID for product %s: %w", item.ProductUID, err)
+			return nil, fmt.Errorf("get product %s from database: %w", item.ProductUID, err)
 		}
 
+		if name == "" {
+			return nil, fmt.Errorf("product %s not found in database", item.ProductUID)
+		}
+
+		// If ZohoId is empty, resolve it via product repository
 		if zohoID == "" {
-			return nil, fmt.Errorf("product %s has no Zoho ID", item.ProductUID)
+			zohoID, err = c.prodRepo.GetProductZohoID(item.ProductUID)
+			if err != nil {
+				return nil, fmt.Errorf("get Zoho ID for product %s: %w", item.ProductUID, err)
+			}
+
+			if zohoID == "" {
+				return nil, fmt.Errorf("product %s has no Zoho ID", item.ProductUID)
+			}
+
+			// Update zoho_id in local database for future use
+			if err = c.repo.UpdateProductZohoId(item.ProductUID, zohoID); err != nil {
+				c.log.With(
+					slog.String("product_uid", item.ProductUID),
+					slog.String("zoho_id", zohoID),
+					sl.Err(err),
+				).Warn("failed to update product zoho_id in database")
+			}
 		}
 
 		lineItems = append(lineItems, &entity.LineItem{
+			Name:   name,
 			Uid:    item.ProductUID,
 			ZohoId: zohoID,
 			Qty:    float64(item.Quantity),

@@ -203,6 +203,26 @@ func (s *MySql) GetProductZohoIdByUid(productUID string) (string, error) {
 	return zohoId, nil
 }
 
+// GetProductByUid returns product name and zoho_id by product_uid.
+// Returns empty strings if product not found.
+func (s *MySql) GetProductByUid(productUID string) (name string, zohoId string, err error) {
+	query := fmt.Sprintf(`
+		SELECT pd.name, p.zoho_id
+		FROM %sproduct p
+		JOIN %sproduct_description pd ON p.product_id = pd.product_id
+		WHERE p.product_uid = ? AND pd.language_id = 2
+	`, s.prefix, s.prefix)
+
+	err = s.db.QueryRow(query, productUID).Scan(&name, &zohoId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", nil
+		}
+		return "", "", fmt.Errorf("query product by uid: %w", err)
+	}
+	return name, zohoId, nil
+}
+
 func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.CheckoutParams, error) {
 	stmt, err := s.stmtSelectOrderStatus()
 	if err != nil {

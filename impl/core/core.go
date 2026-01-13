@@ -24,6 +24,7 @@ type Repository interface {
 
 	UpdateProductZohoId(productUID string, zohoId string) error
 	GetProductZohoIdByUid(productUID string) (string, error)
+	GetProductByUid(productUID string) (name string, zohoId string, err error)
 }
 
 type ProductRepository interface {
