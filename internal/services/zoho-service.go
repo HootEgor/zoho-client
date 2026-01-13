@@ -182,16 +182,42 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 
 	item := apiResp.Data[0]
 
-	if item.Status != "success" {
+	// Handle DUPLICATE_DATA gracefully - extract existing contact ID
+	if item.Status == "error" {
+		if item.Code == "DUPLICATE_DATA" {
+			var dup entity.DuplicateDetails
+			if err = json.Unmarshal(item.Details, &dup); err != nil {
+				return "", fmt.Errorf("failed to parse duplicate details: %w", err)
+			}
+			if dup.DuplicateRecord.ID != "" {
+				log.Debug("duplicate contact found, using existing",
+					slog.String("duplicate_id", dup.DuplicateRecord.ID),
+					slog.String("api_name", dup.APIName),
+				)
+				return dup.DuplicateRecord.ID, nil
+			}
+		}
+
+		if item.Code == "MULTIPLE_OR_MULTI_ERRORS" {
+			var multiErr entity.MultipleErrors
+			if err = json.Unmarshal(item.Details, &multiErr); err != nil {
+				return "", fmt.Errorf("failed to parse multiple errors: %w", err)
+			}
+			if len(multiErr.Errors) > 0 && multiErr.Errors[0].Details.DuplicateRecord.ID != "" {
+				id := multiErr.Errors[0].Details.DuplicateRecord.ID
+				log.Debug("duplicate contact found via multi-error, using existing",
+					slog.String("duplicate_id", id),
+				)
+				return id, nil
+			}
+		}
+
 		return "", fmt.Errorf("zoho error: %s", item)
 	}
 
-	// Log whether contact was created or updated
-	//if item.Action == "update" {
-	//	log.Debug("contact updated via upsert", slog.String("duplicate_field", item.DuplicateField))
-	//} else {
-	//	log.Debug("contact created via upsert")
-	//}
+	if item.Status != "success" {
+		return "", fmt.Errorf("zoho error: %s", item)
+	}
 
 	// Extract the record ID
 	var successDetails entity.SuccessContactDetails
