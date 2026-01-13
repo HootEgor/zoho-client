@@ -28,6 +28,21 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		slog.Int64("order_id", orderId),
 	)
 
+	// Check invoice_no and reset to 0 if != 0
+	invoiceNo, err := c.repo.GetOrderInvoiceNo(orderId)
+	if err != nil {
+		return fmt.Errorf("failed to get invoice_no: %w", err)
+	}
+
+	if invoiceNo != 0 {
+		err = c.repo.UpdateOrderInvoiceNo(orderId, 0)
+		if err != nil {
+			return fmt.Errorf("failed to reset invoice_no: %w", err)
+		}
+		log.Debug("invoice_no reset to 0, skipping order update")
+		return nil
+	}
+
 	// Update status if provided (done separately before transaction)
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)

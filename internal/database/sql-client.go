@@ -176,6 +176,33 @@ func (s *MySql) ChangeOrderZohoId(orderId int64, zohoId string) error {
 	return nil
 }
 
+func (s *MySql) UpdateOrderInvoiceNo(orderId int64, invoiceNo int) error {
+	stmt, err := s.stmtUpdateOrderInvoiceNo()
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.Exec(invoiceNo, orderId)
+	if err != nil {
+		return fmt.Errorf("update invoice_no: %w", err)
+	}
+	return nil
+}
+
+func (s *MySql) GetOrderInvoiceNo(orderId int64) (int, error) {
+	stmt, err := s.stmtSelectOrderInvoiceNo()
+	if err != nil {
+		return 0, err
+	}
+
+	var invoiceNo int
+	err = stmt.QueryRow(orderId).Scan(&invoiceNo)
+	if err != nil {
+		return 0, fmt.Errorf("query invoice_no: %w", err)
+	}
+	return invoiceNo, nil
+}
+
 func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
 	stmt, err := s.stmtUpdateProductZohoId()
 	if err != nil {

@@ -176,11 +176,11 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 	}
 
 	// Log whether contact was created or updated
-	if item.Action == "update" {
-		log.Debug("contact updated via upsert", slog.String("duplicate_field", item.DuplicateField))
-	} else {
-		log.Debug("contact created via upsert")
-	}
+	//if item.Action == "update" {
+	//	log.Debug("contact updated via upsert", slog.String("duplicate_field", item.DuplicateField))
+	//} else {
+	//	log.Debug("contact created via upsert")
+	//}
 
 	// Extract the record ID
 	var successDetails entity.SuccessContactDetails

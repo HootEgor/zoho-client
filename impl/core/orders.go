@@ -116,6 +116,12 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 		infoTag = "B2B order created"
 	}
 
+	// Set invoice_no to -1 on successful order creation
+	err = c.repo.UpdateOrderInvoiceNo(order.OrderId, -1)
+	if err != nil {
+		return zohoId, fmt.Errorf("update invoice_no: %w", err)
+	}
+
 	log.With(slog.String("zoho_id", zohoId)).Info(infoTag)
 
 	return zohoId, nil
