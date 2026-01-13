@@ -19,11 +19,11 @@ func (c *Core) AuthenticateByToken(token string) (*entity.UserAuth, error) {
 	}
 
 	if c.authKey == token {
-		userName := "internal"
+		usr := "internal"
 		c.keysMu.Lock()
-		c.keys[token] = userName
+		c.keys[token] = usr
 		c.keysMu.Unlock()
-		return &entity.UserAuth{Name: userName}, nil
+		return &entity.UserAuth{Name: usr}, nil
 	}
 
 	return nil, fmt.Errorf("invalid token")
