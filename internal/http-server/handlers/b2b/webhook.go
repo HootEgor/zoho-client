@@ -1,11 +1,11 @@
 package b2b
 
 import (
-	"errors"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"zohoclient/entity"
-	"zohoclient/internal/lib/api/request"
 	"zohoclient/internal/lib/api/response"
 	apierrors "zohoclient/internal/lib/errors"
 
@@ -23,9 +23,11 @@ func Webhook(logger *slog.Logger, core Core) http.HandlerFunc {
 			slog.String("remote_addr", r.RemoteAddr),
 		)
 
-		req, err := request.Decode(r)
+		// Decode payload directly from request body
+		var payload entity.B2BWebhookPayload
+		err := json.NewDecoder(r.Body).Decode(&payload)
 		if err != nil {
-			if errors.Is(err, request.ErrEmptyBody) {
+			if err == io.EOF {
 				apiErr := apierrors.NewBadRequestError("Empty request body")
 				log.Warn("request body is empty", slog.String("error_code", string(apiErr.Code)))
 				w.WriteHeader(apiErr.HTTPStatus)
@@ -42,11 +44,10 @@ func Webhook(logger *slog.Logger, core Core) http.HandlerFunc {
 			return
 		}
 
-		var payloads []entity.B2BWebhookPayload
-		err = request.DecodeAndValidateArrayData(req, r, &payloads)
-		if err != nil {
+		// Validate payload
+		if err := payload.Bind(r); err != nil {
 			apiErr := apierrors.NewValidationError("Invalid webhook payload")
-			log.Warn("failed to decode webhook payload",
+			log.Warn("failed to validate webhook payload",
 				slog.String("error", err.Error()),
 				slog.String("error_code", string(apiErr.Code)),
 			)
@@ -55,20 +56,13 @@ func Webhook(logger *slog.Logger, core Core) http.HandlerFunc {
 			return
 		}
 
-		if len(payloads) == 0 {
-			log.Debug("no webhook payload found")
-			render.JSON(w, r, response.OkWithMessage("No webhook data provided", "success"))
-			return
-		}
-
-		payload := &payloads[0]
 		log = log.With(
 			slog.String("order_uid", payload.Data.OrderUID),
 			slog.String("order_number", payload.Data.OrderNumber),
 			slog.String("event", payload.Event),
 		)
 
-		zohoId, err := core.ProcessB2BWebhook(payload)
+		zohoId, err := core.ProcessB2BWebhook(&payload)
 		if err != nil {
 			apiErr := apierrors.NewInternalError("Failed to process B2B webhook")
 			log.Error("failed to process B2B webhook",
