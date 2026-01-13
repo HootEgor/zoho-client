@@ -230,6 +230,7 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 		Product: entity.ZohoProduct{
 			ID: lineItem.ZohoId,
 		},
+		Name:     lineItem.Name,
 		Quantity: int64(lineItem.Qty),
 		//Discount:
 		DiscountP: discountP,

@@ -31,6 +31,7 @@ type ZohoOrderB2B struct {
 type Good struct {
 	Product   ZohoProduct `json:"Product"`
 	Deal      ZohoDeal    `json:"Deal"`
+	Name      string      `json:"Name"`
 	Quantity  int64       `json:"Goods_quantity"`
 	DiscountP float64     `json:"Discount"`
 	PriceUAH  float64     `json:"Good_price,omitempty"`
