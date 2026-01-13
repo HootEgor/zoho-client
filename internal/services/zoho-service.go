@@ -396,6 +396,8 @@ func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
+	s.log.With(slog.String("body", fmt.Sprintf("%+v", body))).Debug("Goods payload")
+
 	apiResp, err := s.doRequest(http.MethodPost, body, "Goods")
 	if err != nil {
 		return "", err

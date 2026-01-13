@@ -2,7 +2,6 @@ package b2b
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -62,8 +61,6 @@ func Webhook(logger *slog.Logger, core Core) http.HandlerFunc {
 			slog.String("order_number", payload.Data.OrderNumber),
 			slog.String("event", payload.Event),
 		)
-
-		log.With(slog.String("payload", fmt.Sprintf("%+v", payload))).Debug("webhook payload")
 
 		zohoId, err := core.ProcessB2BWebhook(&payload)
 		if err != nil {
