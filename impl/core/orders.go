@@ -248,8 +248,8 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 		good.TotalUAH = round2(totalWithDiscount * currency.Rate)
 		break
 	case entity.CurrencyPLN:
-		good.PricePLN = lineItem.Price
-		good.TotalPLN = totalWithDiscount
+		good.PricePLN = round2(lineItem.Price)
+		good.TotalPLN = round2(totalWithDiscount)
 		break
 	case entity.CurrencyUSD:
 		good.PriceUSD = round2(lineItem.Price * currency.Rate)
