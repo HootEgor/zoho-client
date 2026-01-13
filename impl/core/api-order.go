@@ -32,11 +32,11 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)
 		if statusId > 0 {
-			log = log.With(slog.Int("status_id", statusId))
-			err = c.repo.ChangeOrderStatus(orderId, int64(statusId), "Updated via API")
-			if err != nil {
-				return fmt.Errorf("failed to update status: %w", err)
-			}
+			//log = log.With(slog.Int("status_id", statusId))
+			//err = c.repo.ChangeOrderStatus(orderId, int64(statusId), "Updated via API")
+			//if err != nil {
+			//	return fmt.Errorf("failed to update status: %w", err)
+			//}
 		}
 	}
 
