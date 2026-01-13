@@ -147,6 +147,16 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		contact.LastName = "?"
 	}
 
+	// Specify duplicate check fields so upsert updates existing contacts
+	// instead of returning DUPLICATE_DATA error when Phone matches
+	duplicateCheckFields := []string{}
+	if contact.Email != "" {
+		duplicateCheckFields = append(duplicateCheckFields, "Email")
+	}
+	if contact.Phone != "" {
+		duplicateCheckFields = append(duplicateCheckFields, "Phone")
+	}
+
 	payload := map[string]interface{}{
 		"data": []*entity.Contact{
 			{
@@ -158,6 +168,7 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 				Country:   contact.Country,
 			},
 		},
+		"duplicate_check_fields": duplicateCheckFields,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
