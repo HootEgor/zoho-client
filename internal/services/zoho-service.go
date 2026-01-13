@@ -396,16 +396,16 @@ func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	s.log.With(slog.String("body", fmt.Sprintf("%s", body))).Debug("Goods payload")
+	//s.log.With(slog.String("body", fmt.Sprintf("%s", body))).Debug("Goods payload")
 
 	apiResp, err := s.doRequest(http.MethodPost, body, "Goods")
 	if err != nil {
 		return "", err
 	}
 
-	s.log.With(
-		slog.String("body", fmt.Sprintf("%s", apiResp)),
-	).Debug("goods response")
+	//s.log.With(
+	//	slog.String("body", fmt.Sprintf("%s", apiResp)),
+	//).Debug("goods response")
 
 	item := apiResp.Data[0]
 

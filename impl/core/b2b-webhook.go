@@ -46,7 +46,7 @@ func (c *Core) ProcessB2BWebhook(payload *entity.B2BWebhookPayload) (string, err
 		return "", err
 	}
 
-	log.With(slog.String("zoho_id", zohoId)).Info("B2B Deal created from webhook")
+	//log.With(slog.String("zoho_id", zohoId)).Info("B2B Deal created from webhook")
 	return zohoId, nil
 }
 
