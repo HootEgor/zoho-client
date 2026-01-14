@@ -341,7 +341,7 @@ func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, err
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	s.log.With(slog.String("body", fmt.Sprintf("%s", body))).Debug("deal payload")
+	//s.log.With(slog.String("body", fmt.Sprintf("%s", body))).Debug("deal payload")
 
 	apiResp, err := s.doRequest(http.MethodPost, body, "Deals")
 	if err != nil {
