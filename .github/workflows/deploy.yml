@@ -26,6 +26,11 @@ jobs:
           sed -i 's|${SQL_DATABASE}|'"$SQL_DATABASE"'|g' zohoclient-config.yml
           sed -i 's|${SQL_PORT}|'"$SQL_PORT"'|g' zohoclient-config.yml
           sed -i 's|${SQL_PREFIX}|'"$SQL_PREFIX"'|g' zohoclient-config.yml
+          sed -i 's|${MONGO_HOST}|'"$MONGO_HOST"'|g' zohoclient-config.yml
+          sed -i 's|${MONGO_PORT}|'"$MONGO_PORT"'|g' zohoclient-config.yml
+          sed -i 's|${MONGO_USER}|'"$MONGO_USER"'|g' zohoclient-config.yml
+          sed -i 's|${MONGO_PASSWORD}|'"$MONGO_PASSWORD"'|g' zohoclient-config.yml
+          sed -i 's|${MONGO_DATABASE}|'"$MONGO_DATABASE"'|g' zohoclient-config.yml
           sed -i 's|${TELEGRAM_API_KEY}|'"$TELEGRAM_API_KEY"'|g' zohoclient-config.yml
           sed -i 's|${TELEGRAM_ADMIN_ID}|'"$TELEGRAM_ADMIN_ID"'|g' zohoclient-config.yml
           sed -i 's|${ZOHO_CLIENT_ID}|'"$ZOHO_CLIENT_ID"'|g' zohoclient-config.yml
@@ -45,6 +50,11 @@ jobs:
           SQL_DATABASE: ${{ vars.SQL_DATABASE }}
           SQL_PORT: ${{ vars.SQL_PORT }}
           SQL_PREFIX: ${{ vars.SQL_PREFIX }}
+          MONGO_HOST: ${{ secrets.MONGO_HOST }}
+          MONGO_PORT: ${{ secrets.MONGO_PORT }}
+          MONGO_USER: ${{ secrets.MONGO_USER }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          MONGO_DATABASE: ${{ secrets.MONGO_DATABASE }}
           TELEGRAM_API_KEY: ${{ secrets.TELEGRAM_API_KEY }}
           TELEGRAM_ADMIN_ID: ${{ secrets.TELEGRAM_ADMIN_ID }}
           ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}

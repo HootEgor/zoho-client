@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"math"
 	"zohoclient/entity"
-	"zohoclient/internal/database"
+	"zohoclient/internal/database/sql"
 	"zohoclient/internal/lib/sl"
 )
 
@@ -40,18 +40,18 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			return fmt.Errorf("failed to reset tracking: %w", err)
 		}
 		log.With(slog.String("tracking", tracking)).Debug("tracking reset to empty")
-		//return nil
+		return nil
 	}
 
 	// Update status if provided (done separately before transaction)
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)
 		if statusId > 0 {
-			//log = log.With(slog.Int("status_id", statusId))
-			//err = c.repo.ChangeOrderStatus(orderId, int64(statusId), "Updated via API")
-			//if err != nil {
-			//	return fmt.Errorf("failed to update status: %w", err)
-			//}
+			log = log.With(slog.Int("status_id", statusId))
+			err = c.repo.ChangeOrderStatus(orderId, int64(statusId), "Updated via API")
+			if err != nil {
+				return fmt.Errorf("failed to update status: %w", err)
+			}
 		}
 	}
 
@@ -65,7 +65,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	var shippingTotal int64
 
 	// Prepare product data with calculated tax
-	productData := make([]database.OrderProductData, 0, len(orderDetails.OrderedItems))
+	productData := make([]sql.OrderProductData, 0, len(orderDetails.OrderedItems))
 	for _, item := range orderDetails.OrderedItems {
 		// Calculate shipping total separately
 		if item.ZohoID == c.shippingItemZohoId {
@@ -81,7 +81,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		lineTotal := itemPrice * float64(item.Quantity)
 
 		// Convert to cents
-		productData = append(productData, database.OrderProductData{
+		productData = append(productData, sql.OrderProductData{
 			ZohoID:       item.ZohoID, // Already a string, use directly
 			Quantity:     item.Quantity,
 			PriceInCents: int64(math.Round(itemPrice * 100)),
@@ -109,12 +109,12 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Execute entire update in a single transaction
-	_ = database.OrderUpdateTransaction{
+	txData := sql.OrderUpdateTransaction{
 		OrderID:       orderId,
 		Items:         productData,
 		CurrencyValue: currencyValue,
 		OrderTotal:    total,
-		Totals: database.OrderTotalsData{
+		Totals: sql.OrderTotalsData{
 			SubTotal: itemsTotal,
 			Tax:      taxTotal,
 			Discount: discount,
@@ -124,10 +124,13 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		},
 	}
 
-	//err = c.repo.UpdateOrderWithTransaction(txData)
-	//if err != nil {
-	//	return fmt.Errorf("failed to update order: %w", err)
-	//}
+	err = c.repo.UpdateOrderWithTransaction(txData)
+	if err != nil {
+		return fmt.Errorf("failed to update order: %w", err)
+	}
+
+	// Save order version to MongoDB
+	c.saveOrderVersionToMongo(orderId, orderDetails)
 
 	log.With(
 		slog.Int64("sub_total", itemsTotal),

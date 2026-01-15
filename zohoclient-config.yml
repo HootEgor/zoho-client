@@ -10,6 +10,14 @@ sql:
   database: ${SQL_DATABASE}
   port: ${SQL_PORT}
   prefix: ${SQL_PREFIX}
+mongo:
+  enabled: true
+  host: ${MONGO_HOST}
+  port: ${MONGO_PORT}
+  user: ${MONGO_USER}
+  password: ${MONGO_PASSWORD}
+  database: ${MONGO_DATABASE}
+  expired_days: 90
 telegram:
   enabled: true
   api_key: ${TELEGRAM_API_KEY}

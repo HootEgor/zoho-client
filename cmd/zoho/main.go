@@ -13,7 +13,8 @@ import (
 	"zohoclient/bot"
 	"zohoclient/impl/core"
 	"zohoclient/internal/config"
-	"zohoclient/internal/database"
+	repository "zohoclient/internal/database/mongo"
+	"zohoclient/internal/database/sql"
 	"zohoclient/internal/http-server/api"
 	"zohoclient/internal/lib/logger"
 	"zohoclient/internal/lib/sl"
@@ -54,7 +55,7 @@ func main() {
 
 	handler := core.New(lg, *conf)
 
-	db, err := database.NewSQLClient(conf, lg)
+	db, err := sql.NewSQLClient(conf, lg)
 	if err != nil {
 		lg.With(sl.Err(err)).Error("mysql client")
 	}
@@ -102,6 +103,14 @@ func main() {
 		handler.SetZoho(zoho)
 	} else {
 		lg.Error("zoho service not initialized")
+	}
+
+	mongoClient, err := repository.NewMongoClient(conf, lg)
+	if err != nil {
+		lg.Error("failed to create mongo client", sl.Err(err))
+	}
+	if mongoClient != nil {
+		handler.SetMongoRepository(mongoClient)
 	}
 
 	handler.SetAuthKey(conf.Listen.ApiKey)

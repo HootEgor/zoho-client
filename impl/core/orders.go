@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -107,13 +108,13 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 			return "", err
 		}
 	} else {
-		zohoOrder, chunkedItems := c.buildZohoOrderB2B(order, contactID)
-		zohoId, err = c.createB2BDealWithItems(zohoOrder, chunkedItems)
-		if err != nil {
-			log.With(sl.Err(err)).Error("create B2B deal")
-			return "", err
-		}
-		infoTag = "B2B order created"
+		//zohoOrder, chunkedItems := c.buildZohoOrderB2B(order, contactID)
+		//zohoId, err = c.createB2BDealWithItems(zohoOrder, chunkedItems)
+		//if err != nil {
+		//	log.With(sl.Err(err)).Error("create B2B deal")
+		//	return "", err
+		//}
+		//infoTag = "B2B order created"
 	}
 
 	// Set tracking to "new" on successful order creation
@@ -121,6 +122,9 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 	if err != nil {
 		return zohoId, fmt.Errorf("update tracking: %w", err)
 	}
+
+	// Save order version to MongoDB
+	c.saveOrderVersionToMongo(order.OrderId, order)
 
 	log.With(slog.String("zoho_id", zohoId)).Info(infoTag)
 
@@ -144,8 +148,8 @@ func (c *Core) ProcessOrders() {
 
 		if order.ClientDetails.IsB2B() {
 			log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client")
-			//_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
-			//continue
+			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
+			continue
 		}
 
 		zohoId, err := c.processOrder(order, order.ClientDetails.IsB2B())
@@ -479,4 +483,22 @@ func round2(value float64) float64 {
 		value = -value
 	}
 	return math.Round(value*100) / 100
+}
+
+// saveOrderVersionToMongo saves the order payload as a new version to MongoDB.
+func (c *Core) saveOrderVersionToMongo(orderID int64, payload interface{}) {
+	if c.mongoRepo == nil {
+		return
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		c.log.With(sl.Err(err), slog.Int64("order_id", orderID)).Warn("failed to marshal order payload for mongo")
+		return
+	}
+
+	err = c.mongoRepo.SaveOrderVersion(orderID, string(payloadBytes))
+	if err != nil {
+		c.log.With(sl.Err(err), slog.Int64("order_id", orderID)).Warn("failed to save order version to mongo")
+	}
 }

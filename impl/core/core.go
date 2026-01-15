@@ -7,7 +7,7 @@ import (
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
-	"zohoclient/internal/database"
+	"zohoclient/internal/database/sql"
 	"zohoclient/internal/lib/sl"
 )
 
@@ -20,7 +20,7 @@ type Repository interface {
 	OrderTotal(orderId int64, code string) (string, float64, error)
 
 	// UpdateOrderWithTransaction Transaction-based order update
-	UpdateOrderWithTransaction(data database.OrderUpdateTransaction) error
+	UpdateOrderWithTransaction(data sql.OrderUpdateTransaction) error
 
 	UpdateProductZohoId(productUID string, zohoId string) error
 	GetProductZohoIdByUid(productUID string) (string, error)
@@ -48,9 +48,15 @@ type MessageService interface {
 	SendEventMessage(msg *entity.EventMessage) error
 }
 
+type MongoRepository interface {
+	SaveOrderVersion(orderID int64, payload string) error
+	DeleteExpired() (int64, error)
+}
+
 type Core struct {
 	repo               Repository
 	prodRepo           ProductRepository
+	mongoRepo          MongoRepository
 	zoho               Zoho
 	ms                 MessageService
 	shippingItemZohoId string
@@ -101,6 +107,10 @@ func (c *Core) SetRepository(repo Repository) {
 
 func (c *Core) SetProductRepository(prodRepo ProductRepository) {
 	c.prodRepo = prodRepo
+}
+
+func (c *Core) SetMongoRepository(mongoRepo MongoRepository) {
+	c.mongoRepo = mongoRepo
 }
 
 func (c *Core) SetZoho(zoho Zoho) {
@@ -170,4 +180,34 @@ func (c *Core) Start() {
 			}
 		}
 	}()
+
+	// Separate goroutine for MongoDB cleanup (runs every 12 hours)
+	go func() {
+		ticker := time.NewTicker(12 * time.Hour)
+		defer ticker.Stop()
+
+		// Run cleanup once at startup
+		c.cleanupExpiredMongoOrders()
+
+		for {
+			select {
+			case <-c.stopCh:
+				return
+			case <-ticker.C:
+				c.cleanupExpiredMongoOrders()
+			}
+		}
+	}()
+}
+
+// cleanupExpiredMongoOrders removes old order records from MongoDB.
+func (c *Core) cleanupExpiredMongoOrders() {
+	if c.mongoRepo == nil {
+		return
+	}
+
+	_, err := c.mongoRepo.DeleteExpired()
+	if err != nil {
+		c.log.With(sl.Err(err)).Warn("failed to cleanup expired mongo orders")
+	}
 }

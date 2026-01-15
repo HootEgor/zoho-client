@@ -20,6 +20,15 @@ type Config struct {
 		Port     string `yaml:"port" env-default:"8080"`
 		Prefix   string `yaml:"prefix" env-default:""`
 	} `yaml:"sql"`
+	Mongo struct {
+		Enabled     bool   `yaml:"enabled" env-default:"false"`
+		Host        string `yaml:"host" env-default:"127.0.0.1"`
+		Port        string `yaml:"port" env-default:"27017"`
+		User        string `yaml:"user" env-default:"admin"`
+		Password    string `yaml:"password" env-default:"pass"`
+		Database    string `yaml:"database" env-default:""`
+		ExpiredDays int    `yaml:"expired_days" env-default:"7"`
+	} `yaml:"mongo"`
 	Telegram struct {
 		Enabled     bool   `yaml:"enabled" env-default:"false"`
 		ApiKey      string `yaml:"api_key" env-default:""`
