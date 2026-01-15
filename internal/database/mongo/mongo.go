@@ -99,7 +99,7 @@ func (m *MongoDB) SaveOrderVersion(orderID int64, payload string) error {
 			if err != nil {
 				return fmt.Errorf("mongodb insert error: %w", err)
 			}
-			m.log.Debug("created new order in mongodb", slog.Int64("order_id", orderID), slog.String("version_id", "0"))
+			//m.log.Debug("created new order in mongodb", slog.Int64("order_id", orderID), slog.String("version_id", "0"))
 			return nil
 		}
 		return m.findError(err)
@@ -116,7 +116,7 @@ func (m *MongoDB) SaveOrderVersion(orderID int64, payload string) error {
 		return fmt.Errorf("mongodb update error: %w", err)
 	}
 
-	m.log.Debug("added version to order in mongodb", slog.Int64("order_id", orderID), slog.String("version_id", nextID))
+	//m.log.Debug("added version to order in mongodb", slog.Int64("order_id", orderID), slog.String("version_id", nextID))
 	return nil
 }
 
