@@ -89,7 +89,7 @@ func (m *MongoDB) SaveOrderVersion(orderID int64, payload string) error {
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			// Create new order document with version 0
-			version := entity.Version{ID: "0", Payload: payload}
+			version := entity.Version{ID: "0", Payload: payload, CreationDate: time.Now()}
 			newOrder := entity.MongoOrder{
 				CreationDate: time.Now(),
 				OrderID:      orderID,
@@ -107,7 +107,7 @@ func (m *MongoDB) SaveOrderVersion(orderID int64, payload string) error {
 
 	// Order exists, append new version with next sequential ID
 	nextID := fmt.Sprintf("%d", len(existingOrder.Versions))
-	version := entity.Version{ID: nextID, Payload: payload}
+	version := entity.Version{ID: nextID, Payload: payload, CreationDate: time.Now()}
 	update := bson.M{
 		"$push": bson.M{"versions": version},
 	}

@@ -9,6 +9,7 @@ type MongoOrder struct {
 }
 
 type Version struct {
-	ID      string `json:"id" bson:"id"`
-	Payload string `json:"payload" bson:"payload"`
+	ID           string    `json:"id" bson:"id"`
+	CreationDate time.Time `json:"creation_date" bson:"creation_date"`
+	Payload      string    `json:"payload" bson:"payload"`
 }
