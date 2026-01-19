@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/database/sql"
 	"zohoclient/internal/lib/sl"
@@ -16,9 +17,26 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		return fmt.Errorf("zoho_id is required")
 	}
 
-	orderId, orderParams, err := c.repo.OrderSearchByZohoId(orderDetails.ZohoID)
+	// Retry logic to handle race condition: webhook may arrive before zoho_id is saved to database
+	const maxRetries = 5
+	const retryDelay = 200 * time.Millisecond
+
+	var orderId int64
+	var orderParams *entity.CheckoutParams
+	var err error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		orderId, orderParams, err = c.repo.OrderSearchByZohoId(orderDetails.ZohoID)
+		if err == nil {
+			break
+		}
+		if attempt < maxRetries-1 {
+			log.With(slog.Int("attempt", attempt+1)).Debug("order not found, retrying...")
+			time.Sleep(retryDelay)
+		}
+	}
 	if err != nil {
-		return fmt.Errorf("order not found: %w", err)
+		return fmt.Errorf("order not found after %d attempts: %w", maxRetries, err)
 	}
 
 	currencyValue := orderParams.CurrencyValue
