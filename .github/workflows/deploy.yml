@@ -41,6 +41,8 @@ jobs:
           sed -i 's|${REPO_LOGIN}|'"$REPO_LOGIN"'|g' zohoclient-config.yml
           sed -i 's|${REPO_PASSWORD}|'"$REPO_PASSWORD"'|g' zohoclient-config.yml
           sed -i 's|${REPO_PROD_URL}|'"$REPO_PROD_URL"'|g' zohoclient-config.yml
+          sed -i 's|${SMARTSENDER_API_KEY}|'"$SMARTSENDER_API_KEY"'|g' zohoclient-config.yml
+          sed -i 's|${ZOHO_API_KEY}|'"$ZOHO_API_KEY"'|g' zohoclient-config.yml
         env:
           LOG_ENV: ${{ vars.LOG_ENV }}
           SQL_DRIVER: ${{ vars.SQL_DRIVER }}
@@ -67,6 +69,8 @@ jobs:
           REPO_PROD_URL: ${{ vars.REPO_PROD_URL }}
           LISTEN_PORT: ${{ vars.LISTEN_PORT }}
           API_KEY: ${{ secrets.API_KEY }}
+          SMARTSENDER_API_KEY: ${{ secrets.SMARTSENDER_API_KEY }}
+          ZOHO_API_KEY: ${{ secrets.ZOHO_API_KEY }}
 
       - name: Copy Configuration to Server
         uses: appleboy/scp-action@master

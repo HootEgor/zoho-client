@@ -55,6 +55,14 @@ type Config struct {
 		Port   string `yaml:"port" env:"PORT" env-default:"8080"`
 		ApiKey string `yaml:"key" env-default:""`
 	} `yaml:"listen"`
+	SmartSender struct {
+		Enabled      bool   `yaml:"enabled" env-default:"false"`
+		ApiKey       string `yaml:"api_key" env-default:""`
+		BaseURL      string `yaml:"base_url" env-default:"https://api.smartsender.com/v1"`
+		ZohoApiKey   string `yaml:"zoho_api_key" env-default:""`
+		ZohoMsgURL   string `yaml:"zoho_msg_url" env-default:""`
+		PollInterval int    `yaml:"poll_interval" env-default:"60"`
+	} `yaml:"smartsender"`
 }
 
 var instance *Config

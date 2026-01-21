@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	ordersCollection = "orders"
+	ordersCollection      = "orders"
+	smartsenderCollection = "smartsender_state"
 )
 
 type MongoDB struct {
@@ -150,4 +151,82 @@ func (m *MongoDB) DeleteExpired() (int64, error) {
 	}
 
 	return result.DeletedCount, nil
+}
+
+// SSState represents SmartSender state document in MongoDB
+type SSState struct {
+	ChatID            string    `bson:"chat_id"`
+	LastProcessedTime time.Time `bson:"last_processed_time"`
+}
+
+// GetSSLastProcessedTime retrieves the last processed time for a chat from MongoDB
+func (m *MongoDB) GetSSLastProcessedTime(chatID string) (time.Time, error) {
+	connection, err := m.connect()
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer m.disconnect(connection)
+
+	collection := connection.Database(m.database).Collection(smartsenderCollection)
+
+	var state SSState
+	err = collection.FindOne(m.ctx, bson.M{"chat_id": chatID}).Decode(&state)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, fmt.Errorf("mongodb find error: %w", err)
+	}
+
+	return state.LastProcessedTime, nil
+}
+
+// SetSSLastProcessedTime saves the last processed time for a chat to MongoDB
+func (m *MongoDB) SetSSLastProcessedTime(chatID string, t time.Time) error {
+	connection, err := m.connect()
+	if err != nil {
+		return err
+	}
+	defer m.disconnect(connection)
+
+	collection := connection.Database(m.database).Collection(smartsenderCollection)
+
+	filter := bson.M{"chat_id": chatID}
+	update := bson.M{"$set": bson.M{"chat_id": chatID, "last_processed_time": t}}
+	opts := options.Update().SetUpsert(true)
+
+	_, err = collection.UpdateOne(m.ctx, filter, update, opts)
+	if err != nil {
+		return fmt.Errorf("mongodb upsert error: %w", err)
+	}
+
+	return nil
+}
+
+// GetAllSSLastProcessedTimes retrieves all chat last processed times from MongoDB
+func (m *MongoDB) GetAllSSLastProcessedTimes() (map[string]time.Time, error) {
+	connection, err := m.connect()
+	if err != nil {
+		return nil, err
+	}
+	defer m.disconnect(connection)
+
+	collection := connection.Database(m.database).Collection(smartsenderCollection)
+
+	cursor, err := collection.Find(m.ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("mongodb find error: %w", err)
+	}
+	defer cursor.Close(m.ctx)
+
+	result := make(map[string]time.Time)
+	for cursor.Next(m.ctx) {
+		var state SSState
+		if err := cursor.Decode(&state); err != nil {
+			continue
+		}
+		result[state.ChatID] = state.LastProcessedTime
+	}
+
+	return result, nil
 }

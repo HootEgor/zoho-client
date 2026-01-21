@@ -51,6 +51,18 @@ type MessageService interface {
 type MongoRepository interface {
 	SaveOrderVersion(orderID int64, payload string) error
 	DeleteExpired() (int64, error)
+	GetSSLastProcessedTime(chatID string) (time.Time, error)
+	SetSSLastProcessedTime(chatID string, t time.Time) error
+	GetAllSSLastProcessedTimes() (map[string]time.Time, error)
+}
+
+type SmartSenderService interface {
+	GetAllChats() ([]entity.SSChat, error)
+	GetMessagesAfterTime(chatID string, afterTime time.Time) ([]entity.SSMessage, error)
+}
+
+type ZohoFunctionsService interface {
+	SendMessages(contactID string, messages []entity.ZohoMessageItem) error
 }
 
 type Core struct {
@@ -67,6 +79,13 @@ type Core struct {
 	keysMu             sync.RWMutex
 	log                *slog.Logger
 	stopCh             chan struct{}
+
+	// SmartSender integration
+	smartSender       SmartSenderService
+	zohoFunctions     ZohoFunctionsService
+	ssLastProcessed   map[string]time.Time
+	ssLastProcessedMu sync.RWMutex
+	ssPollInterval    time.Duration
 }
 
 func New(log *slog.Logger, conf config.Config) *Core {
@@ -82,9 +101,10 @@ func New(log *slog.Logger, conf config.Config) *Core {
 			entity.OrderStatusPayed:              "Оплачено формування ТТН",
 			entity.OrderStatusPrepareForShipping: "Передано на збір",
 		},
-		authKey: conf.Listen.ApiKey,
-		keys:    make(map[string]string),
-		stopCh:  make(chan struct{}),
+		authKey:         conf.Listen.ApiKey,
+		keys:            make(map[string]string),
+		stopCh:          make(chan struct{}),
+		ssLastProcessed: make(map[string]time.Time),
 	}
 }
 
@@ -119,6 +139,18 @@ func (c *Core) SetZoho(zoho Zoho) {
 
 func (c *Core) SetMessageService(ms MessageService) {
 	c.ms = ms
+}
+
+func (c *Core) SetSmartSenderService(ss SmartSenderService) {
+	c.smartSender = ss
+}
+
+func (c *Core) SetZohoFunctionsService(zf ZohoFunctionsService) {
+	c.zohoFunctions = zf
+}
+
+func (c *Core) SetSmartSenderPollInterval(interval time.Duration) {
+	c.ssPollInterval = interval
 }
 
 func (c *Core) SetAuthKey(key string) {
@@ -198,6 +230,9 @@ func (c *Core) Start() {
 			}
 		}
 	}()
+
+	// SmartSender processing goroutine
+	c.startSmartSenderProcessing()
 }
 
 // cleanupExpiredMongoOrders removes old order records from MongoDB.

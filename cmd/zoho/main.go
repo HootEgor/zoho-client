@@ -113,6 +113,27 @@ func main() {
 		handler.SetMongoRepository(mongoClient)
 	}
 
+	// Initialize SmartSender integration if enabled
+	if conf.SmartSender.Enabled {
+		smartSenderSvc, err := services.NewSmartSenderService(conf, lg)
+		if err != nil {
+			lg.Error("failed to create smartsender service", sl.Err(err))
+		} else if smartSenderSvc != nil {
+			handler.SetSmartSenderService(smartSenderSvc)
+			lg.Info("SmartSender service initialized")
+		}
+
+		zohoFuncSvc, err := services.NewZohoFunctionsService(conf, lg)
+		if err != nil {
+			lg.Error("failed to create zoho functions service", sl.Err(err))
+		} else if zohoFuncSvc != nil {
+			handler.SetZohoFunctionsService(zohoFuncSvc)
+			lg.Info("Zoho Functions service initialized")
+		}
+
+		handler.SetSmartSenderPollInterval(time.Duration(conf.SmartSender.PollInterval) * time.Second)
+	}
+
 	handler.SetAuthKey(conf.Listen.ApiKey)
 	handler.Start()
 
