@@ -1,11 +1,15 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
+	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
@@ -43,6 +47,36 @@ func NewSmartSenderService(conf *config.Config, log *slog.Logger) (*SmartSenderS
 	}
 
 	return service, nil
+}
+
+// APIError represents a non-200 response from SmartSender API and optional RetryAfter
+type APIError struct {
+	Status     int
+	Body       string
+	RetryAfter time.Duration
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error (status %d): %s", e.Status, e.Body)
+}
+
+// parseRetryAfter tries to parse Retry-After header; supports seconds or HTTP-date
+func parseRetryAfter(h string) (time.Duration, error) {
+	if h == "" {
+		return 0, fmt.Errorf("empty")
+	}
+	if secs, err := strconv.Atoi(h); err == nil {
+		return time.Duration(secs) * time.Second, nil
+	}
+	// try http time parse
+	if t, err := http.ParseTime(h); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0, nil
+		}
+		return d, nil
+	}
+	return 0, fmt.Errorf("unparsable")
 }
 
 // GetAllChats fetches all chats from SmartSender API with pagination
@@ -112,32 +146,115 @@ func (s *SmartSenderService) GetMessagesAfterTime(chatID string, afterTime time.
 	return filteredMessages, nil
 }
 
+// doRequest performs HTTP request with rate limiter, retries and exponential backoff on 429/423/5xx
 func (s *SmartSenderService) doRequest(method, url string) ([]byte, error) {
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+	// Retry parameters
+	const (
+		maxRetries     = 5
+		baseDelay      = 500 * time.Millisecond
+		maxDelay       = 10 * time.Second
+		jitterFraction = 0.2
+	)
+
+	ctx := context.Background()
+
+	var lastErr error
+
+	backoffDuration := func(attempt int) time.Duration {
+		d := float64(baseDelay) * math.Pow(2, float64(attempt))
+		if d > float64(maxDelay) {
+			d = float64(maxDelay)
+		}
+		j := 1 - jitterFraction + rand.Float64()*(2*jitterFraction)
+		return time.Duration(d * j)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Rate limiter: wait for token
+		if err := Acquire(ctx); err != nil {
+			return nil, fmt.Errorf("rate limiter: %w", err)
+		}
 
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-	defer func(Body io.ReadCloser) {
-		if closeErr := Body.Close(); closeErr != nil {
+		req, err := http.NewRequest(method, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+s.apiKey)
+
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("send request: %w", err)
+			if attempt == maxRetries {
+				break
+			}
+			// network error -> backoff and retry
+			time.Sleep(backoffDuration(attempt))
+			continue
+		}
+
+		// ensure body closed
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if closeErr := resp.Body.Close(); closeErr != nil {
 			s.log.With(sl.Err(closeErr)).Warn("failed to close response body")
 		}
-	}(resp.Body)
+		if readErr != nil {
+			lastErr = fmt.Errorf("read response body: %w", readErr)
+			if attempt == maxRetries {
+				break
+			}
+			time.Sleep(backoffDuration(attempt))
+			continue
+		}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
+		if resp.StatusCode == http.StatusOK {
+			return bodyBytes, nil
+		}
+
+		apiErr := &APIError{Status: resp.StatusCode, Body: string(bodyBytes)}
+		// try parse Retry-After header
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if d, err := parseRetryAfter(ra); err == nil {
+				apiErr.RetryAfter = d
+			}
+		}
+
+		// set sensible defaults when header is missing for specific codes
+		if apiErr.RetryAfter == 0 {
+			if resp.StatusCode == 423 {
+				// SmartSender sometimes returns 423 with a message indicating seconds; default to 12 minutes
+				apiErr.RetryAfter = 720 * time.Second
+			} else if resp.StatusCode == 429 {
+				// default short backoff for 429 when Retry-After is absent
+				apiErr.RetryAfter = 5 * time.Second
+			}
+		}
+
+		// Determine if response is retriable
+		retriable := resp.StatusCode == 429 || resp.StatusCode == 423 || (resp.StatusCode >= 500 && resp.StatusCode <= 599)
+		if !retriable {
+			return nil, apiErr
+		}
+
+		// Retriable error
+		lastErr = apiErr
+		if attempt == maxRetries {
+			break
+		}
+
+		if apiErr.RetryAfter > 0 {
+			wait := apiErr.RetryAfter
+			if wait > maxDelay {
+				wait = maxDelay
+			}
+			time.Sleep(wait)
+		} else {
+			time.Sleep(backoffDuration(attempt))
+		}
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+	if lastErr != nil {
+		return nil, lastErr
 	}
-
-	return bodyBytes, nil
+	return nil, fmt.Errorf("request failed after retries")
 }

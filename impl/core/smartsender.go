@@ -2,6 +2,7 @@ package core
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/lib/sl"
@@ -78,6 +79,17 @@ func (c *Core) processSmartSenderChats() {
 	for _, chat := range chats {
 		count, err := c.processChat(chat)
 		if err != nil {
+			// detect rate-limit errors from SmartSender (status 429 or 423)
+			errStr := err.Error()
+			if strings.Contains(errStr, "status 429") || strings.Contains(errStr, "status 423") {
+				// Log and stop processing remaining chats for this cycle
+				log.With(
+					sl.Err(err),
+					slog.String("chat_id", string(chat.ID)),
+				).Warn("rate limit from SmartSender, stopping processing for this cycle")
+				break
+			}
+
 			log.With(
 				sl.Err(err),
 				slog.String("chat_id", string(chat.ID)),
