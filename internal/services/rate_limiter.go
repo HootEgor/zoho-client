@@ -2,16 +2,16 @@ package services
 
 import (
 	"context"
-	_ "time"
 
 	"golang.org/x/time/rate"
 )
 
 // Simple package-level rate limiter for SmartSender requests. Configurable via variables.
 var (
-	// Default values; you can expose setters or read from config if needed.
-	defaultRate  = rate.Limit(5) // requests per second
-	defaultBurst = 10
+	// Conservative defaults tuned for SmartSender quota: 180 requests per 60 seconds => 3 req/sec
+	// Use lower defaults to avoid hitting the quota: 2 req/sec
+	defaultRate  = rate.Limit(2) // requests per second
+	defaultBurst = 1
 	limiter      = rate.NewLimiter(defaultRate, defaultBurst)
 	// You can replace limiter with a different one in tests if necessary.
 )

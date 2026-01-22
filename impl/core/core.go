@@ -86,6 +86,12 @@ type Core struct {
 	ssLastProcessed   map[string]time.Time
 	ssLastProcessedMu sync.RWMutex
 	ssPollInterval    time.Duration
+	// When SmartSender API signals rate limiting, pause processing until this time
+	ssRateLimitUntil time.Time
+	ssRateLimitMu    sync.RWMutex
+	// If processing was interrupted by rate limit, resume from this chat ID on next run
+	ssResumeFromChatID string
+	ssResumeMu         sync.RWMutex
 }
 
 func New(log *slog.Logger, conf config.Config) *Core {

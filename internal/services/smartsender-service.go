@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 	"zohoclient/entity"
@@ -219,6 +220,16 @@ func (s *SmartSenderService) doRequest(method, url string) ([]byte, error) {
 			}
 		}
 
+		// attempt to extract seconds from response body if header missing
+		if apiErr.RetryAfter == 0 {
+			re := regexp.MustCompile(`(?i)try again in\s*(\d+)\s*seconds`)
+			if m := re.FindStringSubmatch(apiErr.Body); len(m) >= 2 {
+				if secs, err := strconv.Atoi(m[1]); err == nil {
+					apiErr.RetryAfter = time.Duration(secs) * time.Second
+				}
+			}
+		}
+
 		// set sensible defaults when header is missing for specific codes
 		if apiErr.RetryAfter == 0 {
 			if resp.StatusCode == 423 {
@@ -230,27 +241,25 @@ func (s *SmartSenderService) doRequest(method, url string) ([]byte, error) {
 			}
 		}
 
-		// Determine if response is retriable
-		retriable := resp.StatusCode == 429 || resp.StatusCode == 423 || (resp.StatusCode >= 500 && resp.StatusCode <= 599)
+		// If it's a rate-limit error (423 or 429), return immediately so caller can pause
+		if resp.StatusCode == 423 || resp.StatusCode == 429 {
+			return nil, apiErr
+		}
+
+		// Determine if response is retriable (5xx)
+		retriable := (resp.StatusCode >= 500 && resp.StatusCode <= 599)
 		if !retriable {
 			return nil, apiErr
 		}
 
-		// Retriable error
+		// Retriable 5xx error - proceed with retries
 		lastErr = apiErr
 		if attempt == maxRetries {
 			break
 		}
 
-		if apiErr.RetryAfter > 0 {
-			wait := apiErr.RetryAfter
-			if wait > maxDelay {
-				wait = maxDelay
-			}
-			time.Sleep(wait)
-		} else {
-			time.Sleep(backoffDuration(attempt))
-		}
+		// exponential backoff
+		time.Sleep(backoffDuration(attempt))
 	}
 
 	if lastErr != nil {
