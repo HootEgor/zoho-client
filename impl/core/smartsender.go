@@ -157,6 +157,10 @@ func (c *Core) processSmartSenderChats() {
 			log.Info("reached max chats per cycle, will resume next tick",
 				slog.Int("processed", processedChats),
 				slog.Int("remain", len(chats)-processedChats))
+			// Save resume position to continue from this chat next tick
+			c.ssResumeMu.Lock()
+			c.ssResumeFromChatID = string(chat.ID)
+			c.ssResumeMu.Unlock()
 			break
 		}
 
