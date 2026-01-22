@@ -41,7 +41,7 @@ listen:
   port: ${LISTEN_PORT}
   key: ${API_KEY}
 smartsender:
-  enabled: false
+  enabled: true
   api_key: ${SMARTSENDER_API_KEY}
   base_url: https://api.smartsender.com/v1
   zoho_api_key: ${ZOHO_API_KEY}
