@@ -1,12 +1,48 @@
 package entity
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // SmartSender API entities
 
+// StringID is a helper type that accepts JSON numbers or strings and stores them as string.
+// This avoids errors when the remote API sometimes emits numeric ids instead of quoted strings.
+type StringID string
+
+func (s *StringID) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*s = ""
+		return nil
+	}
+	// quoted string
+	if b[0] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return err
+		}
+		*s = StringID(str)
+		return nil
+	}
+	// number (or other) -> use json.Number to preserve representation
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err != nil {
+		// fallback: try unmarshaling as string
+		var str string
+		if err2 := json.Unmarshal(b, &str); err2 != nil {
+			return err
+		}
+		*s = StringID(str)
+		return nil
+	}
+	*s = StringID(num.String())
+	return nil
+}
+
 // SSChat represents a chat from SmartSender API
 type SSChat struct {
-	ID      string    `json:"id"`
+	ID      StringID  `json:"id"`
 	Contact SSContact `json:"contact"`
 }
 
@@ -30,7 +66,7 @@ type SSCursor struct {
 
 // SSMessage represents a message from SmartSender API
 type SSMessage struct {
-	ID        string           `json:"id"`
+	ID        StringID         `json:"id"`
 	CreatedAt time.Time        `json:"createdAt"`
 	Content   SSMessageContent `json:"content"`
 	Sender    SSSender         `json:"sender"`
