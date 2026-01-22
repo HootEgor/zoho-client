@@ -48,8 +48,8 @@ type SSChat struct {
 
 // SSContact represents a contact within a SmartSender chat
 type SSContact struct {
-	OriginalID string `json:"originalId"`
-	FullName   string `json:"fullName,omitempty"`
+	OriginalID StringID `json:"originalId"`
+	FullName   string   `json:"fullName,omitempty"`
 }
 
 // SSChatResponse represents the paginated response from SmartSender chats API

@@ -139,7 +139,7 @@ func (c *Core) processChat(chat entity.SSChat) (int, error) {
 	}
 
 	// Send messages to Zoho
-	if err := c.zohoFunctions.SendMessages(chat.Contact.OriginalID, zohoMessages); err != nil {
+	if err := c.zohoFunctions.SendMessages(string(chat.Contact.OriginalID), zohoMessages); err != nil {
 		return 0, err
 	}
 
