@@ -42,9 +42,9 @@ listen:
   key: ${API_KEY}
 smartsender:
   enabled: false
-  api_key: {SMARTSENDER_API_KEY}
+  api_key: ${SMARTSENDER_API_KEY}
   base_url: https://api.smartsender.com/v1
-  zoho_api_key: {ZOHO_API_KEY}
+  zoho_api_key: ${ZOHO_API_KEY}
   zoho_msg_url: https://www.zohoapis.eu/crm/v7/functions/getmessagefromsmartsender/actions/execute
   zoho_task_url: https://www.zohoapis.eu/crm/v7/functions/createtask/actions/execute
   poll_interval: 60
