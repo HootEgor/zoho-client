@@ -80,7 +80,7 @@ func (c *Core) processSmartSenderChats() {
 		if err != nil {
 			log.With(
 				sl.Err(err),
-				slog.String("chat_id", chat.ID),
+				slog.String("chat_id", string(chat.ID)),
 			).Error("failed to process chat")
 		}
 		msgProcessedCount += count
@@ -95,11 +95,11 @@ func (c *Core) processSmartSenderChats() {
 func (c *Core) processChat(chat entity.SSChat) (int, error) {
 	// Get the last processed timestamp for this chat
 	c.ssLastProcessedMu.RLock()
-	lastProcessedTime := c.ssLastProcessed[chat.ID]
+	lastProcessedTime := c.ssLastProcessed[string(chat.ID)]
 	c.ssLastProcessedMu.RUnlock()
 
 	// Fetch messages created after the last processed time
-	messages, err := c.smartSender.GetMessagesAfterTime(chat.ID, lastProcessedTime)
+	messages, err := c.smartSender.GetMessagesAfterTime(string(chat.ID), lastProcessedTime)
 	if err != nil {
 		return 0, err
 	}
@@ -123,8 +123,8 @@ func (c *Core) processChat(chat entity.SSChat) (int, error) {
 		}
 
 		zohoMessages = append(zohoMessages, entity.ZohoMessageItem{
-			MessageID: msg.ID,
-			ChatID:    chat.ID,
+			MessageID: string(msg.ID),
+			ChatID:    string(chat.ID),
 			Content:   content,
 			Sender:    msg.Sender.FullName,
 		})
@@ -146,12 +146,12 @@ func (c *Core) processChat(chat entity.SSChat) (int, error) {
 	// Update the last processed timestamp in cache and MongoDB
 	if !latestTime.IsZero() {
 		c.ssLastProcessedMu.Lock()
-		c.ssLastProcessed[chat.ID] = latestTime
+		c.ssLastProcessed[string(chat.ID)] = latestTime
 		c.ssLastProcessedMu.Unlock()
 
 		// Save to MongoDB
 		if c.mongoRepo != nil {
-			if err := c.mongoRepo.SetSSLastProcessedTime(chat.ID, latestTime); err != nil {
+			if err := c.mongoRepo.SetSSLastProcessedTime(string(chat.ID), latestTime); err != nil {
 				c.log.With(sl.Err(err)).Warn("failed to save SmartSender state to MongoDB")
 			}
 		}
