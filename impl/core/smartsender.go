@@ -131,7 +131,7 @@ func (c *Core) processSmartSenderChats() {
 	msgProcessedCount := 0
 	// safety limits to avoid hammering SmartSender
 	const (
-		maxChatsPerCycle  = 25
+		maxChatsPerCycle  = 100
 		sleepBetweenChats = 500 * time.Millisecond
 	)
 	processedChats := 0
@@ -154,7 +154,9 @@ func (c *Core) processSmartSenderChats() {
 		c.ssRateLimitMu.RUnlock()
 
 		if processedChats >= maxChatsPerCycle {
-			log.Info("reached max chats per cycle, will resume next tick", slog.Int("processed", processedChats))
+			log.Info("reached max chats per cycle, will resume next tick",
+				slog.Int("processed", processedChats),
+				slog.Int("remain", len(chats)-processedChats))
 			break
 		}
 

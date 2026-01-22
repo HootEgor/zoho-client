@@ -47,4 +47,4 @@ smartsender:
   zoho_api_key: ${ZOHO_API_KEY}
   zoho_msg_url: https://www.zohoapis.eu/crm/v7/functions/getmessagefromsmartsender/actions/execute
   zoho_task_url: https://www.zohoapis.eu/crm/v7/functions/createtask/actions/execute
-  poll_interval: 60
+  poll_interval: 120
