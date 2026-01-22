@@ -35,7 +35,7 @@ type Config struct {
 		AdminId     string `yaml:"admin_id" env-default:""`
 		BotName     string `yaml:"bot_name" env-default:"ZohoBot"`
 		MinLogLevel string `yaml:"min_log_level" env-default:"debug"`
-	}
+	} `yaml:"telegram"`
 	Zoho struct {
 		ClientId     string `yaml:"client_id" env-default:""`
 		ClientSecret string `yaml:"client_secret" env-default:""`
