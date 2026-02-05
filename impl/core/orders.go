@@ -14,7 +14,7 @@ const (
 	ZohoLocation    = "Польша"
 	ZohoOrderSource = "OpenCart"
 
-	ChunkSize = 100
+	ChunkSize = 200
 )
 
 type Currency struct {
@@ -95,18 +95,27 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 	infoTag := "order created"
 	if !isB2B {
 		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
+
+		if len(chunkedItems) > 0 {
+			c.log.With(
+				slog.Int("exceed quantity", len(chunkedItems)),
+			).Info("order contains > 200 items")
+
+			zohoOrder.Subject += " !"
+		}
+
 		zohoId, err = c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
 			return "", fmt.Errorf("create Zoho order: %w", err)
 		}
 
-		// Add remaining items in chunks
-		if err := addChunkedItems(chunkedItems, func(chunk []*entity.OrderedItem) (string, error) {
-			return c.zoho.AddItemsToOrder(zohoId, chunk)
-		}); err != nil {
-			log.With(sl.Err(err)).Error("add items to order")
-			return "", err
-		}
+		//// Add remaining items in chunks
+		//if err := addChunkedItems(chunkedItems, func(chunk []*entity.OrderedItem) (string, error) {
+		//	return c.zoho.AddItemsToOrder(zohoId, chunk)
+		//}); err != nil {
+		//	log.With(sl.Err(err)).Error("add items to order")
+		//	return "", err
+		//}
 	} else {
 		//zohoOrder, chunkedItems := c.buildZohoOrderB2B(order, contactID)
 		//zohoId, err = c.createB2BDealWithItems(zohoOrder, chunkedItems)
