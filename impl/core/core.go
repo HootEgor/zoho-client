@@ -238,7 +238,7 @@ func (c *Core) Start() {
 	}()
 
 	// SmartSender processing goroutine
-	c.startSmartSenderProcessing()
+	//c.startSmartSenderProcessing()
 }
 
 // cleanupExpiredMongoOrders removes old order records from MongoDB.
