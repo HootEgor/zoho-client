@@ -76,6 +76,9 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 	if err = sdb.addColumnIfNotExists("order", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
 		return nil, err
 	}
+	if err = sdb.addColumnIfNotExists("order", "zoho_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
 
 	loc, err := time.LoadLocation(locationCode)
 	if err != nil {
@@ -468,6 +471,9 @@ func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, strin
 		&order.Total,
 		&order.Comment,
 		&zohoId,
+		&order.PaymentStatus,
+		&order.PaymentId,
+		&order.PaymentAmount,
 	); err != nil {
 		return nil, "", err
 	}
@@ -513,6 +519,60 @@ func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParam
 	}
 
 	return order.OrderId, params, nil
+}
+
+func (s *MySql) UpdateOrderZohoPaymentId(orderId int64, zohoPaymentId string) error {
+	stmt, err := s.stmtUpdateOrderZohoPaymentId()
+	if err != nil {
+		return err
+	}
+	_, err = stmt.Exec(zohoPaymentId, orderId)
+	if err != nil {
+		return fmt.Errorf("update zoho_payment_id: %w", err)
+	}
+	return nil
+}
+
+// GetOrdersPendingPayment returns orders that have been synced to Zoho (zoho_id set)
+// and have payment data from wfsync (wf_payment_status set) but no Zoho payment record yet.
+func (s *MySql) GetOrdersPendingPayment() ([]*entity.CheckoutParams, error) {
+	stmt, err := s.stmtSelectOrdersPendingPayment()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query()
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
+
+	var orders []*entity.CheckoutParams
+	for rows.Next() {
+		order, _, err := s.scanOrderFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		orders = append(orders, order)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+// GetOrderZohoId returns the zoho_id for a given order.
+func (s *MySql) GetOrderZohoId(orderId int64) (string, error) {
+	query := fmt.Sprintf("SELECT zoho_id FROM %sorder WHERE order_id = ?", s.prefix)
+	var zohoId string
+	err := s.db.QueryRow(query, orderId).Scan(&zohoId)
+	if err != nil {
+		return "", fmt.Errorf("query zoho_id: %w", err)
+	}
+	return zohoId, nil
 }
 
 // OrderProductData represents the data needed to insert a product line item into an order.

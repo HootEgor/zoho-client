@@ -76,7 +76,10 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			currency_value,
 			total,
 			comment,
-			zoho_id
+			zoho_id,
+			wf_payment_status,
+			wf_payment_id,
+			wf_payment_amount
 		 FROM %sorder
 		 WHERE order_status_id = ?
 		 	AND (zoho_id = '' OR zoho_id IS NULL)
@@ -115,7 +118,10 @@ func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 			currency_value,
 			total,
 			comment,
-			zoho_id
+			zoho_id,
+			wf_payment_status,
+			wf_payment_id,
+			wf_payment_amount
 		 FROM %sorder
 		 WHERE order_id = ?`,
 		s.prefix,
@@ -176,7 +182,10 @@ func (s *MySql) stmtSelectOrderByZohoId() (*sql.Stmt, error) {
 			currency_value,
 			total,
 			comment,
-			zoho_id
+			zoho_id,
+			wf_payment_status,
+			wf_payment_id,
+			wf_payment_amount
 		 FROM %sorder
 		 WHERE zoho_id = ?`,
 		s.prefix,
@@ -198,4 +207,48 @@ func (s *MySql) stmtSelectOrderTracking() (*sql.Stmt, error) {
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrderTracking", query)
+}
+
+func (s *MySql) stmtUpdateOrderZohoPaymentId() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET zoho_payment_id = ? WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateOrderZohoPaymentId", query)
+}
+
+// stmtSelectOrdersPendingPayment finds orders that are already in Zoho but have payment
+// data from wfsync that hasn't been synced to Zoho yet.
+func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT
+			order_id,
+			order_status_id,
+			date_added,
+			firstname,
+			lastname,
+			email,
+			telephone,
+			customer_group_id,
+			custom_field,
+			shipping_country,
+			shipping_postcode,
+			shipping_city,
+			shipping_address_1,
+			currency_code,
+			currency_value,
+			total,
+			comment,
+			zoho_id,
+			wf_payment_status,
+			wf_payment_id,
+			wf_payment_amount
+		 FROM %sorder
+		 WHERE zoho_id != '' AND zoho_id IS NOT NULL
+		 	AND wf_payment_status != '' AND wf_payment_status IS NOT NULL
+		 	AND (zoho_payment_id = '' OR zoho_payment_id IS NULL)
+		 LIMIT 10`,
+		s.prefix,
+	)
+	return s.prepareStmt("selectOrdersPendingPayment", query)
 }

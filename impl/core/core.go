@@ -28,6 +28,10 @@ type Repository interface {
 
 	UpdateOrderTracking(orderId int64, tracking string) error
 	GetOrderTracking(orderId int64) (string, error)
+
+	UpdateOrderZohoPaymentId(orderId int64, zohoPaymentId string) error
+	GetOrdersPendingPayment() ([]*entity.CheckoutParams, error)
+	GetOrderZohoId(orderId int64) (string, error)
 }
 
 type ProductRepository interface {
@@ -42,6 +46,7 @@ type Zoho interface {
 	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
 	AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error)
 	UpdateOrder(orderData entity.ZohoOrder, id string) error
+	CreatePayment(payment entity.ZohoPayment) (string, error)
 }
 
 type MessageService interface {
@@ -208,6 +213,7 @@ func (c *Core) Start() {
 				return
 			default:
 				c.ProcessOrders()
+				c.ProcessPendingPayments()
 			}
 
 			select {

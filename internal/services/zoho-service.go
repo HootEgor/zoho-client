@@ -381,6 +381,42 @@ func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, err
 
 }
 
+func (s *ZohoService) CreatePayment(payment entity.ZohoPayment) (string, error) {
+	payload := map[string]interface{}{
+		"data": []entity.ZohoPayment{payment},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	apiResp, err := s.doRequest(http.MethodPost, body, "Payments")
+	if err != nil {
+		return "", err
+	}
+
+	item := apiResp.Data[0]
+
+	if item.Status != "success" {
+		var errDetails entity.ErrorDetails
+		_ = json.Unmarshal(item.Details, &errDetails)
+		return "", fmt.Errorf(
+			"payment not created: [%s] %s (field: %s, path: %s)",
+			item.Code,
+			item.Message,
+			errDetails.APIName,
+			errDetails.JSONPath,
+		)
+	}
+
+	var success entity.SuccessOrderDetails
+	if err = json.Unmarshal(item.Details, &success); err != nil {
+		return "", fmt.Errorf("failed to parse payment ID: %w", err)
+	}
+
+	return success.ID, nil
+}
+
 func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error) {
 	// This is based on the user's sample input for updating a subform.
 	// We create a payload for a bulk/mass update, but only for a single record.

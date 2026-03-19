@@ -50,6 +50,11 @@ type CheckoutParams struct {
 	ProformaFile  string         `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
 	Source        Source         `json:"source,omitempty" bson:"source"`
 	Comment       string         `json:"comment,omitempty" bson:"comment,omitempty"`
+
+	// Payment data populated from wfsync columns in oc_order
+	PaymentStatus string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`
+	PaymentId     string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`
+	PaymentAmount int64  `json:"payment_amount,omitempty" bson:"payment_amount,omitempty"`
 }
 
 func (c *CheckoutParams) Bind(_ *http.Request) error {

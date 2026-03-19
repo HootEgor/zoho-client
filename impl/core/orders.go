@@ -126,6 +126,11 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 		//infoTag = "B2B order created"
 	}
 
+	// Create payment record in Zoho if payment data is available
+	if order.PaymentStatus != "" {
+		c.createZohoPayment(order, zohoId)
+	}
+
 	// Set tracking to "new" on successful order creation
 	err = c.repo.UpdateOrderTracking(order.OrderId, "new")
 	if err != nil {
@@ -171,6 +176,76 @@ func (c *Core) ProcessOrders() {
 		if err != nil {
 			log.With(sl.Err(err)).Error("update order zoho_id")
 		}
+	}
+}
+
+// createZohoPayment builds a ZohoPayment from order data and creates it in Zoho CRM,
+// linked to the given Sales Order via the Sells lookup field.
+func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId string) {
+	log := c.log.With(
+		slog.Int64("order_id", order.OrderId),
+		slog.String("zoho_order_id", zohoOrderId),
+		slog.String("payment_status", order.PaymentStatus),
+	)
+
+	payment := entity.ZohoPayment{
+		Name:                  fmt.Sprintf("Payment #%d", order.OrderId),
+		Sells:                 entity.ZohoSellsRef{ID: zohoOrderId},
+		Sum:                   round2(float64(order.PaymentAmount) / 100),
+		Currency:              order.Currency,
+		StripePaymentIntentID: order.PaymentId,
+		PaymentTime:           time.Now().Format("2006-01-02T15:04:05+02:00"),
+	}
+
+	if order.PaymentStatus == "paid" {
+		payment.Status = "Paid"
+	} else {
+		payment.Status = "Pending"
+	}
+
+	if order.ClientDetails != nil {
+		payment.Email = order.ClientDetails.Email
+	}
+
+	zohoPaymentId, err := c.zoho.CreatePayment(payment)
+	if err != nil {
+		log.With(sl.Err(err)).Error("create Zoho payment")
+		return
+	}
+
+	err = c.repo.UpdateOrderZohoPaymentId(order.OrderId, zohoPaymentId)
+	if err != nil {
+		log.With(sl.Err(err)).Error("update zoho_payment_id")
+		return
+	}
+
+	log.With(slog.String("zoho_payment_id", zohoPaymentId)).Info("payment created")
+}
+
+// ProcessPendingPayments finds orders already synced to Zoho that have received payment
+// data from wfsync but don't have a Zoho payment record yet, and creates the payment records.
+func (c *Core) ProcessPendingPayments() {
+	orders, err := c.repo.GetOrdersPendingPayment()
+	if err != nil {
+		c.log.With(sl.Err(err)).Error("get orders pending payment")
+		return
+	}
+
+	for _, order := range orders {
+		zohoId, err := c.repo.GetOrderZohoId(order.OrderId)
+		if err != nil {
+			c.log.With(
+				sl.Err(err),
+				slog.Int64("order_id", order.OrderId),
+			).Error("get zoho_id for payment update")
+			continue
+		}
+		//records are selected from database by non-empty zohoId
+		if zohoId == "" {
+			continue
+		}
+
+		c.createZohoPayment(order, zohoId)
 	}
 }
 
