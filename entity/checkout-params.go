@@ -52,9 +52,10 @@ type CheckoutParams struct {
 	Comment       string         `json:"comment,omitempty" bson:"comment,omitempty"`
 
 	// Payment data populated from wfsync columns in oc_order
-	PaymentStatus string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`
-	PaymentId     string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`
-	PaymentAmount int64  `json:"payment_amount,omitempty" bson:"payment_amount,omitempty"`
+	PaymentStatus    string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`
+	PaymentId        string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`
+	PaymentAmount    int64  `json:"payment_amount,omitempty" bson:"payment_amount,omitempty"`
+	PaymentSessionId string `json:"payment_session_id,omitempty" bson:"payment_session_id,omitempty"`
 }
 
 func (c *CheckoutParams) Bind(_ *http.Request) error {

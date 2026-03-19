@@ -474,6 +474,7 @@ func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, strin
 		&order.PaymentStatus,
 		&order.PaymentId,
 		&order.PaymentAmount,
+		&order.PaymentSessionId,
 	); err != nil {
 		return nil, "", err
 	}

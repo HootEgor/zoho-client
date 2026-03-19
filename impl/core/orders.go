@@ -189,12 +189,13 @@ func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId strin
 	)
 
 	payment := entity.ZohoPayment{
-		Name:                  fmt.Sprintf("Payment #%d", order.OrderId),
-		Sells:                 entity.ZohoSellsRef{ID: zohoOrderId},
-		Sum:                   round2(float64(order.PaymentAmount) / 100),
-		Currency:              order.Currency,
-		StripePaymentIntentID: order.PaymentId,
-		PaymentTime:           time.Now().Format("2006-01-02T15:04:05+02:00"),
+		Name:                    fmt.Sprintf("Payment #%d", order.OrderId),
+		Sells:                   entity.ZohoSellsRef{ID: zohoOrderId},
+		Sum:                     round2(float64(order.PaymentAmount) / 100),
+		Currency:                order.Currency,
+		StripePaymentIntentID:   order.PaymentId,
+		StripeCheckoutSessionID: order.PaymentSessionId,
+		PaymentTime:             time.Now().Format("2006-01-02T15:04:05+02:00"),
 	}
 
 	if order.PaymentStatus == "paid" {
