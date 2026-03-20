@@ -198,11 +198,7 @@ func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId strin
 		PaymentTime:             time.Now().Format("2006-01-02T15:04:05+02:00"),
 	}
 
-	if order.PaymentStatus == "paid" {
-		payment.Status = "Paid"
-	} else {
-		payment.Status = "Pending"
-	}
+	payment.Status = entity.ConvertPaymentStatus(order.PaymentStatus)
 
 	if order.ClientDetails != nil {
 		payment.Email = order.ClientDetails.Email
