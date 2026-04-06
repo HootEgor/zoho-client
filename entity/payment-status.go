@@ -1,18 +1,23 @@
 package entity
 
 // Zoho CRM payment statuses (Ukrainian locale).
+// These correspond to picklist values in the custom Payments module in Zoho CRM.
 const (
-	ZohoPaymentCreated       = "Створено"
-	ZohoPaymentInProgress    = "В процесі"
-	ZohoPaymentHeld          = "Кошти зарезервовано"
-	ZohoPaymentPaid          = "Оплачено"
-	ZohoPaymentCanceled      = "Скасовано"
-	ZohoPaymentRefunded      = "Відшкодовано"
-	ZohoPaymentError         = "Помилка операції"
+	ZohoPaymentCreated    = "Створено"
+	ZohoPaymentInProgress = "В процесі"
+	ZohoPaymentHeld       = "Кошти зарезервовано"
+	ZohoPaymentPaid       = "Оплачено"
+	ZohoPaymentCanceled   = "Скасовано"
+	ZohoPaymentRefunded   = "Відшкодовано"
+	ZohoPaymentError      = "Помилка операції"
 )
 
 // stripeToZohoPaymentStatus maps Stripe/wfsync payment status strings
-// (as stored in OpenCart wf_payment_status) to Zoho CRM payment statuses.
+// (as stored in OpenCart wf_payment_status column) to Zoho CRM payment statuses.
+//
+// Stripe PaymentIntent statuses: https://docs.stripe.com/payments/paymentintents/lifecycle
+// Stripe Checkout Session statuses: https://docs.stripe.com/api/checkout/sessions/object#checkout_session_object-status
+// wfsync writes these status strings into the OpenCart oc_order.wf_payment_status column.
 var stripeToZohoPaymentStatus = map[string]string{
 	// Initial / awaiting payment
 	"pending":                 ZohoPaymentCreated,

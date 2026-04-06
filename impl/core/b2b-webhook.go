@@ -185,20 +185,7 @@ func (c *Core) buildZohoOrderFromWebhook(
 	}
 
 	// Set currency-specific totals
-	switch orderCurrency.Code {
-	case entity.CurrencyUAH:
-		zohoOrder.GrandTotalUAH = round2(order.Total)
-		zohoOrder.SubTotalUAH = round2(order.Subtotal)
-	case entity.CurrencyPLN:
-		zohoOrder.GrandTotalPLN = round2(order.Total)
-		zohoOrder.SubTotalPLN = round2(order.Subtotal)
-	case entity.CurrencyUSD:
-		zohoOrder.GrandTotalUSD = round2(order.Total)
-		zohoOrder.SubTotalUSD = round2(order.Subtotal)
-	case entity.CurrencyEUR:
-		zohoOrder.GrandTotalEUR = round2(order.Total)
-		zohoOrder.SubTotalEUR = round2(order.Subtotal)
-	}
+	setCurrencyTotals(&zohoOrder, orderCurrency.Code, order.Total, order.Subtotal)
 
 	return zohoOrder, chunkedItems
 }

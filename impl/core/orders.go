@@ -473,24 +473,10 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 		OrderSource:    ZohoOrderSource,
 	}
 
-	switch orderCurrency.Code {
-	case entity.CurrencyUAH:
-		order.GrandTotalUAH = round2(oc.Total * orderCurrency.Rate)
-		order.SubTotalUAH = round2((oc.Total - oc.TaxValue) * orderCurrency.Rate)
-		break
-	case entity.CurrencyPLN:
-		order.GrandTotalPLN = round2(oc.Total)
-		order.SubTotalPLN = round2(oc.Total - oc.TaxValue)
-		break
-	case entity.CurrencyUSD:
-		order.GrandTotalUSD = round2(oc.Total * orderCurrency.Rate)
-		order.SubTotalUSD = round2((oc.Total - oc.TaxValue) * orderCurrency.Rate)
-		break
-	case entity.CurrencyEUR:
-		order.GrandTotalEUR = round2(oc.Total * orderCurrency.Rate)
-		order.SubTotalEUR = round2((oc.Total - oc.TaxValue) * orderCurrency.Rate)
-		break
-	}
+	setCurrencyTotals(&order, orderCurrency.Code,
+		oc.Total*orderCurrency.Rate,
+		(oc.Total-oc.TaxValue)*orderCurrency.Rate,
+	)
 
 	return order, chunkedItems
 }
@@ -548,6 +534,25 @@ func chunkSlice[T any](items []T, size int) [][]*T {
 		chunks = append(chunks, chunk)
 	}
 	return chunks
+}
+
+// setCurrencyTotals assigns grand total and sub total to the correct currency-specific
+// fields on a ZohoOrderB2B, based on the currency code.
+func setCurrencyTotals(order *entity.ZohoOrderB2B, code string, grandTotal, subTotal float64) {
+	switch code {
+	case entity.CurrencyUAH:
+		order.GrandTotalUAH = round2(grandTotal)
+		order.SubTotalUAH = round2(subTotal)
+	case entity.CurrencyPLN:
+		order.GrandTotalPLN = round2(grandTotal)
+		order.SubTotalPLN = round2(subTotal)
+	case entity.CurrencyUSD:
+		order.GrandTotalUSD = round2(grandTotal)
+		order.SubTotalUSD = round2(subTotal)
+	case entity.CurrencyEUR:
+		order.GrandTotalEUR = round2(grandTotal)
+		order.SubTotalEUR = round2(subTotal)
+	}
 }
 
 // round0 rounds a float64 to the nearest integer, converting negative values to positive.

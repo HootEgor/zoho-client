@@ -2,6 +2,8 @@ package entity
 
 import "encoding/json"
 
+// TokenResponse is the OAuth 2.0 token response from Zoho Accounts.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/refresh.html
 type TokenResponse struct {
 	AccessToken string `json:"access_token"`
 	Scope       string `json:"scope"`
@@ -10,6 +12,9 @@ type TokenResponse struct {
 	ExpiresIn   int    `json:"expires_in"`
 }
 
+// ZohoAPIResponse is the standard envelope for Zoho CRM v8 API responses.
+// Each item in Data corresponds to one record in the request.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/insert-records.html
 type ZohoAPIResponse struct {
 	Data []ZohoResponseItem `json:"data"`
 }

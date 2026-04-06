@@ -65,10 +65,12 @@ type OCOrder struct {
 	DateModified          time.Time `json:"date_modified"`
 }
 
+// OpenCart order status IDs from the oc_order_status table.
+// Statuses 1, 17, and 5 trigger Zoho CRM sync (see database.GetNewOrders).
 const (
-	OrderStatusNew                = 1
-	OrderStatusPending            = 2
-	OrderStatusPrepareForShipping = 5
-	OrderStatusPayed              = 17
-	OrderStatusCanceled           = 7
+	OrderStatusNew                = 1  // "Нове" - newly created order
+	OrderStatusPending            = 2  // "В обробці" - pending processing
+	OrderStatusPrepareForShipping = 5  // "Перевірка та збір" - ready for shipping prep
+	OrderStatusPayed              = 17 // "Оплачено" - payment received
+	OrderStatusCanceled           = 7  // "Скасовано" - canceled
 )

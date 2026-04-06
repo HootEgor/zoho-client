@@ -1,5 +1,8 @@
 package entity
 
+// ZohoOrder represents a Sales Order record in Zoho CRM (Sales_Orders module).
+// JSON field names map to Zoho CRM Sales_Orders module API names.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/modules/sales-orders.html
 type ZohoOrder struct {
 	ContactName        ContactName     `json:"Contact_Name"`
 	OrderedItems       []OrderedItem   `json:"Ordered_Items"`

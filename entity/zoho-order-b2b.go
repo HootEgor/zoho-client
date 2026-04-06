@@ -1,5 +1,9 @@
 package entity
 
+// ZohoOrderB2B represents a Deal record in the Zoho CRM Deals module for B2B orders.
+// Uses currency-specific total fields (Grand_Total_UAH, etc.) because B2B deals
+// may be denominated in different currencies.
+// JSON field names map to Zoho CRM Deals module API names.
 type ZohoOrderB2B struct {
 	ContactName ContactName `json:"Contact_Name"`
 	Goods       []Good      `json:"Products"`
@@ -28,6 +32,8 @@ type ZohoOrderB2B struct {
 	OrderSource string `json:"Order_Source"`
 }
 
+// Good represents a record in the Zoho CRM custom "Goods" module, linked to a Deal.
+// Currency-specific price/total fields are used instead of a single amount field.
 type Good struct {
 	Product   ZohoProduct `json:"Product"`
 	Deal      ZohoDeal    `json:"Deal"`

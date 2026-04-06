@@ -12,10 +12,19 @@ import (
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
+	"zohoclient/internal/lib/httputil"
 	"zohoclient/internal/lib/sl"
 	"zohoclient/internal/lib/util"
 )
 
+// ZohoService manages communication with the Zoho CRM REST API (v8).
+// API docs: https://www.zoho.com/crm/developer/docs/api/v8/
+//
+// Authentication uses the OAuth 2.0 refresh token flow:
+// https://www.zoho.com/crm/developer/docs/api/v8/refresh.html
+//
+// The service automatically refreshes the access token before each request
+// and keeps it cached until expiry.
 type ZohoService struct {
 	clientID     string
 	clientSecret string
@@ -41,19 +50,16 @@ func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error)
 		scope:        conf.Zoho.Scope,
 		apiVersion:   conf.Zoho.ApiVersion,
 		log:          log.With(sl.Module("zoho")),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:        10,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-			},
-		},
+		httpClient:   httputil.NewHTTPClient(30 * time.Second),
 	}
 
 	return service, nil
 }
 
+// RefreshToken ensures a valid OAuth access token is available.
+// Uses the refresh token grant type to obtain a new access token when expired.
+// Retries up to 3 times with 30s delays on failure.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/refresh.html
 func (s *ZohoService) RefreshToken() error {
 	if s.refreshToken != "" && time.Now().Before(s.tokenExpiry) {
 		return nil
@@ -86,12 +92,7 @@ func (s *ZohoService) requestToken() error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			s.log.With(sl.Err(err)).Warn("failed to close response body")
-		}
-	}(resp.Body)
+	defer httputil.CloseBody(resp.Body, s.log)
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, readErr := io.ReadAll(resp.Body)
@@ -122,6 +123,10 @@ func (s *ZohoService) requestToken() error {
 	return nil
 }
 
+// CreateContact creates or updates (upserts) a contact in the Zoho CRM Contacts module.
+// Uses duplicate_check_fields to match on Email/Phone and return the existing record ID
+// instead of failing with DUPLICATE_DATA.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/upsert-records.html
 func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, error) {
 
 	log := s.log.With(
@@ -229,6 +234,9 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 
 }
 
+// CreateOrder creates a Sales Order in the Zoho CRM Sales_Orders module.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/insert-records.html
+// Module: Sales_Orders - https://www.zoho.com/crm/developer/docs/api/v8/modules-api.html
 func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	log := s.log.With(
 		slog.String("subject", orderData.Subject),
@@ -265,34 +273,24 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		// Decode error details
-		var errDetails entity.ErrorDetails
-		_ = json.Unmarshal(item.Details, &errDetails)
-
-		err = fmt.Errorf(
-			"order not created: [%s] %s (field: %s, path: %s)",
-			item.Code,
-			item.Message,
-			errDetails.APIName,
-			errDetails.JSONPath,
-		)
+		err = formatZohoError("order not created", item)
 		return "", err
 	}
 
-	// Decode success
-	var success entity.SuccessOrderDetails
-	if err = json.Unmarshal(item.Details, &success); err != nil {
-		return "", fmt.Errorf("failed to parse order ID: %w", err)
+	id, err := extractRecordID(item)
+	if err != nil {
+		return "", err
 	}
+	log = log.With(slog.String("id", id))
 
-	log = log.With(
-		slog.String("id", success.ID),
-	)
-
-	return success.ID, nil
+	return id, nil
 
 }
 
+// CreateB2BOrder creates a Deal in the Zoho CRM Deals module for B2B orders.
+// B2B orders use Deals (not Sales_Orders) because they follow a pipeline-based workflow.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/insert-records.html
+// Module: Deals - uses Pipeline and Stage fields for B2B workflow.
 func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error) {
 	log := s.log.With(
 		slog.String("subject", orderData.Subject),
@@ -351,36 +349,24 @@ func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, err
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		// Decode error details
-		var errDetails entity.ErrorDetails
-		_ = json.Unmarshal(item.Details, &errDetails)
-
-		err = fmt.Errorf(
-			"order not created: [%s] %s (field: %s, path: %s)",
-			item.Code,
-			item.Message,
-			errDetails.APIName,
-			errDetails.JSONPath,
-		)
+		err = formatZohoError("B2B order not created", item)
 		return "", err
 	}
 
-	// Decode success
-	var success entity.SuccessOrderDetails
-	if err = json.Unmarshal(item.Details, &success); err != nil {
-		return "", fmt.Errorf("failed to parse order ID: %w", err)
+	id, err := extractRecordID(item)
+	if err != nil {
+		return "", err
 	}
-
-	log = log.With(
-		slog.String("id", success.ID),
-	)
-
+	log = log.With(slog.String("id", id))
 	log.Debug("B2B order created successfully")
 
-	return success.ID, nil
+	return id, nil
 
 }
 
+// CreatePayment creates a payment record in the Zoho CRM custom Payments module.
+// The payment is linked to a Sales Order via the "Sells" lookup field.
+// Stripe payment data (PaymentIntent ID, Checkout Session ID) is stored for reconciliation.
 func (s *ZohoService) CreatePayment(payment entity.ZohoPayment) (string, error) {
 	payload := map[string]interface{}{
 		"data": []entity.ZohoPayment{payment},
@@ -398,25 +384,15 @@ func (s *ZohoService) CreatePayment(payment entity.ZohoPayment) (string, error) 
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		var errDetails entity.ErrorDetails
-		_ = json.Unmarshal(item.Details, &errDetails)
-		return "", fmt.Errorf(
-			"payment not created: [%s] %s (field: %s, path: %s)",
-			item.Code,
-			item.Message,
-			errDetails.APIName,
-			errDetails.JSONPath,
-		)
+		return "", formatZohoError("payment not created", item)
 	}
 
-	var success entity.SuccessOrderDetails
-	if err = json.Unmarshal(item.Details, &success); err != nil {
-		return "", fmt.Errorf("failed to parse payment ID: %w", err)
-	}
-
-	return success.ID, nil
+	return extractRecordID(item)
 }
 
+// AddItemsToOrder appends line items to an existing Sales Order via bulk update.
+// Used when an order has >200 items and must be split across multiple API calls.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-records.html
 func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error) {
 	// This is based on the user's sample input for updating a subform.
 	// We create a payload for a bulk/mass update, but only for a single record.
@@ -442,25 +418,14 @@ func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedIte
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		var errDetails entity.ErrorDetails
-		_ = json.Unmarshal(item.Details, &errDetails)
-		return "", fmt.Errorf(
-			"items not added: [%s] %s (field: %s, path: %s)",
-			item.Code,
-			item.Message,
-			errDetails.APIName,
-			errDetails.JSONPath,
-		)
+		return "", formatZohoError("items not added", item)
 	}
 
-	var success entity.SuccessOrderDetails
-	if err := json.Unmarshal(item.Details, &success); err != nil {
-		return "", fmt.Errorf("failed to parse success response: %w", err)
-	}
-
-	return success.ID, nil
+	return extractRecordID(item)
 }
 
+// AddItemsToOrderB2B creates records in the custom "Goods" module linked to a B2B Deal.
+// Each Good references a Product and a Deal via lookup fields.
 func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string, error) {
 	payload := map[string]interface{}{
 		"data": items,
@@ -485,25 +450,14 @@ func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		var errDetails entity.ErrorDetails
-		_ = json.Unmarshal(item.Details, &errDetails)
-		return "", fmt.Errorf(
-			"items not added: [%s] %s (field: %s, path: %s)",
-			item.Code,
-			item.Message,
-			errDetails.APIName,
-			errDetails.JSONPath,
-		)
+		return "", formatZohoError("items not added", item)
 	}
 
-	var success entity.SuccessOrderDetails
-	if err := json.Unmarshal(item.Details, &success); err != nil {
-		return "", fmt.Errorf("failed to parse success response: %w", err)
-	}
-
-	return success.ID, nil
+	return extractRecordID(item)
 }
 
+// UpdateOrder updates an existing Sales Order record by its Zoho record ID.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-specific-record.html
 func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
 	payload := map[string]interface{}{
 		"data": []entity.ZohoOrder{orderData},
@@ -521,33 +475,24 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		// Decode error details
-		var errDetails entity.ErrorDetails
-		_ = json.Unmarshal(item.Details, &errDetails)
-
-		return fmt.Errorf(
-			"order not created: [%s] %s (field: %s, path: %s)",
-			item.Code,
-			item.Message,
-			errDetails.APIName,
-			errDetails.JSONPath,
-		)
+		return formatZohoError("order not updated", item)
 	}
 
-	// Decode success
-	var success entity.SuccessOrderDetails
-	if err := json.Unmarshal(item.Details, &success); err != nil {
-		return fmt.Errorf("failed to parse order ID: %w", err)
+	recordID, err := extractRecordID(item)
+	if err != nil {
+		return err
 	}
 
-	s.log.With(
-		slog.Any("order response", success),
-	).Debug("order created successfully")
+	s.log.With(slog.String("id", recordID)).Debug("order updated successfully")
 
 	return nil
 
 }
 
+// doRequest executes an authenticated request against the Zoho CRM v8 REST API.
+// It automatically refreshes the OAuth token, constructs the full URL from path segments
+// (e.g., "Sales_Orders", "upsert"), and handles rate-limit (429) responses.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/api-limits.html
 func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...string) (*entity.ZohoAPIResponse, error) {
 	segments := append([]string{s.scope, s.apiVersion}, pathSegments...)
 	fullURL, err := buildURL(s.crmUrl, segments...)
@@ -570,12 +515,7 @@ func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...stri
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			s.log.With(sl.Err(err)).Warn("failed to close response body")
-		}
-	}(resp.Body)
+	defer httputil.CloseBody(resp.Body, s.log)
 
 	// Check for rate limiting (v8 API has stricter limits)
 	if resp.StatusCode == http.StatusTooManyRequests {
@@ -598,6 +538,27 @@ func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...stri
 	}
 
 	return &apiResp, nil
+}
+
+// formatZohoError decodes error details from a failed Zoho API response item
+// and returns a formatted error with the error code, message, and field path.
+func formatZohoError(context string, item entity.ZohoResponseItem) error {
+	var errDetails entity.ErrorDetails
+	_ = json.Unmarshal(item.Details, &errDetails)
+	return fmt.Errorf(
+		"%s: [%s] %s (field: %s, path: %s)",
+		context, item.Code, item.Message,
+		errDetails.APIName, errDetails.JSONPath,
+	)
+}
+
+// extractRecordID unmarshals a success response item to get the created/updated record ID.
+func extractRecordID(item entity.ZohoResponseItem) (string, error) {
+	var success entity.SuccessOrderDetails
+	if err := json.Unmarshal(item.Details, &success); err != nil {
+		return "", fmt.Errorf("failed to parse record ID: %w", err)
+	}
+	return success.ID, nil
 }
 
 func buildURL(base string, paths ...string) (string, error) {

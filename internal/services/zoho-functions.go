@@ -10,10 +10,14 @@ import (
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
+	"zohoclient/internal/lib/httputil"
 	"zohoclient/internal/lib/sl"
 )
 
-// ZohoFunctionsService handles communication with Zoho CRM Functions API
+// ZohoFunctionsService calls custom Zoho CRM server-side functions via the Functions API.
+// Used to push SmartSender chat messages into Zoho CRM.
+// Auth: API key-based (zapikey query parameter).
+// Ref: https://www.zoho.com/crm/developer/docs/functions/
 type ZohoFunctionsService struct {
 	apiKey     string
 	msgURL     string
@@ -31,23 +35,17 @@ func NewZohoFunctionsService(conf *config.Config, log *slog.Logger) (*ZohoFuncti
 	}
 
 	service := &ZohoFunctionsService{
-		apiKey: conf.SmartSender.ZohoApiKey,
-		msgURL: conf.SmartSender.ZohoMsgURL,
-		log:    log.With(sl.Module("zoho-func")),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:        10,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-			},
-		},
+		apiKey:     conf.SmartSender.ZohoApiKey,
+		msgURL:     conf.SmartSender.ZohoMsgURL,
+		log:        log.With(sl.Module("zoho-func")),
+		httpClient: httputil.NewHTTPClient(30 * time.Second),
 	}
 
 	return service, nil
 }
 
-// SendMessages sends new messages to Zoho CRM via the getmessagefromsmartsender function
+// SendMessages sends chat messages to Zoho CRM via the custom "getmessagefromsmartsender"
+// server-side function. Authenticated with zapikey query parameter.
 func (s *ZohoFunctionsService) SendMessages(contactID string, messages []entity.ZohoMessageItem) error {
 	if len(messages) == 0 {
 		return nil
@@ -89,11 +87,7 @@ func (s *ZohoFunctionsService) doRequest(body []byte) error {
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		if closeErr := Body.Close(); closeErr != nil {
-			s.log.With(sl.Err(closeErr)).Warn("failed to close response body")
-		}
-	}(resp.Body)
+	defer httputil.CloseBody(resp.Body, s.log)
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -51,11 +51,12 @@ type CheckoutParams struct {
 	Source        Source         `json:"source,omitempty" bson:"source"`
 	Comment       string         `json:"comment,omitempty" bson:"comment,omitempty"`
 
-	// Payment data populated from wfsync columns in oc_order
-	PaymentStatus    string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`
-	PaymentId        string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`
-	PaymentAmount    int64  `json:"payment_amount,omitempty" bson:"payment_amount,omitempty"`
-	PaymentSessionId string `json:"payment_session_id,omitempty" bson:"payment_session_id,omitempty"`
+	// Payment data populated from wfsync columns in oc_order table.
+	// wfsync is an external service that writes Stripe webhook data into OpenCart.
+	PaymentStatus    string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`         // wf_payment_status: Stripe status string (e.g. "succeeded", "pending")
+	PaymentId        string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`                 // wf_payment_id: Stripe PaymentIntent ID (pi_xxx)
+	PaymentAmount    int64  `json:"payment_amount,omitempty" bson:"payment_amount,omitempty"`         // wf_payment_amount: amount in cents
+	PaymentSessionId string `json:"payment_session_id,omitempty" bson:"payment_session_id,omitempty"` // wf_payment_session_id: Stripe Checkout Session ID (cs_xxx)
 }
 
 func (c *CheckoutParams) Bind(_ *http.Request) error {
@@ -132,6 +133,9 @@ type ClientDetails struct {
 	GroupId   int64  `json:"group_id" bson:"group_id"`
 }
 
+// IsB2B returns true if the customer belongs to a B2B customer group in OpenCart.
+// Group IDs are from the oc_customer_group table; B2B groups are excluded from
+// standard Zoho Sales_Orders sync and routed to the Deals module instead.
 func (c *ClientDetails) IsB2B() bool {
 	return c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16 || c.GroupId == 18 || c.GroupId == 19
 }

@@ -14,9 +14,16 @@ import (
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
+	"zohoclient/internal/lib/httputil"
 	"zohoclient/internal/lib/sl"
 )
 
+// SmartSenderService communicates with the SmartSender API v1 for chat/message retrieval.
+// API docs: https://smartsender.com/api
+//
+// Rate limits: 180 requests per 60 seconds. The service uses a package-level rate limiter
+// (rate_limiter.go) at 2 req/sec and handles 423 (Locked) and 429 (Too Many Requests)
+// responses with exponential backoff.
 type SmartSenderService struct {
 	apiKey     string
 	baseURL    string
@@ -34,17 +41,10 @@ func NewSmartSenderService(conf *config.Config, log *slog.Logger) (*SmartSenderS
 	}
 
 	service := &SmartSenderService{
-		apiKey:  conf.SmartSender.ApiKey,
-		baseURL: conf.SmartSender.BaseURL,
-		log:     log.With(sl.Module("smartsender")),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:        10,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-			},
-		},
+		apiKey:     conf.SmartSender.ApiKey,
+		baseURL:    conf.SmartSender.BaseURL,
+		log:        log.With(sl.Module("smartsender")),
+		httpClient: httputil.NewHTTPClient(30 * time.Second),
 	}
 
 	return service, nil
@@ -80,7 +80,9 @@ func parseRetryAfter(h string) (time.Duration, error) {
 	return 0, fmt.Errorf("unparsable")
 }
 
-// GetAllChats fetches all chats from SmartSender API with pagination
+// GetAllChats fetches all chats from SmartSender API v1 with pagination.
+// Endpoint: GET /chats?page={page}&limitation={limit}
+// The "limitation" parameter controls page size (not "limit").
 func (s *SmartSenderService) GetAllChats() ([]entity.SSChat, error) {
 	var allChats []entity.SSChat
 	page := 1
@@ -111,7 +113,8 @@ func (s *SmartSenderService) GetAllChats() ([]entity.SSChat, error) {
 	return allChats, nil
 }
 
-// GetMessages fetches messages for a specific chat
+// GetMessages fetches messages for a specific chat.
+// Endpoint: GET /chats/{chatID}/messages?limitation={limit}&page=1
 func (s *SmartSenderService) GetMessages(chatID string, limit int) ([]entity.SSMessage, error) {
 	url := fmt.Sprintf("%s/chats/%s/messages?limitation=%d&page=1", s.baseURL, chatID, limit)
 
