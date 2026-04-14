@@ -28,6 +28,7 @@ type ZohoOrderB2B struct {
 	//TermsAndConditions string          `json:"Terms_and_Conditions"`
 	//BillingCode    string          `json:"Billing_Code"`
 	Subject     string `json:"Deal_Name"`
+	NIP         string `json:"NIP,omitempty"`
 	Location    string `json:"Location"`
 	OrderSource string `json:"Order_Source"`
 }

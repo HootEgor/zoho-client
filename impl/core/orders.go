@@ -421,6 +421,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		ProductDetails:     nil,
 		Subject:            fmt.Sprintf("Order #%d", oc.OrderId),
 		IDsite:             fmt.Sprintf("%d", oc.OrderId),
+		NIP:                oc.ClientDetails.TaxId,
 		Location:           ZohoLocation,
 		OrderSource:        ZohoOrderSource,
 	}, chunkedItems
@@ -469,6 +470,7 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 		Pipeline:       "B2B",
 		BillingStreet:  oc.ClientDetails.Street,
 		Subject:        fmt.Sprintf("Order #%d", oc.OrderId),
+		NIP:            oc.ClientDetails.TaxId,
 		Location:       ZohoLocation,
 		OrderSource:    ZohoOrderSource,
 	}

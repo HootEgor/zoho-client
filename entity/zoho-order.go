@@ -30,6 +30,7 @@ type ZohoOrder struct {
 	ProductDetails     []ProductDetail `json:"Product_Details,omitempty"`
 	Subject            string          `json:"Subject"`
 	IDsite             string          `json:"ID_site"`
+	NIP                string          `json:"NIP,omitempty"`
 	Location           string          `json:"Location_DR"`
 	OrderSource        string          `json:"Order_Source"`
 }
