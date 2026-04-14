@@ -57,6 +57,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 		slog.Float64("shipping", order.Shipping),
 		slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
 		slog.String("country", order.ClientDetails.Country),
+		slog.String("tax_id", order.ClientDetails.TaxId),
 	)
 
 	if err := order.Validate(); err != nil {

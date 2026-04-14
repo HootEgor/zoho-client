@@ -196,19 +196,26 @@ func (c *ClientDetails) NormalizeZipCode() string {
 
 // ParseTaxId extracts a tax ID from a JSON-formatted string based on the given field ID and assigns it to the ClientDetails.
 // Returns an error if the provided raw data is invalid JSON or the extraction fails.
-// Raw string example: {"2":"DE362155758"}
+// Supports both flat form {"2":"DE362155758"} and OpenCart's nested form
+// {"account":{"2":"38384854"}} (also "order"/"affiliate" scopes).
 func (c *ClientDetails) ParseTaxId(fieldId, raw string) error {
 	if fieldId == "" || raw == "" {
 		return nil
 	}
-	//var jsonStr string
-	//if err := json.Unmarshal([]byte(raw), &jsonStr); err != nil {
-	//	return err
-	//}
-	var data map[string]string
-	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+	var nested map[string]map[string]string
+	if err := json.Unmarshal([]byte(raw), &nested); err == nil {
+		for _, scope := range nested {
+			if v, ok := scope[fieldId]; ok && v != "" {
+				c.TaxId = v
+				return nil
+			}
+		}
+		return nil
+	}
+	var flat map[string]string
+	if err := json.Unmarshal([]byte(raw), &flat); err != nil {
 		return err
 	}
-	c.TaxId = data[fieldId]
+	c.TaxId = flat[fieldId]
 	return nil
 }
