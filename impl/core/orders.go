@@ -425,6 +425,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		NIP:                oc.ClientDetails.TaxId,
 		Location:           ZohoLocation,
 		OrderSource:        ZohoOrderSource,
+		Postcode:           oc.ClientDetails.ZipCode,
 		RecipientCountry:   oc.ClientDetails.Country,
 		RecipientRegion:    oc.ClientDetails.Region,
 		RecipientCity:      oc.ClientDetails.City,

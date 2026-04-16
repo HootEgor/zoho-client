@@ -33,6 +33,7 @@ type ZohoOrder struct {
 	NIP                string          `json:"NIP,omitempty"`
 	Location           string          `json:"Location_DR"`
 	OrderSource        string          `json:"Order_Source"`
+	Postcode           string          `json:"postcode,omitempty"`
 	RecipientCountry   string          `json:"A68fdec5b7ce138314daea92f2d691979,omitempty"`
 	RecipientRegion    string          `json:"A937d270ccec10931cb2e573c485513f8,omitempty"`
 	RecipientCity      string          `json:"Ac41409d106628a2bb742c9ac4214318f,omitempty"`
