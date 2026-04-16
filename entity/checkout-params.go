@@ -127,7 +127,9 @@ type ClientDetails struct {
 	Phone     string `json:"phone" bson:"phone"`
 	Country   string `json:"country" bson:"country"`
 	ZipCode   string `json:"zip_code" bson:"zip_code"`
+	Region    string `json:"region" bson:"region"`
 	City      string `json:"city" bson:"city"`
+	CityId    int64  `json:"city_id" bson:"city_id"`
 	Street    string `json:"street" bson:"street"`
 	TaxId     string `json:"tax_id" bson:"tax_id"`
 	GroupId   int64  `json:"group_id" bson:"group_id"`

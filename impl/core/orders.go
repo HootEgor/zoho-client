@@ -425,7 +425,19 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		NIP:                oc.ClientDetails.TaxId,
 		Location:           ZohoLocation,
 		OrderSource:        ZohoOrderSource,
+		RecipientCountry:   oc.ClientDetails.Country,
+		RecipientRegion:    oc.ClientDetails.Region,
+		RecipientCity:      oc.ClientDetails.City,
+		RecipientAddress:   oc.ClientDetails.Street,
+		RecipientCityId:    recipientCityId(oc.ClientDetails),
 	}, chunkedItems
+}
+
+func recipientCityId(client *entity.ClientDetails) string {
+	if client.CityId != 0 {
+		return fmt.Sprintf("%d", client.CityId)
+	}
+	return client.ZipCode
 }
 
 func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrderB2B, [][]*entity.Good) {

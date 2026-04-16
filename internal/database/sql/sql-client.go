@@ -445,7 +445,7 @@ func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*enti
 // The rows must have columns in this exact order:
 // order_id, order_status_id, date_added, firstname, lastname, email, telephone,
 // customer_group_id, custom_field, shipping_country, shipping_postcode, shipping_city,
-// shipping_address_1, currency_code, currency_value, total, comment, zoho_id
+// shipping_address_1, shipping_zone, shipping_zone_id, currency_code, currency_value, total, comment, zoho_id
 func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, string, error) {
 	var order entity.CheckoutParams
 	var client entity.ClientDetails
@@ -466,6 +466,8 @@ func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, strin
 		&client.ZipCode,
 		&client.City,
 		&client.Street,
+		&client.Region,
+		&client.CityId,
 		&order.Currency,
 		&order.CurrencyValue,
 		&order.Total,
