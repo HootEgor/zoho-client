@@ -431,6 +431,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		RecipientCity:      oc.ClientDetails.City,
 		RecipientAddress:   oc.ClientDetails.Street,
 		RecipientCityId:    recipientCityId(oc.ClientDetails),
+		PostTerminal:       oc.PostTerminal,
 	}, chunkedItems
 }
 

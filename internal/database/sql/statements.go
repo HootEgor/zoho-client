@@ -264,3 +264,11 @@ func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
 	)
 	return s.prepareStmt("selectOrdersPendingPayment", query)
 }
+
+func (s *MySql) stmtSelectOrderSimpleFields() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT IFNULL(field29, '') FROM %sorder_simple_fields WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("selectOrderSimpleFields", query)
+}

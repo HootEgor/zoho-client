@@ -437,8 +437,30 @@ func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*enti
 	if err != nil {
 		return nil, fmt.Errorf("get order products: %w", err)
 	}
+	// get post terminal number
+	order.PostTerminal, err = s.OrderPostTerminal(orderId)
+	if err != nil {
+		return nil, fmt.Errorf("get post terminal: %w", err)
+	}
 
 	return order, nil
+}
+
+// OrderPostTerminal fetches the post terminal number (field29) from oc_order_simple_fields.
+func (s *MySql) OrderPostTerminal(orderId int64) (string, error) {
+	stmt, err := s.stmtSelectOrderSimpleFields()
+	if err != nil {
+		return "", err
+	}
+	var value string
+	err = stmt.QueryRow(orderId).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(value), nil
 }
 
 // scanOrderFromRows scans a single row into CheckoutParams and returns the zoho_id.

@@ -53,6 +53,8 @@ type CheckoutParams struct {
 
 	// Payment data populated from wfsync columns in oc_order table.
 	// wfsync is an external service that writes Stripe webhook data into OpenCart.
+	PostTerminal string `json:"post_terminal,omitempty" bson:"post_terminal,omitempty"` // post terminal number from oc_order_simple_fields.field29
+
 	PaymentStatus    string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`         // wf_payment_status: Stripe status string (e.g. "succeeded", "pending")
 	PaymentId        string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`                 // wf_payment_id: Stripe PaymentIntent ID (pi_xxx)
 	PaymentAmount    int64  `json:"payment_amount,omitempty" bson:"payment_amount,omitempty"`         // wf_payment_amount: amount in cents
