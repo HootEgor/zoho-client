@@ -82,7 +82,8 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			wf_payment_status,
 			wf_payment_id,
 			wf_payment_amount,
-			wf_payment_session
+			wf_payment_session,
+			shipping_code
 		 FROM %sorder
 		 WHERE order_status_id = ?
 		 	AND (zoho_id = '' OR zoho_id IS NULL)
@@ -127,7 +128,8 @@ func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 			wf_payment_status,
 			wf_payment_id,
 			wf_payment_amount,
-			wf_payment_session
+			wf_payment_session,
+			shipping_code
 		 FROM %sorder
 		 WHERE order_id = ?`,
 		s.prefix,
@@ -194,7 +196,8 @@ func (s *MySql) stmtSelectOrderByZohoId() (*sql.Stmt, error) {
 			wf_payment_status,
 			wf_payment_id,
 			wf_payment_amount,
-			wf_payment_session
+			wf_payment_session,
+			shipping_code
 		 FROM %sorder
 		 WHERE zoho_id = ?`,
 		s.prefix,
@@ -254,7 +257,8 @@ func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
 			wf_payment_status,
 			wf_payment_id,
 			wf_payment_amount,
-			wf_payment_session
+			wf_payment_session,
+			shipping_code
 		 FROM %sorder
 		 WHERE zoho_id != '' AND zoho_id IS NOT NULL
 		 	AND wf_payment_status != '' AND wf_payment_status IS NOT NULL

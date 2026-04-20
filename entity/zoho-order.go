@@ -40,6 +40,7 @@ type ZohoOrder struct {
 	RecipientAddress   string          `json:"A0d3aa57fb7d0fc67725ca891b3965663,omitempty"`
 	RecipientCityId    string          `json:"A4ec4d0d585096ba020b4400761a90d5f,omitempty"`
 	PostTerminal       string          `json:"A6994cbefd0422b84c177176fa76fd602,omitempty"`
+	PostType           string          `json:"Post_type,omitempty"`
 }
 
 type ContactName struct {

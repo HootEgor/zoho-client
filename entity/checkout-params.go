@@ -50,6 +50,7 @@ type CheckoutParams struct {
 	ProformaFile  string         `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
 	Source        Source         `json:"source,omitempty" bson:"source"`
 	Comment       string         `json:"comment,omitempty" bson:"comment,omitempty"`
+	ShippingCode  string         `json:"shipping_code,omitempty" bson:"shipping_code,omitempty"`
 
 	// Payment data populated from wfsync columns in oc_order table.
 	// wfsync is an external service that writes Stripe webhook data into OpenCart.

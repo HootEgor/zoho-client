@@ -432,7 +432,25 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		RecipientAddress:   oc.ClientDetails.Street,
 		RecipientCityId:    recipientCityId(oc.ClientDetails),
 		PostTerminal:       oc.PostTerminal,
+		PostType:           mapPostType(oc.ShippingCode),
 	}, chunkedItems
+}
+
+// mapPostType maps an OpenCart shipping_code to the corresponding Zoho Post_type value.
+// Returns an empty string when the code is unknown, so omitempty drops the field.
+func mapPostType(shippingCode string) string {
+	switch shippingCode {
+	case "filterit1.filterit0":
+		return "InPost (кур'єр)"
+	case "filterit1.filterit1":
+		return "InPost (поштомат)"
+	case "filterit2.filterit0":
+		return "DHL (кур'єр)"
+	case "pickup.pickup":
+		return "Самовивіз"
+	default:
+		return ""
+	}
 }
 
 func recipientCityId(client *entity.ClientDetails) string {
