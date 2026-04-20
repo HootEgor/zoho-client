@@ -165,12 +165,13 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 	payload := map[string]interface{}{
 		"data": []*entity.Contact{
 			{
-				Email:     contact.Email,
-				Phone:     contact.Phone,
-				FirstName: contact.FirstName,
-				LastName:  contact.LastName,
-				City:      contact.City,
-				Country:   contact.Country,
+				Email:            contact.Email,
+				Phone:            contact.Phone,
+				FirstName:        contact.FirstName,
+				LastName:         contact.LastName,
+				City:             contact.City,
+				Country:          contact.Country,
+				CustomerCategory: mapCustomerCategory(contact.GroupId),
 			},
 		},
 		"duplicate_check_fields": duplicateCheckFields,
@@ -232,6 +233,21 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 
 	return successDetails.ID, nil
 
+}
+
+// mapCustomerCategory maps an OpenCart customer_group_id to the Zoho customer_category value.
+// Returns an empty string when the group is unmapped, so omitempty drops the field.
+func mapCustomerCategory(groupId int64) string {
+	switch groupId {
+	case 20:
+		return "Інструктори"
+	case 14:
+		return "Салони Європа"
+	case 5:
+		return "Салони Польща"
+	default:
+		return ""
+	}
 }
 
 // CreateOrder creates a Sales Order in the Zoho CRM Sales_Orders module.
