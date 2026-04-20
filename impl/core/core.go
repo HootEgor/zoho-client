@@ -32,6 +32,10 @@ type Repository interface {
 	UpdateOrderZohoPaymentId(orderId int64, zohoPaymentId string) error
 	GetOrdersPendingPayment() ([]*entity.CheckoutParams, error)
 	GetOrderZohoId(orderId int64) (string, error)
+
+	GetNewCustomers() ([]*sql.CustomerRow, error)
+	ChangeCustomerZohoId(customerId int64, zohoId string) error
+	CountCustomers() (total int64, synced int64, err error)
 }
 
 type ProductRepository interface {
@@ -41,6 +45,7 @@ type ProductRepository interface {
 type Zoho interface {
 	RefreshToken() error
 	CreateContact(contactData *entity.ClientDetails) (string, error)
+	UpsertContact(contactData *entity.ClientDetails) (string, error)
 	CreateOrder(orderData entity.ZohoOrder) (string, error)
 	CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error)
 	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
@@ -219,6 +224,28 @@ func (c *Core) Start() {
 			select {
 			case <-c.stopCh:
 				c.log.Info("order processing stopped")
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-c.stopCh:
+				c.log.Info("customer processing stopped")
+				return
+			default:
+				c.ProcessCustomers()
+			}
+
+			select {
+			case <-c.stopCh:
+				c.log.Info("customer processing stopped")
 				return
 			case <-ticker.C:
 			}

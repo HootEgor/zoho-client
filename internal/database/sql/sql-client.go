@@ -79,6 +79,9 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 	if err = sdb.addColumnIfNotExists("order", "zoho_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
 		return nil, err
 	}
+	if err = sdb.addColumnIfNotExists("customer", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
 
 	loc, err := time.LoadLocation(locationCode)
 	if err != nil {

@@ -135,8 +135,7 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		slog.String("name", fmt.Sprintf("%s : %s", contact.FirstName, contact.LastName)),
 	)
 
-	err := util.ValidateEmail(contact.Email)
-	if err != nil {
+	if err := util.ValidateEmail(contact.Email); err != nil {
 		log.Debug("invalid email")
 		contact.Email = ""
 	}
@@ -152,29 +151,73 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		contact.LastName = "?"
 	}
 
-	// Specify duplicate check fields so upsert updates existing contacts
-	// instead of returning DUPLICATE_DATA error when Phone matches
-	duplicateCheckFields := []string{}
-	if contact.Email != "" {
-		duplicateCheckFields = append(duplicateCheckFields, "Email")
-	}
-	if contact.Phone != "" {
-		duplicateCheckFields = append(duplicateCheckFields, "Phone")
+	payload := entity.Contact{
+		Email:            contact.Email,
+		Phone:            contact.Phone,
+		FirstName:        contact.FirstName,
+		LastName:         contact.LastName,
+		City:             contact.City,
+		Country:          contact.Country,
+		CustomerCategory: mapCustomerCategory(contact.GroupId),
 	}
 
+	return s.upsertContact(payload, contactDuplicateCheckFields(payload), log)
+}
+
+// UpsertContact pushes an OpenCart customer into the Zoho Contacts module without
+// applying any placeholder defaults. Empty fields are omitted from the payload
+// (see entity.Contact JSON tags) so that existing non-empty values in Zoho are
+// preserved. Used by the customer sync loop.
+func (s *ZohoService) UpsertContact(contact *entity.ClientDetails) (string, error) {
+	log := s.log.With(
+		slog.String("email", contact.Email),
+		slog.String("phone", contact.Phone),
+		slog.String("name", fmt.Sprintf("%s : %s", contact.FirstName, contact.LastName)),
+	)
+
+	if err := util.ValidateEmail(contact.Email); err != nil {
+		log.Debug("invalid email")
+		contact.Email = ""
+	}
+
+	if contact.Email == "" && contact.Phone == "" {
+		return "", fmt.Errorf("email and phone are empty")
+	}
+
+	payload := entity.Contact{
+		Email:            contact.Email,
+		Phone:            contact.Phone,
+		FirstName:        contact.FirstName,
+		LastName:         contact.LastName,
+		City:             contact.City,
+		Country:          contact.Country,
+		CustomerCategory: mapCustomerCategory(contact.GroupId),
+	}
+
+	return s.upsertContact(payload, contactDuplicateCheckFields(payload), log)
+}
+
+// contactDuplicateCheckFields returns the subset of ["Email", "Phone"] that are
+// populated on the given contact, so Zoho upsert can match an existing record
+// instead of rejecting with DUPLICATE_DATA.
+func contactDuplicateCheckFields(contact entity.Contact) []string {
+	fields := []string{}
+	if contact.Email != "" {
+		fields = append(fields, "Email")
+	}
+	if contact.Phone != "" {
+		fields = append(fields, "Phone")
+	}
+	return fields
+}
+
+// upsertContact sends the marshaled payload to Contacts/upsert and resolves the
+// record ID, transparently extracting an existing ID from DUPLICATE_DATA and
+// MULTIPLE_OR_MULTI_ERRORS responses.
+func (s *ZohoService) upsertContact(contact entity.Contact, dupFields []string, log *slog.Logger) (string, error) {
 	payload := map[string]interface{}{
-		"data": []*entity.Contact{
-			{
-				Email:            contact.Email,
-				Phone:            contact.Phone,
-				FirstName:        contact.FirstName,
-				LastName:         contact.LastName,
-				City:             contact.City,
-				Country:          contact.Country,
-				CustomerCategory: mapCustomerCategory(contact.GroupId),
-			},
-		},
-		"duplicate_check_fields": duplicateCheckFields,
+		"data":                   []entity.Contact{contact},
+		"duplicate_check_fields": dupFields,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -188,7 +231,6 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 
 	item := apiResp.Data[0]
 
-	// Handle DUPLICATE_DATA gracefully - extract existing contact ID
 	if item.Status == "error" {
 		if item.Code == "DUPLICATE_DATA" {
 			var dup entity.DuplicateDetails
@@ -225,14 +267,12 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		return "", fmt.Errorf("zoho error: %s", item)
 	}
 
-	// Extract the record ID
 	var successDetails entity.SuccessContactDetails
 	if err = json.Unmarshal(item.Details, &successDetails); err != nil {
 		return "", fmt.Errorf("failed to parse success ID: %w", err)
 	}
 
 	return successDetails.ID, nil
-
 }
 
 // mapCustomerCategory maps an OpenCart customer_group_id to the Zoho customer_category value.
