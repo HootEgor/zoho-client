@@ -5,6 +5,11 @@ import (
 	"zohoclient/internal/lib/sl"
 )
 
+// customerZohoIdError is a sentinel written into oc_customer.zoho_id when a
+// customer cannot be pushed to Zoho (bad data, validation failure, etc.) so
+// that the next sync tick skips them instead of retrying forever.
+const customerZohoIdError = "[ERR]"
+
 // ProcessCustomers fetches up to 100 OpenCart customers without a zoho_id,
 // upserts each into the Zoho Contacts module, and records the returned Zoho
 // record ID back on oc_customer.zoho_id. Customers that fail (e.g. missing
@@ -40,7 +45,7 @@ func (c *Core) ProcessCustomers() {
 				slog.String("email", row.Details.Email),
 				sl.Err(err),
 			).Error("upsert contact")
-			continue
+			id = customerZohoIdError
 		}
 		if err = c.repo.ChangeCustomerZohoId(row.CustomerID, id); err != nil {
 			log.With(
