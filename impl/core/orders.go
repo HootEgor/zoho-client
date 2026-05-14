@@ -606,6 +606,16 @@ func round2(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
+// fmtCents formats an int64 cents amount as a 2-decimal currency string.
+func fmtCents(cents int64) string {
+	return fmt.Sprintf("%.2f", float64(cents)/100)
+}
+
+// round4 rounds a float64 to 4 decimal points, used for rates and percentages.
+func round4(value float64) float64 {
+	return math.Round(value*10000) / 10000
+}
+
 // saveOrderVersionToMongo saves the order payload as a new version to MongoDB.
 func (c *Core) saveOrderVersionToMongo(orderID int64, payload interface{}) {
 	if c.mongoRepo == nil {

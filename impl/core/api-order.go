@@ -151,16 +151,16 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	c.saveOrderVersionToMongo(orderId, orderDetails)
 
 	log.With(
-		slog.Int64("sub_total", itemsTotal),
-		slog.Int64("shipping", shippingTotal),
-		slog.Float64("discountP", discountPercent),
-		slog.Int64("discount", discount),
-		slog.Int64("coupon", coupon),
-		slog.Int64("tax_total", taxTotal),
-		slog.Float64("tax_rate", taxRate),
-		slog.Float64("zoho_tax_rate", zohoTaxRate),
-		slog.Int64("total", total),
-		slog.Int64("zoho_total", int64(math.Round(orderDetails.GrandTotal*100))),
+		slog.String("sub_total", fmtCents(itemsTotal)),
+		slog.String("shipping", fmtCents(shippingTotal)),
+		slog.Float64("discountP", round4(discountPercent)),
+		slog.String("discount", fmtCents(discount)),
+		slog.String("coupon", fmtCents(coupon)),
+		slog.String("tax_total", fmtCents(taxTotal)),
+		slog.Float64("tax_rate", round4(taxRate)),
+		slog.Float64("zoho_tax_rate", round4(zohoTaxRate)),
+		slog.String("total", fmtCents(total)),
+		slog.String("zoho_total", fmtCents(int64(math.Round(orderDetails.GrandTotal*100)))),
 	).Debug("order updated")
 
 	return nil

@@ -127,7 +127,7 @@ docs/                       # API documentation (apiv1.md, config.md)
 ### Data Flow
 
 1. **Order Retrieval** (`database.GetNewOrders()`)
-   - Fetches orders with statuses: New (1), Payed (2), PrepareForShipping (15)
+   - Fetches orders with statuses: New (1), PrepareForShipping (5), Payed (17)
    - Only processes orders from last 30 days
    - Excludes B2B orders (identified by customer group ID)
 
