@@ -302,16 +302,25 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 }
 
 // buildOrderedItem converts a LineItem to a Zoho OrderedItem with the given discount percentage.
+// When the LineItem carries a MasterPrice greater than the paid Price, the line is treated as
+// having a per-line "special price" discount: ListPrice is set to MasterPrice and DiscountP is
+// derived from the price gap, overriding the order-level discount for that line.
 func buildOrderedItem(lineItem *entity.LineItem, discountP float64) entity.OrderedItem {
-	totalWithDiscount := round2(lineItem.Qty * lineItem.Price * discountP / 100)
+	listPrice := lineItem.Price
+	lineDiscountP := discountP
+	if lineItem.MasterPrice > 0 && lineItem.MasterPrice > lineItem.Price {
+		listPrice = lineItem.MasterPrice
+		lineDiscountP = round2((1 - lineItem.Price/lineItem.MasterPrice) * 100)
+	}
+	totalWithDiscount := round2(lineItem.Qty * lineItem.Price * lineDiscountP / 100)
 	return entity.OrderedItem{
 		Product: entity.ZohoProduct{
 			ID: lineItem.ZohoId,
 		},
 		Quantity: int64(lineItem.Qty),
 		//Discount:
-		DiscountP: discountP,
-		ListPrice: lineItem.Price,
+		DiscountP: lineDiscountP,
+		ListPrice: listPrice,
 		Total:     totalWithDiscount,
 	}
 }

@@ -76,8 +76,15 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// Calculate tax rate from existing order totals
 	taxRate := orderParams.TaxRate() / 100
 
-	// Calculate discount percentage from API items
-	discountPercent := c.calculateDiscountPercent(orderDetails.OrderedItems)
+	// Coupon orders keep the legacy uniform-percentage path so the discount can be
+	// preserved as order_total.coupon. Non-coupon orders bake each line's effective
+	// paid price into order_product.price, mirroring OpenCart's native special-price state.
+	hasCoupon := orderDetails.Coupon != ""
+
+	var discountPercent float64
+	if hasCoupon {
+		discountPercent = c.calculateDiscountPercent(orderDetails.OrderedItems)
+	}
 
 	var itemsTotal int64
 	var shippingTotal int64
@@ -91,28 +98,35 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			continue
 		}
 
-		// Calculate tax per unit
-		taxPerUnit := item.Price * taxRate /// (1 + taxRate)
-		itemPrice := item.Price            /// (1 + taxRate)
+		// Per-line effective unit price. For coupon orders, keep ListPrice as the per-line
+		// price (discount lives at order level). Otherwise, derive from Total/Quantity so
+		// any per-line special-price discount is baked in.
+		var paidUnit float64
+		if hasCoupon || item.Quantity == 0 {
+			paidUnit = item.Price
+		} else {
+			paidUnit = item.Total / float64(item.Quantity)
+		}
 
-		// Calculate line total (price × quantity, no discount)
-		lineTotal := itemPrice * float64(item.Quantity)
+		taxPerUnit := paidUnit * taxRate
+		lineTotal := paidUnit * float64(item.Quantity)
 
-		// Convert to cents
 		productData = append(productData, sql.OrderProductData{
-			ZohoID:       item.ZohoID, // Already a string, use directly
+			ZohoID:       item.ZohoID,
 			Quantity:     item.Quantity,
-			PriceInCents: int64(math.Round(itemPrice * 100)),
+			PriceInCents: int64(math.Round(paidUnit * 100)),
 			TotalInCents: int64(math.Round(lineTotal * 100)),
 			TaxInCents:   int64(math.Round(taxPerUnit * 100)),
 		})
 
 		itemsTotal += int64(math.Round(lineTotal * 100))
-		//taxTotal += int64(math.Round(taxPerUnit*100)) * int64(item.Quantity)
 	}
 
 	// Calculate discount and final total
-	discount := int64(math.Round(float64(itemsTotal) * discountPercent))
+	discount := int64(0)
+	if hasCoupon {
+		discount = int64(math.Round(float64(itemsTotal) * discountPercent))
+	}
 
 	zohoTax := int64(math.Round(orderDetails.GrandTotal*100)) - (itemsTotal + shippingTotal - discount)
 	zohoTaxRate := float64(zohoTax) / float64(itemsTotal-discount)

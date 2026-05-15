@@ -350,6 +350,7 @@ func (s *MySql) orderProducts(orderId int64) ([]*entity.LineItem, error) {
 			&product.Tax,
 			&product.Qty,
 			&product.Sku,
+			&product.MasterPrice,
 		); err != nil {
 			return nil, err
 		}

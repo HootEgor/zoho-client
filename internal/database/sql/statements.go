@@ -160,7 +160,8 @@ func (s *MySql) stmtSelectOrderProducts() (*sql.Stmt, error) {
 			op.price,
 			op.tax,
 			op.quantity,
-			op.model
+			op.model,
+			pr.price as master_price
 		 FROM %sorder_product op
 		 JOIN %sproduct_description pd ON op.product_id = pd.product_id
 		 JOIN %sproduct pr ON op.product_id = pr.product_id

@@ -121,6 +121,9 @@ type LineItem struct {
 	Tax    float64 `json:"tax" validate:"required,min=1"`
 	Total  float64 `json:"total" validate:"required,min=1"`
 	Sku    string  `json:"sku,omitempty" bson:"sku"`
+	// MasterPrice is the product's ordinary catalogue price. When it exceeds Price,
+	// the line is treated as carrying a per-line "special price" discount on Zoho sync.
+	MasterPrice float64 `json:"master_price,omitempty" bson:"master_price,omitempty"`
 }
 
 type ClientDetails struct {
