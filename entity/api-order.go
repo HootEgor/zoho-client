@@ -11,6 +11,10 @@ type ApiOrder struct {
 	GrandTotal   float64          `json:"grand_total" validate:"gt=0"`
 	Coupon       string           `json:"coupon"`
 	OrderedItems []ApiOrderedItem `json:"ordered_items" validate:"required,dive"`
+	// ModifiedTime is Zoho's Sales_Orders.Modified_Time for the version that
+	// triggered this webhook (RFC3339). Used to suppress echo webhooks caused
+	// by our own writes — see impl/core/api-order.go.
+	ModifiedTime string `json:"modified_time"`
 }
 
 type ApiOrderedItem struct {

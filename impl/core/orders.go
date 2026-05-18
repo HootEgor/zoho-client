@@ -93,6 +93,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 	// Build and create Zoho order
 
 	zohoId := ""
+	zohoModifiedTime := ""
 	infoTag := "order created"
 	if !isB2B {
 		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
@@ -105,7 +106,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 			zohoOrder.Subject += " !"
 		}
 
-		zohoId, err = c.zoho.CreateOrder(zohoOrder)
+		zohoId, zohoModifiedTime, err = c.zoho.CreateOrder(zohoOrder)
 		if err != nil {
 			return "", fmt.Errorf("create Zoho order: %w", err)
 		}
@@ -132,10 +133,15 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 		c.createZohoPayment(order, zohoId)
 	}
 
-	// Set tracking to "new" on successful order creation
-	err = c.repo.UpdateOrderTracking(order.OrderId, "new")
-	if err != nil {
-		return zohoId, fmt.Errorf("update tracking: %w", err)
+	// Store the Modified_Time returned by Zoho so the echo webhook for this create
+	// (whose Modified_Time will be <= this value) is suppressed by UpdateOrder.
+	if t, ok := parseZohoTime(zohoModifiedTime); ok {
+		if err := c.repo.SetOrderZohoModifiedTime(order.OrderId, t); err != nil {
+			log.With(sl.Err(err)).Warn("store zoho_modified_time failed")
+		}
+	} else if zohoModifiedTime != "" {
+		log.With(slog.String("zoho_modified_time", zohoModifiedTime)).
+			Warn("could not parse Zoho Modified_Time")
 	}
 
 	// Save order version to MongoDB

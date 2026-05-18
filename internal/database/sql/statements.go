@@ -222,6 +222,22 @@ func (s *MySql) stmtSelectOrderTracking() (*sql.Stmt, error) {
 	return s.prepareStmt("selectOrderTracking", query)
 }
 
+func (s *MySql) stmtSelectOrderZohoModifiedTime() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT zoho_modified_time FROM %sorder WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("selectOrderZohoModifiedTime", query)
+}
+
+func (s *MySql) stmtUpdateOrderZohoModifiedTime() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET zoho_modified_time = ? WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateOrderZohoModifiedTime", query)
+}
+
 func (s *MySql) stmtUpdateOrderZohoPaymentId() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`UPDATE %sorder SET zoho_payment_id = ? WHERE order_id = ?`,

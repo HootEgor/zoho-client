@@ -22,12 +22,17 @@ type Repository interface {
 	// UpdateOrderWithTransaction Transaction-based order update
 	UpdateOrderWithTransaction(data sql.OrderUpdateTransaction) error
 
+	GetOrderProductsSummary(orderId int64) ([]sql.OrderProductSummary, error)
+
 	UpdateProductZohoId(productUID string, zohoId string) error
 	GetProductZohoIdByUid(productUID string) (string, error)
 	GetProductByUid(productUID string) (name string, zohoId string, err error)
 
 	UpdateOrderTracking(orderId int64, tracking string) error
 	GetOrderTracking(orderId int64) (string, error)
+
+	GetOrderZohoModifiedTime(orderId int64) (time.Time, error)
+	SetOrderZohoModifiedTime(orderId int64, t time.Time) error
 
 	UpdateOrderZohoPaymentId(orderId int64, zohoPaymentId string) error
 	GetOrdersPendingPayment() ([]*entity.CheckoutParams, error)
@@ -46,7 +51,7 @@ type Zoho interface {
 	RefreshToken() error
 	CreateContact(contactData *entity.ClientDetails) (string, error)
 	UpsertContact(contactData *entity.ClientDetails) (string, error)
-	CreateOrder(orderData entity.ZohoOrder) (string, error)
+	CreateOrder(orderData entity.ZohoOrder) (id string, modifiedTime string, err error)
 	CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error)
 	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
 	AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error)

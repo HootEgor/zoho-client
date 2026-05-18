@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +78,12 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 		return nil, err
 	}
 	if err = sdb.addColumnIfNotExists("order", "zoho_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
+	// zoho_modified_time mirrors Zoho's Sales_Orders.Modified_Time and is used to
+	// suppress echo webhooks: an inbound update whose Modified_Time is older than or
+	// equal to the stored value is our own write coming back and is skipped.
+	if err = sdb.addColumnIfNotExists("order", "zoho_modified_time", "DATETIME NULL"); err != nil {
 		return nil, err
 	}
 	if err = sdb.addColumnIfNotExists("customer", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
@@ -207,6 +214,44 @@ func (s *MySql) GetOrderTracking(orderId int64) (string, error) {
 		return "", fmt.Errorf("query tracking: %w", err)
 	}
 	return tracking, nil
+}
+
+// GetOrderZohoModifiedTime returns the stored Zoho Modified_Time for the order,
+// or the zero time if it has never been set (column is NULL).
+func (s *MySql) GetOrderZohoModifiedTime(orderId int64) (time.Time, error) {
+	stmt, err := s.stmtSelectOrderZohoModifiedTime()
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	var ts sql.NullTime
+	err = stmt.QueryRow(orderId).Scan(&ts)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("query zoho_modified_time: %w", err)
+	}
+	if !ts.Valid {
+		return time.Time{}, nil
+	}
+	return ts.Time, nil
+}
+
+// SetOrderZohoModifiedTime stores the Zoho Modified_Time for the order. Passing
+// the zero value clears the column.
+func (s *MySql) SetOrderZohoModifiedTime(orderId int64, t time.Time) error {
+	stmt, err := s.stmtUpdateOrderZohoModifiedTime()
+	if err != nil {
+		return err
+	}
+
+	var arg any
+	if !t.IsZero() {
+		arg = t.UTC()
+	}
+	_, err = stmt.Exec(arg, orderId)
+	if err != nil {
+		return fmt.Errorf("update zoho_modified_time: %w", err)
+	}
+	return nil
 }
 
 func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
@@ -406,6 +451,50 @@ func (s *MySql) GetOrderProductTotals(orderId int64) (totalSum int64, taxSum int
 	}
 
 	return totalSum, taxSum, nil
+}
+
+// OrderProductSummary is a per-row snapshot of an order's items, joined with the
+// product's zoho_id. Multiple rows may share a ZohoID; callers that need a unique
+// per-product view should aggregate.
+type OrderProductSummary struct {
+	ZohoID       string
+	Name         string
+	Quantity     int
+	TotalInCents int64
+}
+
+// GetOrderProductsSummary returns the current order_product rows for a given order
+// with the product's zoho_id attached. Used for diffing pre/post webhook updates.
+func (s *MySql) GetOrderProductsSummary(orderId int64) ([]OrderProductSummary, error) {
+	query := fmt.Sprintf(`
+		SELECT COALESCE(p.zoho_id, ''), op.name, op.quantity, op.total
+		FROM %sorder_product op
+		LEFT JOIN %sproduct p ON op.product_id = p.product_id
+		WHERE op.order_id = ?
+	`, s.prefix, s.prefix)
+
+	rows, err := s.db.Query(query, orderId)
+	if err != nil {
+		return nil, fmt.Errorf("query order products summary: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var items []OrderProductSummary
+	for rows.Next() {
+		var (
+			it         OrderProductSummary
+			totalFloat float64
+		)
+		if err := rows.Scan(&it.ZohoID, &it.Name, &it.Quantity, &totalFloat); err != nil {
+			return nil, fmt.Errorf("scan order product: %w", err)
+		}
+		it.TotalInCents = int64(math.Round(totalFloat * 100))
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate order products: %w", err)
+	}
+	return items, nil
 }
 
 // addOrderData retrieves tax, line items, shipping and coupon for a specific order.

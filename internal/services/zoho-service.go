@@ -293,7 +293,7 @@ func mapCustomerCategory(groupId int64) string {
 // CreateOrder creates a Sales Order in the Zoho CRM Sales_Orders module.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/insert-records.html
 // Module: Sales_Orders - https://www.zoho.com/crm/developer/docs/api/v8/modules-api.html
-func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
+func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, string, error) {
 	log := s.log.With(
 		slog.String("subject", orderData.Subject),
 		slog.Float64("vat", orderData.VAT),
@@ -318,28 +318,28 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, error) {
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
+		return "", "", fmt.Errorf("marshal payload: %w", err)
 	}
 
 	apiResp, err := s.doRequest(http.MethodPost, body, "Sales_Orders")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
 		err = formatZohoError("order not created", item)
-		return "", err
+		return "", "", err
 	}
 
-	id, err := extractRecordID(item)
+	details, err := extractRecordDetails(item)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	log = log.With(slog.String("id", id))
+	log = log.With(slog.String("id", details.ID))
 
-	return id, nil
+	return details.ID, details.ModifiedTime, nil
 
 }
 
@@ -615,6 +615,16 @@ func extractRecordID(item entity.ZohoResponseItem) (string, error) {
 		return "", fmt.Errorf("failed to parse record ID: %w", err)
 	}
 	return success.ID, nil
+}
+
+// extractRecordDetails unmarshals a success response item into SuccessOrderDetails.
+// Used when callers need fields beyond the record ID (e.g. Modified_Time for echo suppression).
+func extractRecordDetails(item entity.ZohoResponseItem) (entity.SuccessOrderDetails, error) {
+	var success entity.SuccessOrderDetails
+	if err := json.Unmarshal(item.Details, &success); err != nil {
+		return entity.SuccessOrderDetails{}, fmt.Errorf("failed to parse record details: %w", err)
+	}
+	return success, nil
 }
 
 func buildURL(base string, paths ...string) (string, error) {
