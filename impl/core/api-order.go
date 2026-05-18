@@ -89,9 +89,14 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	var itemsTotal int64
 	var shippingTotal int64
 
+	// Dedupe by ZohoID first: Zoho subforms can carry the same product on multiple lines
+	// (split discounts, free gifts). Without merging, each line would become a separate
+	// order_product row pointing at the same product_id.
+	mergedItems := mergeItemsByZohoID(orderDetails.OrderedItems)
+
 	// Prepare product data with calculated tax
-	productData := make([]sql.OrderProductData, 0, len(orderDetails.OrderedItems))
-	for _, item := range orderDetails.OrderedItems {
+	productData := make([]sql.OrderProductData, 0, len(mergedItems))
+	for _, item := range mergedItems {
 		// Calculate shipping total separately
 		if item.ZohoID == c.shippingItemZohoId {
 			shippingTotal += int64(math.Round(item.Price * 100))
@@ -129,7 +134,12 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	zohoTax := int64(math.Round(orderDetails.GrandTotal*100)) - (itemsTotal + shippingTotal - discount)
-	zohoTaxRate := float64(zohoTax) / float64(itemsTotal-discount)
+	// Guard the division: a 100% coupon (or order with no taxable lines after shipping
+	// is filtered out) would otherwise produce NaN/Inf and corrupt the totals.
+	var zohoTaxRate float64
+	if denom := itemsTotal - discount; denom > 0 {
+		zohoTaxRate = float64(zohoTax) / float64(denom)
+	}
 
 	taxTotal := int64(math.Round(float64(itemsTotal) * zohoTaxRate * (1 - discountPercent)))
 	total := itemsTotal + taxTotal + shippingTotal - discount
@@ -201,6 +211,30 @@ func (c *Core) calculateTaxRate(orderId int64) (float64, error) {
 	// Calculate rate and round to 4 decimals
 	rate := tax / subTotal
 	return math.Round(rate*10000) / 10000, nil
+}
+
+// mergeItemsByZohoID collapses items sharing a ZohoID into a single line.
+// Quantity and Total are summed; Price is recomputed from the combined Total/Quantity
+// so downstream paid-unit math stays consistent (falls back to the first seen Price
+// when Quantity is zero).
+func mergeItemsByZohoID(items []entity.ApiOrderedItem) []entity.ApiOrderedItem {
+	merged := make([]entity.ApiOrderedItem, 0, len(items))
+	index := make(map[string]int, len(items))
+
+	for _, item := range items {
+		if pos, ok := index[item.ZohoID]; ok {
+			merged[pos].Quantity += item.Quantity
+			merged[pos].Total += item.Total
+			if merged[pos].Quantity > 0 {
+				merged[pos].Price = merged[pos].Total / float64(merged[pos].Quantity)
+			}
+			continue
+		}
+		index[item.ZohoID] = len(merged)
+		merged = append(merged, item)
+	}
+
+	return merged
 }
 
 // calculateDiscountPercent calculates the discount percentage from API items.

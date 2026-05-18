@@ -654,9 +654,11 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		}
 	}()
 
-	// Get current order status for order_history
+	// Get current order status for order_history. FOR UPDATE locks the order row so
+	// concurrent webhooks for the same order serialize through this transaction
+	// instead of racing the DELETE/INSERT below.
 	var orderStatusId int64
-	selectStatusQuery := fmt.Sprintf("SELECT order_status_id FROM %sorder WHERE order_id = ?", s.prefix)
+	selectStatusQuery := fmt.Sprintf("SELECT order_status_id FROM %sorder WHERE order_id = ? FOR UPDATE", s.prefix)
 	err = tx.QueryRow(selectStatusQuery, data.OrderID).Scan(&orderStatusId)
 	if err != nil {
 		return fmt.Errorf("get order status: %w", err)
@@ -669,16 +671,26 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		return fmt.Errorf("delete existing order items: %w", err)
 	}
 
-	// Step 2: Insert new order items
+	// Step 2: Insert new order items.
+	// LIMIT 1 prevents fan-out if product.zoho_id is not unique or if product_description
+	// has more than one row for the same (product_id, language_id) — either would otherwise
+	// silently insert duplicate order_product rows for a single line item.
 	insertQuery := fmt.Sprintf(`
 		INSERT INTO %sorder_product (order_id, product_id, name, model, quantity, price, total, tax, reward, sku, upc, ean, jan, isbn, mpn, location, weight, discount_type, discount_amount)
 		SELECT ?, p.product_id, pd.name, p.model, ?, ?, ?, ?, 0, p.sku, p.upc, p.ean, p.jan, p.isbn, p.mpn, p.location, p.weight, '', 0
 		FROM %sproduct p
 		JOIN %sproduct_description pd ON p.product_id = pd.product_id
 		WHERE p.zoho_id = ? AND pd.language_id = 2
+		LIMIT 1
 	`, s.prefix, s.prefix, s.prefix)
 
 	for _, item := range data.Items {
+		// Empty zoho_id would match every product whose zoho_id is the default '' string.
+		// API validation forbids this, but guard defensively in case this path is reused.
+		if item.ZohoID == "" {
+			return fmt.Errorf("empty zoho_id in order item")
+		}
+
 		priceFloat := float64(item.PriceInCents) / 100.0
 		totalFloat := float64(item.TotalInCents) / 100.0
 		taxFloat := float64(item.TaxInCents) / 100.0
