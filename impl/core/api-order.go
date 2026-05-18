@@ -13,7 +13,12 @@ import (
 )
 
 func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
-	log := c.log.With(sl.Module("core.UpdateOrder"))
+	// zoho_id is the only correlation available until we resolve the OpenCart
+	// order_id — attach it to the base log so pre-resolution messages aren't orphan.
+	log := c.log.With(
+		sl.Module("core.UpdateOrder"),
+		slog.String("zoho_id", orderDetails.ZohoID),
+	)
 
 	if orderDetails.ZohoID == "" {
 		return fmt.Errorf("zoho_id is required")
@@ -38,15 +43,16 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 	}
 	if err != nil {
+		log.With(slog.Int("attempts", maxRetries), sl.Err(err)).
+			Warn("order not found, dropping update")
 		return fmt.Errorf("order not found after %d attempts: %w", maxRetries, err)
 	}
 
 	currencyValue := orderParams.CurrencyValue
 
-	log = log.With(
-		slog.String("zoho_id", orderDetails.ZohoID),
-		slog.Int64("order_id", orderId),
-	)
+	// order_id known from here on — add it to the base log so every downstream
+	// message (errors, diff, suppression) is correlated.
+	log = log.With(slog.Int64("order_id", orderId))
 
 	// Echo suppression: compare the payload's Modified_Time against the value we
 	// stored after our own last write to Zoho. If the payload is older or equal,
@@ -56,6 +62,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	if hasIncoming {
 		storedModified, err := c.repo.GetOrderZohoModifiedTime(orderId)
 		if err != nil {
+			log.With(sl.Err(err)).Error("failed to get zoho_modified_time")
 			return fmt.Errorf("failed to get zoho_modified_time: %w", err)
 		}
 		if !storedModified.IsZero() && !incomingModified.After(storedModified) {
@@ -82,6 +89,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// actually changed once the transaction commits.
 	previousItems, err := c.repo.GetOrderProductsSummary(orderId)
 	if err != nil {
+		log.With(sl.Err(err)).Error("failed to load current items")
 		return fmt.Errorf("failed to load current items: %w", err)
 	}
 	previousStatusId := orderParams.StatusId
@@ -198,6 +206,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 	err = c.repo.UpdateOrderWithTransaction(txData)
 	if err != nil {
+		log.With(sl.Err(err)).Error("failed to update order")
 		return fmt.Errorf("failed to update order: %w", err)
 	}
 
