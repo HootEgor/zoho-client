@@ -2,6 +2,7 @@ package order
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"zohoclient/entity"
@@ -62,18 +63,27 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 			return
 		}
 
-		err = order.UpdateOrder(&updates[0])
-		if err != nil {
-			apiErr := apierrors.NewDatabaseError("UpdateOrder")
-			log.Error("failed to update order",
-				slog.String("error", err.Error()),
-				slog.String("error_code", string(apiErr.Code)),
-			)
-			w.WriteHeader(apiErr.HTTPStatus)
-			render.JSON(w, r, response.ErrorFromAPIError(apiErr))
-			return
+		// Apply each update sequentially. Fail-fast on the first error so the caller
+		// (Zoho webhook function) can retry the batch; earlier successful updates are
+		// idempotent thanks to Modified_Time echo suppression in core.UpdateOrder.
+		for i := range updates {
+			if err := order.UpdateOrder(&updates[i]); err != nil {
+				apiErr := apierrors.NewDatabaseError("UpdateOrder")
+				log.Error("failed to update order",
+					slog.Int("index", i),
+					slog.String("zoho_id", updates[i].ZohoID),
+					slog.Int("applied", i),
+					slog.Int("total", len(updates)),
+					slog.String("error", err.Error()),
+					slog.String("error_code", string(apiErr.Code)),
+				)
+				w.WriteHeader(apiErr.HTTPStatus)
+				render.JSON(w, r, response.ErrorFromAPIError(apiErr))
+				return
+			}
 		}
 
-		render.JSON(w, r, response.OkWithMessage("Order updated successfully", "success"))
+		render.JSON(w, r, response.OkWithMessage(
+			fmt.Sprintf("%d order(s) updated successfully", len(updates)), "success"))
 	}
 }

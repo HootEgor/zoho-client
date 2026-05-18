@@ -712,6 +712,11 @@ type OrderUpdateTransaction struct {
 	CurrencyValue float64
 	OrderTotal    int64
 	Totals        OrderTotalsData
+	// NewStatusID, when > 0, updates oc_order.order_status_id atomically with the
+	// rest of the transaction. The order_history row uses this status. Leave at 0
+	// to keep the existing status.
+	NewStatusID    int64
+	StatusComment  string
 }
 
 // OrderTotalsData contains all order_total entries to be updated
@@ -730,7 +735,7 @@ type OrderTotalsData struct {
 
 // UpdateOrderWithTransaction performs a complete order update within a single transaction.
 // This ensures atomicity - either all changes succeed or all are rolled back.
-// Steps: 1) Delete items, 2) Insert new items, 3) Update order.total, 4) Update order_total entries, 5) Add order_history
+// Steps: 1) Delete items, 2) Insert new items, 3) Update order.total (and order_status_id if changed), 4) Update order_total entries, 5) Add order_history
 func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 	// Begin transaction
 	tx, err := s.db.Begin()
@@ -797,13 +802,24 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		}
 	}
 
-	// Step 3: Update order.total in the order table
+	// Step 3: Update order.total (and optionally order_status_id) in the order table.
 	now := time.Now()
-	updateQuery := fmt.Sprintf("UPDATE %sorder SET date_modified = ?, total = ? WHERE order_id = ?", s.prefix)
 	totalFloat := (float64(data.OrderTotal) / 100) / data.CurrencyValue
-	_, err = tx.Exec(updateQuery, now, totalFloat, data.OrderID)
-	if err != nil {
-		return fmt.Errorf("update order total: %w", err)
+
+	effectiveStatusId := orderStatusId
+	if data.NewStatusID > 0 && data.NewStatusID != orderStatusId {
+		updateQuery := fmt.Sprintf("UPDATE %sorder SET date_modified = ?, total = ?, order_status_id = ? WHERE order_id = ?", s.prefix)
+		_, err = tx.Exec(updateQuery, now, totalFloat, data.NewStatusID, data.OrderID)
+		if err != nil {
+			return fmt.Errorf("update order total and status: %w", err)
+		}
+		effectiveStatusId = data.NewStatusID
+	} else {
+		updateQuery := fmt.Sprintf("UPDATE %sorder SET date_modified = ?, total = ? WHERE order_id = ?", s.prefix)
+		_, err = tx.Exec(updateQuery, now, totalFloat, data.OrderID)
+		if err != nil {
+			return fmt.Errorf("update order total: %w", err)
+		}
 	}
 
 	// Step 4: Update all order_total entries
@@ -837,13 +853,16 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		}
 	}
 
-	// Step 5: Add order_history record
+	// Step 5: Add order_history record (tied to the post-update status).
 	historyQuery := fmt.Sprintf(`
 		INSERT INTO %sorder_history (order_id, order_status_id, notify, comment, date_added)
 		VALUES (?, ?, 0, ?, ?)
 	`, s.prefix)
 	comment := fmt.Sprintf("Order updated from zoho, total = %.2f", totalFloat)
-	_, err = tx.Exec(historyQuery, data.OrderID, orderStatusId, comment, now)
+	if data.StatusComment != "" {
+		comment = data.StatusComment + ". " + comment
+	}
+	_, err = tx.Exec(historyQuery, data.OrderID, effectiveStatusId, comment, now)
 	if err != nil {
 		return fmt.Errorf("insert order history: %w", err)
 	}

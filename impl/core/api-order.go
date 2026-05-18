@@ -65,6 +65,17 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			).Debug("skipping echo webhook")
 			return nil
 		}
+	} else {
+		// Investigating: see how often inbound payloads arrive without a usable
+		// Modified_Time. Log the raw value so we can tell "field absent" from
+		// "field present but unparseable", and the stored value for context.
+		storedModified, getErr := c.repo.GetOrderZohoModifiedTime(orderId)
+		log.With(
+			slog.String("raw_modified_time", orderDetails.ModifiedTime),
+			slog.Time("stored", storedModified),
+			slog.Bool("stored_present", !storedModified.IsZero()),
+			slog.Any("stored_err", getErr),
+		).Debug("inbound payload has no usable Modified_Time, echo suppression bypassed")
 	}
 
 	// Snapshot current items + status + total so we can report what the webhook
@@ -76,17 +87,17 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	previousStatusId := orderParams.StatusId
 	previousTotal := orderParams.Total
 
-	// Update status if provided (done separately before transaction)
+	// Resolve the new status, but defer the write to the transaction so a TX failure
+	// can't leave the order with a new status and stale items.
 	newStatusId := previousStatusId
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)
 		if statusId > 0 {
 			log = log.With(slog.Int("status_id", statusId))
-			err = c.repo.ChangeOrderStatus(orderId, int64(statusId), "Updated via API")
-			if err != nil {
-				return fmt.Errorf("failed to update status: %w", err)
-			}
 			newStatusId = statusId
+		} else {
+			log.With(slog.String("status", orderDetails.Status)).
+				Warn("unknown status name from Zoho, keeping current")
 		}
 	}
 
@@ -181,6 +192,8 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			Total:    total,
 			Coupon:   coupon,
 		},
+		NewStatusID:   int64(newStatusId),
+		StatusComment: "Updated via API",
 	}
 
 	err = c.repo.UpdateOrderWithTransaction(txData)
