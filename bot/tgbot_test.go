@@ -88,8 +88,8 @@ func TestSanitize(t *testing.T) {
 		},
 		{
 			name:     "all reserved chars",
-			input:    "\\_{}#+-.!|()[]=*",
-			expected: "\\\\\\_\\{\\}\\#\\+\\-\\.\\!\\|\\(\\)\\[\\]\\=\\*",
+			input:    "\\_{}#+-.!|()[]=*~`>",
+			expected: "\\\\\\_\\{\\}\\#\\+\\-\\.\\!\\|\\(\\)\\[\\]\\=\\*\\~\\`\\>",
 		},
 		{
 			name:     "mixed content",
@@ -136,8 +136,8 @@ func TestSanitize_NoDoubleEscape(t *testing.T) {
 }
 
 func TestSanitize_ReservedCharsComplete(t *testing.T) {
-	// The reserved chars string from the function: \\_{}#+-.!|()[]=*
-	reservedChars := "\\_{}#+-.!|()[]=*"
+	// The reserved chars string from the function: \\_{}#+-.!|()[]=*~`>
+	reservedChars := "\\_{}#+-.!|()[]=*~`>"
 
 	for _, char := range reservedChars {
 		input := string(char)
