@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,11 @@ import (
 	"zohoclient/internal/lib/sl"
 	"zohoclient/internal/lib/util"
 )
+
+// ErrPaymentInvalidData is returned by CreatePayment when Zoho rejects the
+// payment with code INVALID_DATA — e.g. the linked Sales Order no longer exists.
+// This is non-transient: retrying with the same data will always fail.
+var ErrPaymentInvalidData = errors.New("payment invalid data")
 
 // ZohoService manages communication with the Zoho CRM REST API (v8).
 // API docs: https://www.zoho.com/crm/developer/docs/api/v8/
@@ -440,7 +446,11 @@ func (s *ZohoService) CreatePayment(payment entity.ZohoPayment) (string, error) 
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		return "", formatZohoError("payment not created", item)
+		err := formatZohoError("payment not created", item)
+		if item.Code == "INVALID_DATA" {
+			return "", fmt.Errorf("%w: %w", ErrPaymentInvalidData, err)
+		}
+		return "", err
 	}
 
 	return extractRecordID(item)

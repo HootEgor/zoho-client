@@ -2,12 +2,14 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/lib/sl"
+	"zohoclient/internal/services"
 )
 
 const (
@@ -15,6 +17,11 @@ const (
 	ZohoOrderSource = "OpenCart"
 
 	ChunkSize = 200
+
+	// paymentZohoIdError is a sentinel written into oc_order.zoho_payment_id when a
+	// payment cannot be created in Zoho due to non-transient errors (e.g. the linked
+	// Sales Order was deleted), so the order is not retried forever.
+	paymentZohoIdError = "[ERR]"
 )
 
 type Currency struct {
@@ -214,6 +221,13 @@ func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId strin
 	zohoPaymentId, err := c.zoho.CreatePayment(payment)
 	if err != nil {
 		log.With(sl.Err(err)).Error("create Zoho payment")
+		// Non-transient failure (e.g. linked Sales Order deleted in Zoho):
+		// mark with a sentinel so the order is not retried forever.
+		if errors.Is(err, services.ErrPaymentInvalidData) {
+			if markErr := c.repo.UpdateOrderZohoPaymentId(order.OrderId, paymentZohoIdError); markErr != nil {
+				log.With(sl.Err(markErr)).Error("mark failed payment")
+			}
+		}
 		return
 	}
 
@@ -244,8 +258,9 @@ func (c *Core) ProcessPendingPayments() {
 			).Error("get zoho_id for payment update")
 			continue
 		}
-		//records are selected from database by non-empty zohoId
-		if zohoId == "" {
+		//records are selected from database by non-empty zohoId;
+		//"[B2B]" is a sentinel marking orders with no real Sales Order to link a payment to
+		if zohoId == "" || zohoId == "[B2B]" {
 			continue
 		}
 
