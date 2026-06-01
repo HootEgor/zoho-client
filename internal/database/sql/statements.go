@@ -339,6 +339,7 @@ func (s *MySql) stmtSelectOrdersPendingPaymentUpdate() (*sql.Stmt, error) {
 		 	AND zoho_payment_id != '%s'
 		 	AND wf_payment_status != '' AND wf_payment_status IS NOT NULL
 		 	AND wf_payment_status != zoho_payment_status
+		 	AND date_modified > DATE_SUB(NOW(), INTERVAL 60 DAY)
 		 LIMIT 10`,
 		s.prefix,
 		paymentZohoIdError,
