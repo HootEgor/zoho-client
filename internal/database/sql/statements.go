@@ -246,6 +246,22 @@ func (s *MySql) stmtUpdateOrderZohoPaymentId() (*sql.Stmt, error) {
 	return s.prepareStmt("updateOrderZohoPaymentId", query)
 }
 
+func (s *MySql) stmtUpdateOrderZohoPayment() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET zoho_payment_id = ?, zoho_payment_status = ? WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateOrderZohoPayment", query)
+}
+
+func (s *MySql) stmtSetOrderZohoPaymentStatus() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET zoho_payment_status = ? WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("setOrderZohoPaymentStatus", query)
+}
+
 // stmtSelectOrdersPendingPayment finds orders that are already in Zoho but have payment
 // data from wfsync that hasn't been synced to Zoho yet.
 func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
@@ -285,6 +301,56 @@ func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
 	)
 	return s.prepareStmt("selectOrdersPendingPayment", query)
 }
+
+// stmtSelectOrdersPendingPaymentUpdate finds orders whose Zoho Payments record already
+// exists (real id, not the "[ERR]" sentinel) but whose wf_payment_status has advanced
+// past the value last synced to Zoho (zoho_payment_status).
+func (s *MySql) stmtSelectOrdersPendingPaymentUpdate() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT
+			order_id,
+			order_status_id,
+			date_added,
+			firstname,
+			lastname,
+			email,
+			telephone,
+			customer_group_id,
+			custom_field,
+			shipping_country,
+			shipping_postcode,
+			shipping_city,
+			shipping_address_1,
+			shipping_zone,
+			shipping_zone_id,
+			currency_code,
+			currency_value,
+			total,
+			comment,
+			zoho_id,
+			wf_payment_status,
+			wf_payment_id,
+			wf_payment_amount,
+			wf_payment_session,
+			shipping_code
+		 FROM %sorder
+		 WHERE zoho_id != '' AND zoho_id IS NOT NULL
+		 	AND zoho_payment_id != '' AND zoho_payment_id IS NOT NULL
+		 	AND zoho_payment_id != '%s'
+		 	AND wf_payment_status != '' AND wf_payment_status IS NOT NULL
+		 	AND wf_payment_status != zoho_payment_status
+		 LIMIT 10`,
+		s.prefix,
+		paymentZohoIdError,
+	)
+	return s.prepareStmt("selectOrdersPendingPaymentUpdate", query)
+}
+
+// paymentZohoIdError is the sentinel stored in oc_order.zoho_payment_id when a payment
+// cannot be created in Zoho due to a non-transient error. It must match the value used
+// in impl/core (paymentZohoIdError); it is duplicated here because the core package
+// imports this package and the reference cannot go the other way.
+const paymentZohoIdError = "[ERR]"
 
 func (s *MySql) stmtSelectOrderSimpleFields() (*sql.Stmt, error) {
 	query := fmt.Sprintf(

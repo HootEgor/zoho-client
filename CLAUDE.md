@@ -157,6 +157,15 @@ docs/                       # API documentation (apiv1.md, config.md)
 
 ### Important Details
 
+**Shared Database Contract with wfsync (`~/projects/wfsync`)**
+- Both services run in production against the **same OpenCart MySQL database**. wfsync handles Stripe payments + wFirma invoices; zoho-client syncs orders to Zoho CRM.
+- Column ownership on `oc_order`:
+  - wfsync **writes**, zoho-client **reads**: `wf_payment_status` VARCHAR(32), `wf_payment_id` VARCHAR(64), `wf_payment_amount` BIGINT (cents), `wf_payment_session` VARCHAR(128). zoho-client (re)creates these defensively in `sql-client.go` so deploy order / a fresh DB never breaks reads — **definitions must stay identical to wfsync's** (`opencart/database/sql-client.go`).
+  - zoho-client owns: `zoho_id`, `zoho_payment_id`, `zoho_payment_status`, `zoho_modified_time` (order); `zoho_id` (product, customer).
+- **Order status 17 coordination**: wfsync sets `order_status_id = 17` when a Stripe hold is confirmed (`requires_capture`). zoho-client polls statuses {1,5,17} and treats 17 as a sync trigger — at that point `wf_payment_status = "requires_capture"` maps to Zoho "Кошти зарезервовано" (held), which is correct.
+- **Payment status vocabulary**: `entity/payment-status.go` maps every Stripe/wfsync status string wfsync can write into the Zoho Payments picklist. Keep this map complete if wfsync's status values change.
+- **Payment status advancement**: a Zoho Payments record is created once (`createZohoPayment`), recording the synced status in `zoho_payment_status`. `ProcessPaymentUpdates()` detects when `wf_payment_status` later advances (e.g. held → paid) and pushes the new status via `ZohoService.UpdatePaymentStatus` — so a captured payment is not left stuck at "held".
+
 **Money Handling**
 - OpenCart stores prices in cents (int64)
 - Conversion: `float64(value) / 100.0` (see `roundInt()`)

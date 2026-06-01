@@ -80,6 +80,13 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 	if err = sdb.addColumnIfNotExists("order", "zoho_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
 		return nil, err
 	}
+	// zoho_payment_status mirrors the wf_payment_status value that was last reflected
+	// into the linked Zoho Payments record. It lets the pending-payment poller detect
+	// when wfsync advances the payment (e.g. held -> paid) and push the new status to
+	// Zoho, instead of treating the payment as done forever once zoho_payment_id is set.
+	if err = sdb.addColumnIfNotExists("order", "zoho_payment_status", "VARCHAR(32) NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
 	// zoho_modified_time mirrors Zoho's Sales_Orders.Modified_Time and is used to
 	// suppress echo webhooks: an inbound update whose Modified_Time is older than or
 	// equal to the stored value is our own write coming back and is skipped.
@@ -87,6 +94,25 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 		return nil, err
 	}
 	if err = sdb.addColumnIfNotExists("customer", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
+
+	// The wf_* columns are owned and written by the wfsync service (Stripe payment state);
+	// zoho-client only reads them when syncing payments to Zoho. We (re)create them
+	// defensively so that a fresh database, or a deploy that starts zoho-client before
+	// wfsync, does not break order reads with an "unknown column" error. addColumnIfNotExists
+	// is idempotent, so this is a no-op once wfsync has run. Definitions MUST stay in sync
+	// with wfsync (opencart/database/sql-client.go).
+	if err = sdb.addColumnIfNotExists("order", "wf_payment_status", "VARCHAR(32) NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
+	if err = sdb.addColumnIfNotExists("order", "wf_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
+	if err = sdb.addColumnIfNotExists("order", "wf_payment_amount", "BIGINT NOT NULL DEFAULT 0"); err != nil {
+		return nil, err
+	}
+	if err = sdb.addColumnIfNotExists("order", "wf_payment_session", "VARCHAR(128) NOT NULL DEFAULT ''"); err != nil {
 		return nil, err
 	}
 
@@ -653,10 +679,81 @@ func (s *MySql) UpdateOrderZohoPaymentId(orderId int64, zohoPaymentId string) er
 	return nil
 }
 
+// UpdateOrderZohoPayment records both the created Zoho Payments record id and the
+// wf_payment_status that it reflects, so subsequent status changes can be detected.
+func (s *MySql) UpdateOrderZohoPayment(orderId int64, zohoPaymentId, syncedStatus string) error {
+	stmt, err := s.stmtUpdateOrderZohoPayment()
+	if err != nil {
+		return err
+	}
+	_, err = stmt.Exec(zohoPaymentId, syncedStatus, orderId)
+	if err != nil {
+		return fmt.Errorf("update zoho_payment: %w", err)
+	}
+	return nil
+}
+
+// SetOrderZohoPaymentStatus stores the wf_payment_status value that was last pushed to
+// the linked Zoho Payments record.
+func (s *MySql) SetOrderZohoPaymentStatus(orderId int64, syncedStatus string) error {
+	stmt, err := s.stmtSetOrderZohoPaymentStatus()
+	if err != nil {
+		return err
+	}
+	_, err = stmt.Exec(syncedStatus, orderId)
+	if err != nil {
+		return fmt.Errorf("set zoho_payment_status: %w", err)
+	}
+	return nil
+}
+
+// GetOrderZohoPaymentId returns the Zoho Payments record id stored for an order.
+func (s *MySql) GetOrderZohoPaymentId(orderId int64) (string, error) {
+	query := fmt.Sprintf("SELECT zoho_payment_id FROM %sorder WHERE order_id = ?", s.prefix)
+	var zohoPaymentId string
+	err := s.db.QueryRow(query, orderId).Scan(&zohoPaymentId)
+	if err != nil {
+		return "", fmt.Errorf("query zoho_payment_id: %w", err)
+	}
+	return zohoPaymentId, nil
+}
+
 // GetOrdersPendingPayment returns orders that have been synced to Zoho (zoho_id set)
 // and have payment data from wfsync (wf_payment_status set) but no Zoho payment record yet.
 func (s *MySql) GetOrdersPendingPayment() ([]*entity.CheckoutParams, error) {
 	stmt, err := s.stmtSelectOrdersPendingPayment()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query()
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
+
+	var orders []*entity.CheckoutParams
+	for rows.Next() {
+		order, _, err := s.scanOrderFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		orders = append(orders, order)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+// GetOrdersPendingPaymentUpdate returns orders that already have a Zoho Payments record
+// (real zoho_payment_id, not the "[ERR]" sentinel) whose wf_payment_status has since
+// advanced (e.g. held -> paid) beyond what was last synced to Zoho (zoho_payment_status).
+func (s *MySql) GetOrdersPendingPaymentUpdate() ([]*entity.CheckoutParams, error) {
+	stmt, err := s.stmtSelectOrdersPendingPaymentUpdate()
 	if err != nil {
 		return nil, err
 	}
@@ -715,8 +812,8 @@ type OrderUpdateTransaction struct {
 	// NewStatusID, when > 0, updates oc_order.order_status_id atomically with the
 	// rest of the transaction. The order_history row uses this status. Leave at 0
 	// to keep the existing status.
-	NewStatusID    int64
-	StatusComment  string
+	NewStatusID   int64
+	StatusComment string
 }
 
 // OrderTotalsData contains all order_total entries to be updated

@@ -231,13 +231,65 @@ func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId strin
 		return
 	}
 
-	err = c.repo.UpdateOrderZohoPaymentId(order.OrderId, zohoPaymentId)
+	// Record both the created payment id and the wf_payment_status it reflects, so a later
+	// status change (e.g. held -> paid) is detected by ProcessPaymentUpdates.
+	err = c.repo.UpdateOrderZohoPayment(order.OrderId, zohoPaymentId, order.PaymentStatus)
 	if err != nil {
-		log.With(sl.Err(err)).Error("update zoho_payment_id")
+		log.With(sl.Err(err)).Error("update zoho_payment")
 		return
 	}
 
 	log.With(slog.String("zoho_payment_id", zohoPaymentId)).Info("payment created")
+}
+
+// ProcessPaymentUpdates finds orders whose Zoho payment record already exists but whose
+// wfsync payment status has since advanced (e.g. a confirmed hold that was later captured),
+// and pushes the new status to the linked Zoho Payments record.
+func (c *Core) ProcessPaymentUpdates() {
+	orders, err := c.repo.GetOrdersPendingPaymentUpdate()
+	if err != nil {
+		c.log.With(sl.Err(err)).Error("get orders pending payment update")
+		return
+	}
+
+	for _, order := range orders {
+		c.updateZohoPayment(order)
+	}
+}
+
+// updateZohoPayment pushes the current wf_payment_status of an order to its existing
+// Zoho Payments record and records the synced status on success.
+func (c *Core) updateZohoPayment(order *entity.CheckoutParams) {
+	log := c.log.With(
+		slog.Int64("order_id", order.OrderId),
+		slog.String("payment_status", order.PaymentStatus),
+	)
+
+	zohoPaymentId, err := c.repo.GetOrderZohoPaymentId(order.OrderId)
+	if err != nil {
+		log.With(sl.Err(err)).Error("get zoho_payment_id for update")
+		return
+	}
+	// Defensive: the query already excludes empty / "[ERR]" ids.
+	if zohoPaymentId == "" || zohoPaymentId == paymentZohoIdError {
+		return
+	}
+
+	zohoStatus := entity.ConvertPaymentStatus(order.PaymentStatus)
+	if err := c.zoho.UpdatePaymentStatus(zohoPaymentId, zohoStatus); err != nil {
+		log.With(sl.Err(err)).Error("update Zoho payment status")
+		return
+	}
+
+	if err := c.repo.SetOrderZohoPaymentStatus(order.OrderId, order.PaymentStatus); err != nil {
+		log.With(sl.Err(err)).Error("store synced zoho_payment_status")
+		return
+	}
+
+	log.With(
+		slog.String("zoho_payment_id", zohoPaymentId),
+		slog.String("zoho_status", zohoStatus),
+	).Info("payment status updated")
 }
 
 // ProcessPendingPayments finds orders already synced to Zoho that have received payment

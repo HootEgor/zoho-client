@@ -59,7 +59,7 @@ type CheckoutParams struct {
 	PaymentStatus    string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`         // wf_payment_status: Stripe status string (e.g. "succeeded", "pending")
 	PaymentId        string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`                 // wf_payment_id: Stripe PaymentIntent ID (pi_xxx)
 	PaymentAmount    int64  `json:"payment_amount,omitempty" bson:"payment_amount,omitempty"`         // wf_payment_amount: amount in cents
-	PaymentSessionId string `json:"payment_session_id,omitempty" bson:"payment_session_id,omitempty"` // wf_payment_session_id: Stripe Checkout Session ID (cs_xxx)
+	PaymentSessionId string `json:"payment_session_id,omitempty" bson:"payment_session_id,omitempty"` // wf_payment_session: Stripe Checkout Session ID (cs_xxx)
 }
 
 func (c *CheckoutParams) Bind(_ *http.Request) error {

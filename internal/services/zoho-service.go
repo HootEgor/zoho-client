@@ -456,6 +456,34 @@ func (s *ZohoService) CreatePayment(payment entity.ZohoPayment) (string, error) 
 	return extractRecordID(item)
 }
 
+// UpdatePaymentStatus updates the Status field of an existing record in the custom
+// "Payments" module, identified by its Zoho record id. Used to advance a payment
+// (e.g. held -> paid) when wfsync reports a new Stripe payment status.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-specific-record.html
+func (s *ZohoService) UpdatePaymentStatus(id, status string) error {
+	updateData := map[string]interface{}{"Status": status}
+	payload := map[string]interface{}{
+		"data": []interface{}{updateData},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
+	apiResp, err := s.doRequest(http.MethodPut, body, "Payments", id)
+	if err != nil {
+		return err
+	}
+
+	item := apiResp.Data[0]
+
+	if item.Status != "success" {
+		return formatZohoError("payment status not updated", item)
+	}
+
+	return nil
+}
+
 // AddItemsToOrder appends line items to an existing Sales Order via bulk update.
 // Used when an order has >200 items and must be split across multiple API calls.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-records.html

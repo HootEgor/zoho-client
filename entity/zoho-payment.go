@@ -5,7 +5,7 @@ package entity
 //
 // Stripe fields store identifiers for payment reconciliation:
 //   - StripePaymentIntentID: Stripe PaymentIntent ID (pi_xxx), from wf_payment_id column
-//   - StripeCheckoutSessionID: Stripe Checkout Session ID (cs_xxx), from wf_payment_session_id column
+//   - StripeCheckoutSessionID: Stripe Checkout Session ID (cs_xxx), from wf_payment_session column
 //
 // These are populated by the wfsync service which writes Stripe webhook data into OpenCart.
 type ZohoPayment struct {
