@@ -66,11 +66,20 @@ type OCOrder struct {
 }
 
 // OpenCart order status IDs from the oc_order_status table.
-// Statuses 1, 17, and 5 trigger Zoho CRM sync (see database.GetNewOrders).
+// Statuses 1, 2, 5, 17, 22, and 23 trigger Zoho CRM sync (see database.GetNewOrders).
+//
+// Payment-link lifecycle (handled by the wfsync service): a confirmed order moves to
+// Pending (2), then OpenCart sets PaymentLinkRequest (22) which wfsync polls; wfsync
+// creates the Stripe hold link and sets PaymentLinkCreated (23); once the hold is
+// confirmed it becomes Payed (17). zoho-client polls every step from confirmation
+// onward so an order that stalls anywhere (e.g. a link created but never paid) still
+// reaches Zoho; its payment record is created/updated later once wfsync reports a status.
 const (
 	OrderStatusNew                = 1  // "Нове" - newly created order
-	OrderStatusPending            = 2  // "В обробці" - pending processing
+	OrderStatusPending            = 2  // "В обробці" - confirmed, pending processing
 	OrderStatusPrepareForShipping = 5  // "Перевірка та збір" - ready for shipping prep
-	OrderStatusPayed              = 17 // "Оплачено" - payment received
+	OrderStatusPayed              = 17 // "Оплачено" - payment received / hold confirmed
 	OrderStatusCanceled           = 7  // "Скасовано" - canceled
+	OrderStatusPaymentLinkRequest = 22 // payment link requested (wfsync poll trigger, status_url_request)
+	OrderStatusPaymentLinkCreated = 23 // payment link created, awaiting payment (wfsync status_url_result)
 )

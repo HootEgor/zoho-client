@@ -147,8 +147,11 @@ func (s *MySql) Stats() string {
 func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {
 	statuses := []int{
 		entity.OrderStatusNew,
+		entity.OrderStatusPending,
 		entity.OrderStatusPayed,
 		entity.OrderStatusPrepareForShipping,
+		entity.OrderStatusPaymentLinkRequest,
+		entity.OrderStatusPaymentLinkCreated,
 	}
 
 	from := time.Now().Add(-30 * 24 * time.Hour)

@@ -127,8 +127,9 @@ docs/                       # API documentation (apiv1.md, config.md)
 ### Data Flow
 
 1. **Order Retrieval** (`database.GetNewOrders()`)
-   - Fetches orders with statuses: New (1), PrepareForShipping (5), Payed (17)
-   - Only processes orders from last 30 days
+   - Fetches orders with statuses: New (1), Pending (2), PrepareForShipping (5), Payed (17), PaymentLinkRequest (22), PaymentLinkCreated (23)
+   - The payment-link statuses are included so an order that stalls anywhere in the wfsync flow (confirmed → 2 → 22 request → 23 link created → 17 paid) still reaches Zoho even if the customer never pays; its payment record is created/updated later once wfsync reports a payment status
+   - Only processes orders modified in the last 30 days, and skips any already synced (`zoho_id` set)
    - Excludes B2B orders (identified by customer group ID)
 
 2. **Validation** (`impl/core/orders.go:85-103`)
