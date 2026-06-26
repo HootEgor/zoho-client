@@ -109,96 +109,30 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 	}
 
-	// Calculate tax rate from existing order totals
+	// Tax rate from the order's existing totals (decimal, e.g. 0.23 for 23% VAT).
 	taxRate := orderParams.TaxRate() / 100
-
-	// Coupon orders keep the legacy uniform-percentage path so the discount can be
-	// preserved as order_total.coupon. Non-coupon orders bake each line's effective
-	// paid price into order_product.price, mirroring OpenCart's native special-price state.
-	hasCoupon := orderDetails.Coupon != ""
-
-	var discountPercent float64
-	if hasCoupon {
-		discountPercent = c.calculateDiscountPercent(orderDetails.OrderedItems)
-	}
-
-	var itemsTotal int64
-	var shippingTotal int64
 
 	// Dedupe by ZohoID first: Zoho subforms can carry the same product on multiple lines
 	// (split discounts, free gifts). Without merging, each line would become a separate
 	// order_product row pointing at the same product_id.
 	mergedItems := mergeItemsByZohoID(orderDetails.OrderedItems)
 
-	// Prepare product data with calculated tax
-	productData := make([]sql.OrderProductData, 0, len(mergedItems))
-	for _, item := range mergedItems {
-		// Calculate shipping total separately
-		if item.ZohoID == c.shippingItemZohoId {
-			shippingTotal += int64(math.Round(item.Price * 100))
-			continue
-		}
-
-		// Per-line effective unit price. For coupon orders, keep ListPrice as the per-line
-		// price (discount lives at order level). Otherwise, derive from Total/Quantity so
-		// any per-line special-price discount is baked in.
-		var paidUnit float64
-		if hasCoupon || item.Quantity == 0 {
-			paidUnit = item.Price
-		} else {
-			paidUnit = item.Total / float64(item.Quantity)
-		}
-
-		taxPerUnit := paidUnit * taxRate
-		lineTotal := paidUnit * float64(item.Quantity)
-
-		productData = append(productData, sql.OrderProductData{
-			ZohoID:       item.ZohoID,
-			Quantity:     item.Quantity,
-			PriceInCents: int64(math.Round(paidUnit * 100)),
-			TotalInCents: int64(math.Round(lineTotal * 100)),
-			TaxInCents:   int64(math.Round(taxPerUnit * 100)),
-		})
-
-		itemsTotal += int64(math.Round(lineTotal * 100))
-	}
-
-	// Calculate discount and final total
-	discount := int64(0)
-	if hasCoupon {
-		discount = int64(math.Round(float64(itemsTotal) * discountPercent))
-	}
-
-	zohoTax := int64(math.Round(orderDetails.GrandTotal*100)) - (itemsTotal + shippingTotal - discount)
-	// Guard the division: a 100% coupon (or order with no taxable lines after shipping
-	// is filtered out) would otherwise produce NaN/Inf and corrupt the totals.
-	var zohoTaxRate float64
-	if denom := itemsTotal - discount; denom > 0 {
-		zohoTaxRate = float64(zohoTax) / float64(denom)
-	}
-
-	taxTotal := int64(math.Round(float64(itemsTotal) * zohoTaxRate * (1 - discountPercent)))
-	total := itemsTotal + taxTotal + shippingTotal - discount
-
-	coupon := int64(0)
-	if orderDetails.Coupon != "" {
-		coupon = discount
-		discount = 0
-	}
+	// Reconstruct OpenCart's order_total rows and per-line product data from the payload.
+	totals := c.computeReverseTotals(mergedItems, orderDetails.GrandTotal, orderDetails.Coupon, taxRate)
 
 	// Execute entire update in a single transaction
 	txData := sql.OrderUpdateTransaction{
 		OrderID:       orderId,
-		Items:         productData,
+		Items:         totals.Products,
 		CurrencyValue: currencyValue,
-		OrderTotal:    total,
+		OrderTotal:    totals.Total,
 		Totals: sql.OrderTotalsData{
-			SubTotal: itemsTotal,
-			Tax:      taxTotal,
-			Discount: discount,
-			Shipping: shippingTotal,
-			Total:    total,
-			Coupon:   coupon,
+			SubTotal: totals.ItemsTotal,
+			Tax:      totals.Tax,
+			Discount: totals.Discount,
+			Shipping: totals.Shipping,
+			Total:    totals.Total,
+			Coupon:   totals.Coupon,
 		},
 		NewStatusID:   int64(newStatusId),
 		StatusComment: "Updated via API",
@@ -220,7 +154,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Audit what the webhook actually changed.
-	newTotalDisplay := (float64(total) / 100) / currencyValue
+	newTotalDisplay := (float64(totals.Total) / 100) / currencyValue
 	logOrderDiff(log, previousItems, mergedItems, c.shippingItemZohoId,
 		previousStatusId, newStatusId,
 		previousTotal, newTotalDisplay, orderParams.Currency)
@@ -229,19 +163,114 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	c.saveOrderVersionToMongo(orderId, orderDetails)
 
 	log.With(
-		slog.String("sub_total", fmtCents(itemsTotal)),
-		slog.String("shipping", fmtCents(shippingTotal)),
-		slog.Float64("discountP", round4(discountPercent)),
-		slog.String("discount", fmtCents(discount)),
-		slog.String("coupon", fmtCents(coupon)),
-		slog.String("tax_total", fmtCents(taxTotal)),
+		slog.String("sub_total", fmtCents(totals.ItemsTotal)),
+		slog.String("shipping", fmtCents(totals.Shipping)),
+		slog.String("discount", fmtCents(totals.Discount)),
+		slog.String("coupon", fmtCents(totals.Coupon)),
+		slog.String("tax_total", fmtCents(totals.Tax)),
 		slog.Float64("tax_rate", round4(taxRate)),
-		slog.Float64("zoho_tax_rate", round4(zohoTaxRate)),
-		slog.String("total", fmtCents(total)),
+		slog.String("total", fmtCents(totals.Total)),
 		slog.String("zoho_total", fmtCents(int64(math.Round(orderDetails.GrandTotal*100)))),
 	).Debug("order updated")
 
 	return nil
+}
+
+// reverseTotals is the OpenCart order_total breakdown (in cents) plus the per-line
+// order_product rows reconstructed from a Zoho reverse-sync payload. Discount and Coupon
+// follow OpenCart's negative-sign convention.
+type reverseTotals struct {
+	Products   []sql.OrderProductData
+	ItemsTotal int64 // sub_total
+	Shipping   int64
+	Tax        int64
+	Discount   int64 // post-tax discount, negative
+	Coupon     int64 // pre-tax coupon, negative
+	Total      int64
+}
+
+// computeReverseTotals rebuilds OpenCart's order_total rows and order_product data from a
+// Zoho reverse-sync payload. items must already be deduped by ZohoID; taxRate is the
+// order's existing VAT rate as a decimal (e.g. 0.23 for 23%).
+//
+// OpenCart carries two reductions that sit on opposite sides of VAT, and they are
+// reconstructed differently:
+//   - coupon   (couponCode != ""): PRE-tax. Lines arrive at list price; the coupon is a
+//     percentage of the subtotal, VAT is charged on the reduced base, and the coupon is
+//     stored as a negative order_total.coupon. sub_total + tax + coupon == total.
+//   - discount (couponCode == ""): POST-tax (e.g. first-buy 10% of gross). VAT is charged
+//     on the full line subtotal, then the discount comes off the gross total. It is the gap
+//     between (items + tax) and grand_total, stored as a negative order_total.discount. No
+//     meaningful gap means no discount, and any sub-cent remainder folds into tax so the
+//     rows stay exact.
+func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFloat float64, couponCode string, taxRate float64) reverseTotals {
+	hasCoupon := couponCode != ""
+
+	var discountPercent float64
+	if hasCoupon {
+		discountPercent = c.calculateDiscountPercent(items)
+	}
+
+	var itemsTotal, shippingTotal int64
+	products := make([]sql.OrderProductData, 0, len(items))
+	for _, item := range items {
+		if item.ZohoID == c.shippingItemZohoId {
+			shippingTotal += int64(math.Round(item.Price * 100))
+			continue
+		}
+
+		// For coupon orders keep ListPrice (the reduction lives at order level). Otherwise
+		// derive from Total/Quantity so any per-line special price is reflected.
+		var paidUnit float64
+		if hasCoupon || item.Quantity == 0 {
+			paidUnit = item.Price
+		} else {
+			paidUnit = item.Total / float64(item.Quantity)
+		}
+
+		taxPerUnit := paidUnit * taxRate
+		lineTotal := paidUnit * float64(item.Quantity)
+
+		products = append(products, sql.OrderProductData{
+			ZohoID:       item.ZohoID,
+			Quantity:     item.Quantity,
+			PriceInCents: int64(math.Round(paidUnit * 100)),
+			TotalInCents: int64(math.Round(lineTotal * 100)),
+			TaxInCents:   int64(math.Round(taxPerUnit * 100)),
+		})
+
+		itemsTotal += int64(math.Round(lineTotal * 100))
+	}
+
+	grandTotal := int64(math.Round(grandTotalFloat * 100))
+
+	var taxTotal, discount, coupon int64
+	if hasCoupon {
+		couponAmt := int64(math.Round(float64(itemsTotal) * discountPercent))
+		netBase := itemsTotal - couponAmt
+		taxTotal = grandTotal - netBase - shippingTotal
+		coupon = -couponAmt
+	} else {
+		expectedTax := int64(math.Round(float64(itemsTotal) * taxRate))
+		postTaxDiscount := itemsTotal + expectedTax + shippingTotal - grandTotal
+		if postTaxDiscount > 1 {
+			taxTotal = expectedTax
+			discount = -postTaxDiscount
+		} else {
+			taxTotal = grandTotal - itemsTotal - shippingTotal
+			discount = 0
+		}
+	}
+
+	return reverseTotals{
+		Products:   products,
+		ItemsTotal: itemsTotal,
+		Shipping:   shippingTotal,
+		Tax:        taxTotal,
+		Discount:   discount,
+		Coupon:     coupon,
+		Total:      grandTotal,
+	}
 }
 
 // calculateTaxRate calculates the tax rate from existing order_total data.

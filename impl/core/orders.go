@@ -378,23 +378,33 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 // When the LineItem carries a MasterPrice greater than the paid Price, the line is treated as
 // having a per-line "special price" discount: ListPrice is set to MasterPrice and DiscountP is
 // derived from the price gap, overriding the order-level discount for that line.
+// buildOrderedItem builds a Zoho subform line. discountP is the PRE-tax (coupon)
+// percentage applied uniformly across the order; a per-line special price (MasterPrice >
+// Price) is combined with it so the line reports a single ListPrice and one effective
+// discount. Both reductions are pre-tax — the post-tax order discount is carried as an
+// order-level Adjustment, not here.
 func buildOrderedItem(lineItem *entity.LineItem, discountP float64) entity.OrderedItem {
 	listPrice := lineItem.Price
 	lineDiscountP := discountP
 	if lineItem.MasterPrice > 0 && lineItem.MasterPrice > lineItem.Price {
 		listPrice = lineItem.MasterPrice
-		lineDiscountP = round2((1 - lineItem.Price/lineItem.MasterPrice) * 100)
+		// Effective net unit = special price further reduced by the coupon percentage,
+		// expressed as a single discount off the catalogue (list) price.
+		netUnit := lineItem.Price * (1 - discountP/100)
+		lineDiscountP = round2((1 - netUnit/lineItem.MasterPrice) * 100)
 	}
-	totalWithDiscount := round2(lineItem.Qty * lineItem.Price * lineDiscountP / 100)
+	// Net line total = quantity * list price * (1 - effective discount). With no discount
+	// this is the full line total. (Previously this field carried the discount AMOUNT,
+	// which is neither the line total nor a correct discount and broke the round trip.)
+	totalNet := round2(lineItem.Qty * listPrice * (1 - lineDiscountP/100))
 	return entity.OrderedItem{
 		Product: entity.ZohoProduct{
 			ID: lineItem.ZohoId,
 		},
-		Quantity: int64(lineItem.Qty),
-		//Discount:
+		Quantity:  int64(lineItem.Qty),
 		DiscountP: lineDiscountP,
 		ListPrice: listPrice,
-		Total:     totalWithDiscount,
+		Total:     totalNet,
 	}
 }
 
@@ -435,15 +445,30 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 // buildZohoOrder constructs a ZohoOrder from CheckoutParams. Returns the order and any
 // additional item chunks that exceed ChunkSize (100 items) for subsequent API calls.
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
-	discount, discountP := oc.GetDiscount()
-	discountP = round0(discountP)
+	// OpenCart carries two distinct reductions that sit on different sides of VAT, so they
+	// must reach Zoho through different fields or Zoho recomputes a wrong grand total:
+	//   - coupon   (order_total 'coupon')  : PRE-tax. It lowers the VAT base, so it is sent
+	//                                         as a per-line discount percentage (Zoho then
+	//                                         charges VAT on the reduced lines).
+	//   - discount (order_total 'discount'): POST-tax (e.g. first-buy 10% of gross). It does
+	//                                         not change VAT, so it is sent as a negative
+	//                                         order-level Adjustment applied after tax.
+	// Reading the two order_total rows directly (coupon is stored negative) keeps each on
+	// the correct side of VAT instead of blending them into one pre-tax percentage.
+	couponAmount := math.Abs(oc.Coupon)
+	postTaxDiscount := math.Abs(oc.Discount)
+
+	var couponP float64
+	if oc.SubTotal > 0 {
+		couponP = round0(couponAmount / oc.SubTotal * 100)
+	}
 
 	lineItems := oc.LineItems
 
-	// Build all ordered items
+	// Build all ordered items at list price, carrying only the pre-tax coupon percentage.
 	allItems := make([]entity.OrderedItem, 0, len(lineItems))
 	for _, d := range lineItems {
-		allItems = append(allItems, buildOrderedItem(d, discountP))
+		allItems = append(allItems, buildOrderedItem(d, couponP))
 	}
 	// Add shipping as item without discount
 	if oc.Shipping > 0 {
@@ -467,30 +492,24 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		chunkedItems = chunkSlice(remaining, ChunkSize)
 	}
 
-	// if an order has coupon set, move discount percent to promocode
-	couponTitle := ""
-	couponValue := 0.0
-	if oc.CouponTitle != "" {
-		couponTitle = oc.CouponTitle
-		couponValue = discount
-		discount = 0
-		discountP = 0.0
-	}
-
 	return entity.ZohoOrder{
-		ContactName:        entity.ContactName{ID: contactID},
-		OrderedItems:       orderedItems,
-		Discount:           round2(discount),
-		DiscountP:          round0(discountP),
-		CouponTitle:        couponTitle,
-		CouponValue:        round2(couponValue),
+		ContactName:  entity.ContactName{ID: contactID},
+		OrderedItems: orderedItems,
+		// Order-level Discount/DiscountP are left at zero: the pre-tax coupon is encoded in
+		// the per-line discount, and the post-tax discount goes to Adjustment below. Zoho
+		// recomputes the grand total from the lines + VAT + Adjustment, so any value here
+		// would either be ignored or double-counted.
+		Discount:           0,
+		DiscountP:          0,
+		CouponTitle:        oc.CouponTitle,
+		CouponValue:        round2(couponAmount),
 		Description:        oc.Comment,
 		CustomerNo:         "",
 		ShippingState:      "",
 		Tax:                0,
 		VAT:                round0(oc.TaxRate()),
 		GrandTotal:         round2(oc.Total),
-		SubTotal:           round2(oc.Total - oc.TaxValue),
+		SubTotal:           round2(oc.SubTotal),
 		Currency:           oc.Currency,
 		BillingCountry:     oc.ClientDetails.Country,
 		Carrier:            "",
@@ -498,7 +517,10 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		SalesCommission:    0,
 		DueDate:            time.Now().Format("2006-01-02"),
 		BillingStreet:      oc.ClientDetails.Street,
-		Adjustment:         0,
+		// POST-tax discount (e.g. first-buy 10% of gross) as a negative adjustment applied
+		// after VAT, so Zoho's grand total matches OpenCart's instead of taxing the
+		// already-discounted base.
+		Adjustment:         -round2(postTaxDiscount),
 		TermsAndConditions: "Standard terms apply.",
 		BillingCode:        oc.ClientDetails.ZipCode,
 		ProductDetails:     nil,
