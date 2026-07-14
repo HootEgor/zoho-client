@@ -55,22 +55,31 @@ func TestBuildZohoOrder_DiscountModel(t *testing.T) {
 		wantLineTotal float64 // net line total Zoho receives
 	}{
 		{
-			name: "plain - no reductions",
+			name:     "plain - no reductions",
 			subTotal: 1000, taxValue: 230, total: 1230,
 			price: 100, qty: 10,
 			wantVAT: 23, wantAdjust: 0, wantSubTotal: 1000, wantCoupon: 0, wantLineTotal: 1000,
 		},
 		{
-			name: "post-tax discount (first-buy 10% of gross)",
+			name:     "post-tax discount (first-buy 10% of gross)",
 			subTotal: 1000, taxValue: 230, discount: 123, total: 1107,
 			price: 100, qty: 10,
 			wantVAT: 23, wantAdjust: -123, wantSubTotal: 1000, wantCoupon: 0, wantLineTotal: 1000,
 		},
 		{
-			name: "pre-tax coupon",
+			name:     "pre-tax coupon",
 			subTotal: 1000, taxValue: 207, coupon: -100, couponTitle: "SAVE", total: 1107,
 			price: 100, qty: 10,
 			wantVAT: 23, wantAdjust: 0, wantSubTotal: 1000, wantCoupon: 100, wantLineTotal: 900,
+		},
+		{
+			// OpenCart taxed the full subtotal (tax_value 230 = 1000*23%), so the coupon is
+			// applied after VAT and must go to Adjustment, leaving lines at list price.
+			// This is the order #16939 shape.
+			name:     "post-tax coupon (VAT on full subtotal)",
+			subTotal: 1000, taxValue: 230, coupon: -100, couponTitle: "SAVE", total: 1130,
+			price: 100, qty: 10,
+			wantVAT: 23, wantAdjust: -100, wantSubTotal: 1000, wantCoupon: 100, wantLineTotal: 1000,
 		},
 	}
 
@@ -88,7 +97,9 @@ func TestBuildZohoOrder_DiscountModel(t *testing.T) {
 				Total:         tt.total,
 				ClientDetails: minimalClient(),
 				LineItems: []*entity.LineItem{
-					{Name: "P", ZohoId: "Z1", Price: tt.price, Qty: tt.qty, Total: tt.price * tt.qty},
+					// Tax is the per-unit VAT at list price; CouponIsPreTax reads it to tell
+					// which side of VAT the coupon sits on.
+					{Name: "P", ZohoId: "Z1", Price: tt.price, Qty: tt.qty, Tax: tt.price * 0.23, Total: tt.price * tt.qty},
 				},
 			}
 
@@ -124,14 +135,14 @@ func TestBuildZohoOrder_DiscountModel(t *testing.T) {
 
 func TestBuildOrderedItem_DiscountCombination(t *testing.T) {
 	tests := []struct {
-		name        string
-		price       float64
-		master      float64
-		qty         float64
-		discountP   float64 // coupon percent
-		wantList    float64
-		wantDiscP   float64
-		wantNetTot  float64
+		name       string
+		price      float64
+		master     float64
+		qty        float64
+		discountP  float64 // coupon percent
+		wantList   float64
+		wantDiscP  float64
+		wantNetTot float64
 	}{
 		{"no discount", 100, 0, 1, 0, 100, 0, 100},
 		{"coupon only", 100, 0, 1, 10, 100, 10, 90},
@@ -188,6 +199,14 @@ func TestComputeReverseTotals(t *testing.T) {
 			grandTotal: 1107, coupon: "SAVE", taxRate: 0.23,
 			wantSub: 100000, wantTax: 20700, wantDisc: 0, wantCoupon: -10000, wantTotal: 110700,
 		},
+		{
+			// Lines arrive at full price (Total == Price*Qty) despite a coupon code: this is a
+			// post-tax coupon. VAT is on the full base and the coupon is the gross gap.
+			name:       "post-tax coupon reconstructed as negative order_total.coupon",
+			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 10, Total: 1000}},
+			grandTotal: 1130, coupon: "SAVE", taxRate: 0.23,
+			wantSub: 100000, wantTax: 23000, wantDisc: 0, wantCoupon: -10000, wantTotal: 113000,
+		},
 	}
 
 	core := newTestCore()
@@ -235,7 +254,8 @@ func TestForwardReverseRoundTrip(t *testing.T) {
 	}{
 		{name: "plain", subTotal: 1000, taxValue: 230, total: 1230, price: 100, qty: 10, wantDisc: 0, wantCoupon: 0},
 		{name: "post-tax discount", subTotal: 1000, taxValue: 230, discount: 123, total: 1107, price: 100, qty: 10, wantDisc: -12300, wantCoupon: 0},
-		{name: "coupon", subTotal: 1000, taxValue: 207, coupon: -100, couponTitle: "SAVE", total: 1107, price: 100, qty: 10, wantDisc: 0, wantCoupon: -10000},
+		{name: "pre-tax coupon", subTotal: 1000, taxValue: 207, coupon: -100, couponTitle: "SAVE", total: 1107, price: 100, qty: 10, wantDisc: 0, wantCoupon: -10000},
+		{name: "post-tax coupon", subTotal: 1000, taxValue: 230, coupon: -100, couponTitle: "SAVE", total: 1130, price: 100, qty: 10, wantDisc: 0, wantCoupon: -10000},
 	}
 
 	core := newTestCore()
@@ -247,7 +267,7 @@ func TestForwardReverseRoundTrip(t *testing.T) {
 				Coupon: tt.coupon, CouponTitle: tt.couponTitle, Total: tt.total,
 				ClientDetails: minimalClient(),
 				LineItems: []*entity.LineItem{
-					{Name: "P", ZohoId: "Z1", Price: tt.price, Qty: tt.qty, Total: tt.price * tt.qty},
+					{Name: "P", ZohoId: "Z1", Price: tt.price, Qty: tt.qty, Tax: tt.price * 0.23, Total: tt.price * tt.qty},
 				},
 			}
 

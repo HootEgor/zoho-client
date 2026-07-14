@@ -195,21 +195,25 @@ type reverseTotals struct {
 //
 // OpenCart carries two reductions that sit on opposite sides of VAT, and they are
 // reconstructed differently:
-//   - coupon   (couponCode != ""): PRE-tax. Lines arrive at list price; the coupon is a
-//     percentage of the subtotal, VAT is charged on the reduced base, and the coupon is
-//     stored as a negative order_total.coupon. sub_total + tax + coupon == total.
-//   - discount (couponCode == ""): POST-tax (e.g. first-buy 10% of gross). VAT is charged
-//     on the full line subtotal, then the discount comes off the gross total. It is the gap
-//     between (items + tax) and grand_total, stored as a negative order_total.discount. No
-//     meaningful gap means no discount, and any sub-cent remainder folds into tax so the
+// A coupon code alone does not decide the side: OpenCart has both pre- and post-tax coupons,
+// so the discriminator is whether the lines arrive discounted (pre-tax) or at full price
+// (post-tax), read from the per-line totals.
+//   - PRE-tax coupon (code present AND lines already discounted): the coupon is a percentage
+//     of the subtotal, VAT is charged on the reduced base, and it is stored as a negative
+//     order_total.coupon. sub_total + tax + coupon == total.
+//   - POST-tax reduction (no coupon, or a coupon whose lines are at full price): VAT is
+//     charged on the full line subtotal, then the reduction comes off the gross total. It is
+//     the gap between (items + tax) and grand_total, stored as a negative order_total.coupon
+//     when a coupon code is present, otherwise as a negative order_total.discount. No
+//     meaningful gap means no reduction, and any sub-cent remainder folds into tax so the
 //     rows stay exact.
 func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFloat float64, couponCode string, taxRate float64) reverseTotals {
 	hasCoupon := couponCode != ""
 
-	var discountPercent float64
-	if hasCoupon {
-		discountPercent = c.calculateDiscountPercent(items)
-	}
+	// A pre-tax coupon shows up as discounted line totals; a post-tax coupon (or a plain
+	// order) arrives at full price. calculateDiscountPercent is ~0 for full-price lines.
+	discountPercent := c.calculateDiscountPercent(items)
+	preTaxCoupon := hasCoupon && discountPercent > 0.0001
 
 	var itemsTotal, shippingTotal int64
 	products := make([]sql.OrderProductData, 0, len(items))
@@ -219,10 +223,10 @@ func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFlo
 			continue
 		}
 
-		// For coupon orders keep ListPrice (the reduction lives at order level). Otherwise
+		// For a pre-tax coupon keep ListPrice (the reduction lives at order level). Otherwise
 		// derive from Total/Quantity so any per-line special price is reflected.
 		var paidUnit float64
-		if hasCoupon || item.Quantity == 0 {
+		if preTaxCoupon || item.Quantity == 0 {
 			paidUnit = item.Price
 		} else {
 			paidUnit = item.Total / float64(item.Quantity)
@@ -245,17 +249,23 @@ func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFlo
 	grandTotal := int64(math.Round(grandTotalFloat * 100))
 
 	var taxTotal, discount, coupon int64
-	if hasCoupon {
+	if preTaxCoupon {
 		couponAmt := int64(math.Round(float64(itemsTotal) * discountPercent))
 		netBase := itemsTotal - couponAmt
 		taxTotal = grandTotal - netBase - shippingTotal
 		coupon = -couponAmt
 	} else {
+		// VAT on the full line subtotal; the reduction is the gap to the grand total. It is a
+		// post-tax coupon when a code is present, otherwise a post-tax discount.
 		expectedTax := int64(math.Round(float64(itemsTotal) * taxRate))
-		postTaxDiscount := itemsTotal + expectedTax + shippingTotal - grandTotal
-		if postTaxDiscount > 1 {
+		reduction := itemsTotal + expectedTax + shippingTotal - grandTotal
+		if reduction > 1 {
 			taxTotal = expectedTax
-			discount = -postTaxDiscount
+			if hasCoupon {
+				coupon = -reduction
+			} else {
+				discount = -reduction
+			}
 		} else {
 			taxTotal = grandTotal - itemsTotal - shippingTotal
 			discount = 0

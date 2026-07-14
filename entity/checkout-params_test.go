@@ -84,6 +84,61 @@ func TestTaxRate(t *testing.T) {
 	}
 }
 
+func TestCouponIsPreTax(t *testing.T) {
+	// A line whose per-unit tax is 23% of its price fixes the nominal VAT rate.
+	line := func(price float64) []*LineItem {
+		return []*LineItem{{Price: price, Tax: price * 0.23, Qty: 1, Total: price}}
+	}
+
+	tests := []struct {
+		name     string
+		subTotal float64
+		taxValue float64
+		coupon   float64
+		lines    []*LineItem
+		want     bool
+	}{
+		{name: "no coupon", subTotal: 1000, taxValue: 230, coupon: 0, lines: line(100), want: true},
+		{name: "pre-tax coupon (tax on reduced base)", subTotal: 1000, taxValue: 207, coupon: -100, lines: line(100), want: true},
+		{name: "post-tax coupon (tax on full base)", subTotal: 1000, taxValue: 230, coupon: -100, lines: line(100), want: false},
+		{name: "no usable line rate falls back to pre-tax", subTotal: 1000, taxValue: 230, coupon: -100, lines: []*LineItem{{Total: 1000}}, want: true},
+		{
+			// Real order #16939: tax_value 97.2357 == 422.764 * 23% -> full base -> post-tax.
+			name: "order 16939 post-tax coupon", subTotal: 422.764, taxValue: 97.2357, coupon: -42.2764,
+			lines: []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 1, Total: 52.8455}}, want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &CheckoutParams{SubTotal: tt.subTotal, TaxValue: tt.taxValue, Coupon: tt.coupon, LineItems: tt.lines}
+			if got := c.CouponIsPreTax(); got != tt.want {
+				t.Errorf("CouponIsPreTax() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TaxRate must use the full subtotal for a post-tax coupon and the reduced subtotal for a
+// pre-tax coupon, so the VAT% sent to Zoho matches how OpenCart charged it.
+func TestTaxRateWithCoupon(t *testing.T) {
+	postTax := &CheckoutParams{
+		SubTotal: 422.764, TaxValue: 97.2357, Coupon: -42.2764,
+		LineItems: []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 1, Total: 52.8455}},
+	}
+	if got := postTax.TaxRate(); got < 22.99 || got > 23.01 {
+		t.Errorf("post-tax coupon TaxRate() = %v, want ~23", got)
+	}
+
+	preTax := &CheckoutParams{
+		SubTotal: 1000, TaxValue: 207, Coupon: -100,
+		LineItems: []*LineItem{{Price: 100, Tax: 23, Qty: 10, Total: 1000}},
+	}
+	if got := preTax.TaxRate(); got < 22.99 || got > 23.01 {
+		t.Errorf("pre-tax coupon TaxRate() = %v, want ~23", got)
+	}
+}
+
 func TestDiscountPercent(t *testing.T) {
 	tests := []struct {
 		name            string
