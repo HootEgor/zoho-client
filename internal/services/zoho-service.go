@@ -550,37 +550,48 @@ func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string
 	return extractRecordID(item)
 }
 
-// UpdateOrder updates an existing Sales Order record by its Zoho record ID.
+// UpdateOrder updates an existing Sales Order record by its Zoho record ID, returning the
+// record's new Modified_Time so the caller can suppress the echo webhook this write triggers.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-specific-record.html
-func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) error {
+func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) (string, error) {
+	log := s.log.With(
+		slog.String("id", id),
+		slog.String("subject", orderData.Subject),
+		slog.Float64("vat", orderData.VAT),
+		slog.Float64("coupon", orderData.CouponValue),
+		slog.Float64("sub_total", orderData.SubTotal),
+		slog.Float64("total", orderData.GrandTotal),
+	)
+
 	payload := map[string]interface{}{
 		"data": []entity.ZohoOrder{orderData},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
+		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 
 	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders", id)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	item := apiResp.Data[0]
 
 	if item.Status != "success" {
-		return formatZohoError("order not updated", item)
+		err = formatZohoError("order not updated", item)
+		log.With(sl.Err(err)).Error("order not updated")
+		return "", err
 	}
 
-	recordID, err := extractRecordID(item)
+	details, err := extractRecordDetails(item)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	s.log.With(slog.String("id", recordID)).Debug("order updated successfully")
+	log.Debug("order updated successfully")
 
-	return nil
-
+	return details.ModifiedTime, nil
 }
 
 // doRequest executes an authenticated request against the Zoho CRM v8 REST API.

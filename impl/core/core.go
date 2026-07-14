@@ -59,7 +59,7 @@ type Zoho interface {
 	CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error)
 	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
 	AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error)
-	UpdateOrder(orderData entity.ZohoOrder, id string) error
+	UpdateOrder(orderData entity.ZohoOrder, id string) (modifiedTime string, err error)
 	CreatePayment(payment entity.ZohoPayment) (string, error)
 	UpdatePaymentStatus(id, status string) error
 }

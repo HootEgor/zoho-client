@@ -22,6 +22,10 @@ const (
 	// payment cannot be created in Zoho due to non-transient errors (e.g. the linked
 	// Sales Order was deleted), so the order is not retried forever.
 	paymentZohoIdError = "[ERR]"
+
+	// b2bZohoId is a sentinel written into oc_order.zoho_id for B2B orders, which are excluded
+	// from the Sales_Orders sync. It is not a real Zoho record id.
+	b2bZohoId = "[B2B]"
 )
 
 type Currency struct {
@@ -29,31 +33,42 @@ type Currency struct {
 	Rate float64
 }
 
-// PushOrderToZoho fetches an order by ID from the database and pushes it to Zoho CRM.
+// PushOrderToZoho fetches an order by ID from the database and pushes it to Zoho CRM. When the
+// order already carries a Zoho id, the existing Sales Order is UPDATED in place rather than a
+// second one created — re-pushing an order must not duplicate it or orphan its Zoho record.
 // Returns the Zoho order ID on success.
 func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 
-	_, order, err := c.repo.OrderSearchId(orderId)
+	existingZohoId, order, err := c.repo.OrderSearchId(orderId)
 	if err != nil {
 		return "", fmt.Errorf("order search: %w", err)
 	}
 
-	zohoId, err := c.processOrder(order, order.ClientDetails.IsB2B())
+	zohoId, err := c.processOrder(order, existingZohoId, order.ClientDetails.IsB2B())
 	if err != nil {
 		return "", err
 	}
 
-	err = c.repo.ChangeOrderZohoId(orderId, zohoId)
-	if err != nil {
-		return zohoId, fmt.Errorf("update zoho_id in database: %w", err)
+	// An update keeps the same id; only a create needs to be written back.
+	if zohoId != existingZohoId {
+		if err = c.repo.ChangeOrderZohoId(orderId, zohoId); err != nil {
+			return zohoId, fmt.Errorf("update zoho_id in database: %w", err)
+		}
 	}
 
 	return zohoId, nil
 }
 
-// processOrder handles the core order-to-Zoho flow: creates contact, validates products,
-// builds and creates the Zoho order with all items. Returns the Zoho order ID on success.
-func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, error) {
+// zohoOrderExists reports whether a stored zoho_id points at a real Zoho Sales Order rather than
+// a sentinel the sync writes in place of one ("[B2B]" marks an order deliberately not synced).
+func zohoOrderExists(zohoId string) bool {
+	return zohoId != "" && zohoId != b2bZohoId
+}
+
+// processOrder handles the core order-to-Zoho flow: creates contact, validates products, builds
+// the Zoho order with all items, then creates it — or, when existingZohoId already names a Zoho
+// Sales Order, updates that record in place. Returns the Zoho order ID on success.
+func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string, isB2B bool) (string, error) {
 	log := c.log.With(
 		slog.Int64("order_id", order.OrderId),
 		slog.String("currency", order.Currency),
@@ -102,6 +117,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 	zohoId := ""
 	zohoModifiedTime := ""
 	infoTag := "order created"
+	isUpdate := zohoOrderExists(existingZohoId)
 	if !isB2B {
 		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
 
@@ -113,9 +129,21 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 			zohoOrder.Subject += " !"
 		}
 
-		zohoId, zohoModifiedTime, err = c.zoho.CreateOrder(zohoOrder)
-		if err != nil {
-			return "", fmt.Errorf("create Zoho order: %w", err)
+		if isUpdate {
+			// Re-push of an order already in Zoho: overwrite the existing Sales Order. Creating a
+			// second one would duplicate the order and orphan the record the reverse webhook,
+			// the payment link and zoho_modified_time all point at.
+			zohoId = existingZohoId
+			zohoModifiedTime, err = c.zoho.UpdateOrder(zohoOrder, existingZohoId)
+			if err != nil {
+				return "", fmt.Errorf("update Zoho order: %w", err)
+			}
+			infoTag = "order updated"
+		} else {
+			zohoId, zohoModifiedTime, err = c.zoho.CreateOrder(zohoOrder)
+			if err != nil {
+				return "", fmt.Errorf("create Zoho order: %w", err)
+			}
 		}
 
 		//// Add remaining items in chunks
@@ -135,8 +163,11 @@ func (c *Core) processOrder(order *entity.CheckoutParams, isB2B bool) (string, e
 		//infoTag = "B2B order created"
 	}
 
-	// Create payment record in Zoho if payment data is available
-	if order.PaymentStatus != "" {
+	// Create payment record in Zoho if payment data is available. Only on a create: the payment
+	// is a separate Zoho record linked to this order, so doing it again on a re-push would add a
+	// second one for the same Stripe intent. An existing order's payment is kept in step by
+	// ProcessPendingPayments / ProcessPaymentUpdates instead.
+	if !isUpdate && order.PaymentStatus != "" {
 		c.createZohoPayment(order, zohoId)
 	}
 
@@ -176,11 +207,12 @@ func (c *Core) ProcessOrders() {
 
 		if order.ClientDetails.IsB2B() {
 			log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client")
-			_ = c.repo.ChangeOrderZohoId(order.OrderId, "[B2B]")
+			_ = c.repo.ChangeOrderZohoId(order.OrderId, b2bZohoId)
 			continue
 		}
 
-		zohoId, err := c.processOrder(order, order.ClientDetails.IsB2B())
+		// GetNewOrders only returns orders with an empty zoho_id, so these are always creates.
+		zohoId, err := c.processOrder(order, "", order.ClientDetails.IsB2B())
 		if err != nil {
 			log.With(sl.Err(err)).Error("process order failed")
 			continue
@@ -312,7 +344,7 @@ func (c *Core) ProcessPendingPayments() {
 		}
 		//records are selected from database by non-empty zohoId;
 		//"[B2B]" is a sentinel marking orders with no real Sales Order to link a payment to
-		if zohoId == "" || zohoId == "[B2B]" {
+		if !zohoOrderExists(zohoId) {
 			continue
 		}
 
