@@ -447,20 +447,29 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
 	// OpenCart carries two distinct reductions that sit on different sides of VAT, so they
 	// must reach Zoho through different fields or Zoho recomputes a wrong grand total:
-	//   - coupon   (order_total 'coupon')  : PRE-tax. It lowers the VAT base, so it is sent
-	//                                         as a per-line discount percentage (Zoho then
-	//                                         charges VAT on the reduced lines).
-	//   - discount (order_total 'discount'): POST-tax (e.g. first-buy 10% of gross). It does
-	//                                         not change VAT, so it is sent as a negative
-	//                                         order-level Adjustment applied after tax.
-	// Reading the two order_total rows directly (coupon is stored negative) keeps each on
-	// the correct side of VAT instead of blending them into one pre-tax percentage.
+	//   - order_total 'discount' : always POST-tax (e.g. first-buy 10% of gross). It does not
+	//                              change VAT, so it is sent as a negative order-level
+	//                              Adjustment applied after tax.
+	//   - order_total 'coupon'   : EITHER side of VAT. OpenCart coupons can be configured
+	//                              pre-tax (lowers the VAT base) or post-tax (comes off the
+	//                              gross total). CouponIsPreTax infers the side from the
+	//                              stored tax_value. A pre-tax coupon is sent as a per-line
+	//                              discount percentage (Zoho charges VAT on the reduced
+	//                              lines); a post-tax coupon joins the order-level Adjustment.
 	couponAmount := math.Abs(oc.Coupon)
 	postTaxDiscount := math.Abs(oc.Discount)
+	couponPreTax := oc.CouponIsPreTax()
 
 	var couponP float64
-	if oc.SubTotal > 0 {
+	if couponPreTax && oc.SubTotal > 0 {
 		couponP = round0(couponAmount / oc.SubTotal * 100)
+	}
+
+	// Post-tax reductions applied after VAT as a negative order-level Adjustment: always the
+	// order_total 'discount', plus the coupon when it is post-tax.
+	adjustment := postTaxDiscount
+	if !couponPreTax {
+		adjustment += couponAmount
 	}
 
 	lineItems := oc.LineItems
@@ -499,28 +508,28 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		// the per-line discount, and the post-tax discount goes to Adjustment below. Zoho
 		// recomputes the grand total from the lines + VAT + Adjustment, so any value here
 		// would either be ignored or double-counted.
-		Discount:           0,
-		DiscountP:          0,
-		CouponTitle:        oc.CouponTitle,
-		CouponValue:        round2(couponAmount),
-		Description:        oc.Comment,
-		CustomerNo:         "",
-		ShippingState:      "",
-		Tax:                0,
-		VAT:                round0(oc.TaxRate()),
-		GrandTotal:         round2(oc.Total),
-		SubTotal:           round2(oc.SubTotal),
-		Currency:           oc.Currency,
-		BillingCountry:     oc.ClientDetails.Country,
-		Carrier:            "",
-		Status:             "Нове",
-		SalesCommission:    0,
-		DueDate:            time.Now().Format("2006-01-02"),
-		BillingStreet:      oc.ClientDetails.Street,
-		// POST-tax discount (e.g. first-buy 10% of gross) as a negative adjustment applied
-		// after VAT, so Zoho's grand total matches OpenCart's instead of taxing the
-		// already-discounted base.
-		Adjustment:         -round2(postTaxDiscount),
+		Discount:        0,
+		DiscountP:       0,
+		CouponTitle:     oc.CouponTitle,
+		CouponValue:     round2(couponAmount),
+		Description:     oc.Comment,
+		CustomerNo:      "",
+		ShippingState:   "",
+		Tax:             0,
+		VAT:             round0(oc.TaxRate()),
+		GrandTotal:      round2(oc.Total),
+		SubTotal:        round2(oc.SubTotal),
+		Currency:        oc.Currency,
+		BillingCountry:  oc.ClientDetails.Country,
+		Carrier:         "",
+		Status:          "Нове",
+		SalesCommission: 0,
+		DueDate:         time.Now().Format("2006-01-02"),
+		BillingStreet:   oc.ClientDetails.Street,
+		// POST-tax reductions (the 'discount' row, plus a post-tax coupon) as a negative
+		// adjustment applied after VAT, so Zoho's grand total matches OpenCart's instead of
+		// taxing the already-discounted base.
+		Adjustment:         -round2(adjustment),
 		TermsAndConditions: "Standard terms apply.",
 		BillingCode:        oc.ClientDetails.ZipCode,
 		ProductDetails:     nil,

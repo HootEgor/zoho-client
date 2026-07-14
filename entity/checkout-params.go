@@ -3,6 +3,7 @@ package entity
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -77,7 +78,9 @@ func (c *CheckoutParams) Validate() error {
 	return nil
 }
 
-// TaxRate calculates the tax rate as a percentage based on the tax value and total amount. Returns 0 if not applicable.
+// TaxRate calculates the VAT rate as a percentage from the stored tax value and the taxable
+// base. The base depends on which side of VAT the coupon sits: a PRE-tax coupon lowered the
+// base (SubTotal - coupon), a POST-tax coupon did not (SubTotal). Returns 0 if not applicable.
 func (c *CheckoutParams) TaxRate() float64 {
 	if c.TaxValue == 0 {
 		return 0.0
@@ -86,11 +89,49 @@ func (c *CheckoutParams) TaxRate() float64 {
 	if c.Coupon > 0 {
 		c.Coupon = -c.Coupon
 	}
-	subTotal := c.SubTotal + c.Coupon
-	if subTotal <= 0 {
+	base := c.SubTotal
+	if c.CouponIsPreTax() {
+		base = c.SubTotal + c.Coupon // coupon is negative -> coupon-reduced base
+	}
+	if base <= 0 {
 		return 0.0
 	}
-	return c.TaxValue * 100 / subTotal
+	return c.TaxValue * 100 / base
+}
+
+// CouponIsPreTax reports whether the order's coupon reduced the VAT base (charged before tax)
+// rather than being applied to the gross total after tax. OpenCart coupons can be configured
+// either way (via the coupon total's sort_order relative to tax), and the two must reach Zoho
+// through different fields or Zoho recomputes a wrong grand total. The side is inferred from
+// the stored tax_value: a pre-tax coupon makes tax_value match the coupon-reduced subtotal,
+// a post-tax coupon makes it match the full subtotal. The nominal per-unit VAT rate is read
+// from a line item (its tax/price is unaffected by order-level reductions). With no coupon,
+// no tax, or no usable line rate it returns true, preserving the historical assumption.
+func (c *CheckoutParams) CouponIsPreTax() bool {
+	coupon := math.Abs(c.Coupon)
+	if coupon == 0 || c.TaxValue == 0 || c.SubTotal <= 0 {
+		return true
+	}
+	rate := c.nominalTaxRate()
+	if rate <= 0 {
+		return true
+	}
+	fullBaseTax := c.SubTotal * rate
+	reducedBaseTax := (c.SubTotal - coupon) * rate
+	return math.Abs(c.TaxValue-reducedBaseTax) <= math.Abs(c.TaxValue-fullBaseTax)
+}
+
+// nominalTaxRate returns the order's per-unit VAT rate as a decimal (e.g. 0.23), taken from
+// the first line item that carries both a price and a tax. OpenCart stores line tax per unit
+// at the item's own price, so tax/price is the catalogue VAT rate regardless of order-level
+// coupons or discounts. Returns 0 when no line carries usable values.
+func (c *CheckoutParams) nominalTaxRate() float64 {
+	for _, li := range c.LineItems {
+		if li != nil && li.Price > 0 && li.Tax > 0 {
+			return li.Tax / li.Price
+		}
+	}
+	return 0
 }
 
 // GetDiscount calculates the discount applied to the order.
