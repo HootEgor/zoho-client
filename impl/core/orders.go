@@ -391,12 +391,12 @@ func buildOrderedItem(lineItem *entity.LineItem, discountP float64) entity.Order
 		// Effective net unit = special price further reduced by the coupon percentage,
 		// expressed as a single discount off the catalogue (list) price.
 		netUnit := lineItem.Price * (1 - discountP/100)
-		lineDiscountP = round2((1 - netUnit/lineItem.MasterPrice) * 100)
+		lineDiscountP = round4((1 - netUnit/lineItem.MasterPrice) * 100)
 	}
 	// Net line total = quantity * list price * (1 - effective discount). With no discount
-	// this is the full line total. (Previously this field carried the discount AMOUNT,
-	// which is neither the line total nor a correct discount and broke the round trip.)
-	totalNet := round2(lineItem.Qty * listPrice * (1 - lineDiscountP/100))
+	// this is the full line total. Zoho recomputes this value from ListPrice and DiscountP
+	// rather than storing what we send, so it is kept at full precision to match.
+	totalNet := round4(lineItem.Qty * listPrice * (1 - lineDiscountP/100))
 	return entity.OrderedItem{
 		Product: entity.ZohoProduct{
 			ID: lineItem.ZohoId,
@@ -445,39 +445,50 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 // buildZohoOrder constructs a ZohoOrder from CheckoutParams. Returns the order and any
 // additional item chunks that exceed ChunkSize (100 items) for subsequent API calls.
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
-	// OpenCart carries two distinct reductions that sit on different sides of VAT, so they
-	// must reach Zoho through different fields or Zoho recomputes a wrong grand total:
-	//   - order_total 'discount' : always POST-tax (e.g. first-buy 10% of gross). It does not
-	//                              change VAT, so it is sent as a negative order-level
-	//                              Adjustment applied after tax.
-	//   - order_total 'coupon'   : EITHER side of VAT. OpenCart coupons can be configured
-	//                              pre-tax (lowers the VAT base) or post-tax (comes off the
-	//                              gross total). CouponIsPreTax infers the side from the
-	//                              stored tax_value. A pre-tax coupon is sent as a per-line
-	//                              discount percentage (Zoho charges VAT on the reduced
-	//                              lines); a post-tax coupon joins the order-level Adjustment.
+	// Every reduction OpenCart grants at the moment of sale (coupon + discount) lowers the VAT
+	// base, so all of them reach Zoho as a single PRE-tax per-line discount. Nothing is left to
+	// apply after tax, which is why the order-level Adjustment stays zero.
+	//
+	// Zoho derives its grand total as Sub_Total x (1 + VAT%), where Sub_Total is the sum of the
+	// line totals it recomputes itself as ListPrice x Quantity x (1 - DiscountP/100) — the Total
+	// we send is ignored. So DiscountP is the only lever on the order's net base. Pinning that
+	// base at Total/(1+rate) makes Zoho's grand total equal what the customer was actually
+	// charged, and the VAT Zoho records equal the VAT actually contained in that amount.
+	//
+	// DiscountP therefore needs real precision: it is rarely a whole percentage, and rounding it
+	// to an integer would move the VAT base by real money.
+	rate := oc.VatRate()
 	couponAmount := math.Abs(oc.Coupon)
-	postTaxDiscount := math.Abs(oc.Discount)
-	couponPreTax := oc.CouponIsPreTax()
 
-	var couponP float64
-	if couponPreTax && oc.SubTotal > 0 {
-		couponP = round0(couponAmount / oc.SubTotal * 100)
+	var discountP float64
+	if oc.SubTotal > 0 {
+		productNet := oc.Total/(1+rate) - oc.Shipping
+		discountP = round4((1 - productNet/oc.SubTotal) * 100)
+		if discountP < 0 {
+			discountP = 0
+		}
 	}
 
-	// Post-tax reductions applied after VAT as a negative order-level Adjustment: always the
-	// order_total 'discount', plus the coupon when it is post-tax.
-	adjustment := postTaxDiscount
-	if !couponPreTax {
-		adjustment += couponAmount
+	// Health check. On a correctly configured OpenCart, tax_value is the VAT contained in the
+	// total. Where it is not, the shop is still charging VAT on discounted amounts and the order
+	// we are about to sync is worth more than the customer paid for — see
+	// docs/OPENCART_VAT_BUG_RU.md. The order still syncs coherently (Zoho gets the amount
+	// actually charged, with the VAT that amount really contains), but say so loudly.
+	if lawful := oc.LawfulTax(); math.Abs(oc.TaxValue-lawful) > 0.01 {
+		c.log.With(
+			slog.Int64("order_id", oc.OrderId),
+			slog.Float64("tax_value", round2(oc.TaxValue)),
+			slog.Float64("lawful_tax", round2(lawful)),
+			slog.Float64("over_declared", round2(oc.TaxValue-lawful)),
+		).Warn("OpenCart tax_value does not match the VAT contained in the order total")
 	}
 
 	lineItems := oc.LineItems
 
-	// Build all ordered items at list price, carrying only the pre-tax coupon percentage.
+	// Build all ordered items at list price, carrying the whole pre-tax reduction.
 	allItems := make([]entity.OrderedItem, 0, len(lineItems))
 	for _, d := range lineItems {
-		allItems = append(allItems, buildOrderedItem(d, couponP))
+		allItems = append(allItems, buildOrderedItem(d, discountP))
 	}
 	// Add shipping as item without discount
 	if oc.Shipping > 0 {
@@ -504,10 +515,9 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	return entity.ZohoOrder{
 		ContactName:  entity.ContactName{ID: contactID},
 		OrderedItems: orderedItems,
-		// Order-level Discount/DiscountP are left at zero: the pre-tax coupon is encoded in
-		// the per-line discount, and the post-tax discount goes to Adjustment below. Zoho
-		// recomputes the grand total from the lines + VAT + Adjustment, so any value here
-		// would either be ignored or double-counted.
+		// Order-level Discount/DiscountP stay zero: the whole reduction is encoded in the
+		// per-line discount, and Zoho recomputes the grand total from the lines + VAT, so any
+		// value here would be either ignored or double-counted.
 		Discount:        0,
 		DiscountP:       0,
 		CouponTitle:     oc.CouponTitle,
@@ -516,7 +526,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		CustomerNo:      "",
 		ShippingState:   "",
 		Tax:             0,
-		VAT:             round0(oc.TaxRate()),
+		VAT:             round0(rate * 100),
 		GrandTotal:      round2(oc.Total),
 		SubTotal:        round2(oc.SubTotal),
 		Currency:        oc.Currency,
@@ -526,10 +536,10 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		SalesCommission: 0,
 		DueDate:         time.Now().Format("2006-01-02"),
 		BillingStreet:   oc.ClientDetails.Street,
-		// POST-tax reductions (the 'discount' row, plus a post-tax coupon) as a negative
-		// adjustment applied after VAT, so Zoho's grand total matches OpenCart's instead of
-		// taxing the already-discounted base.
-		Adjustment:         -round2(adjustment),
+		// Zero: every at-sale reduction lowers the VAT base and so already lives in the lines.
+		// Nothing is applied after tax. (Zoho's grand total ignores this field anyway — its
+		// formula is Sub_Total x (1 + VAT%).)
+		Adjustment:         0,
 		TermsAndConditions: "Standard terms apply.",
 		BillingCode:        oc.ClientDetails.ZipCode,
 		ProductDetails:     nil,

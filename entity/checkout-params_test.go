@@ -84,58 +84,72 @@ func TestTaxRate(t *testing.T) {
 	}
 }
 
-func TestCouponIsPreTax(t *testing.T) {
-	// A line whose per-unit tax is 23% of its price fixes the nominal VAT rate.
-	line := func(price float64) []*LineItem {
-		return []*LineItem{{Price: price, Tax: price * 0.23, Qty: 1, Total: price}}
+// The VAT rate must come off the line items, so an order-level reduction can never distort it.
+// Both of these are 23% orders; only the totals differ.
+func TestVatRateIgnoresReductions(t *testing.T) {
+	legacy := &CheckoutParams{ // order 16939 as OpenCart charged it (tax on the full subtotal)
+		SubTotal: 422.764, TaxValue: 97.2357, Coupon: -42.2764, Total: 477.7233,
+		LineItems: []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 8, Total: 422.764}},
 	}
+	fixed := &CheckoutParams{ // the same order once OpenCart reduces the taxable base
+		SubTotal: 422.764, TaxValue: 87.5121, Coupon: -42.2764, Total: 468.00,
+		LineItems: []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 8, Total: 422.764}},
+	}
+	for name, c := range map[string]*CheckoutParams{"legacy": legacy, "fixed": fixed} {
+		if got := c.TaxRate(); got < 22.99 || got > 23.01 {
+			t.Errorf("%s: TaxRate() = %v, want ~23", name, got)
+		}
+	}
+}
 
+// LawfulTax is the VAT contained in what the customer was actually charged. It must equal
+// order_total.tax on a correctly configured shop, and expose the gap where it is not.
+func TestLawfulTax(t *testing.T) {
 	tests := []struct {
-		name     string
-		subTotal float64
-		taxValue float64
-		coupon   float64
-		lines    []*LineItem
-		want     bool
+		name        string
+		total       float64
+		taxValue    float64
+		lines       []*LineItem
+		wantLawful  float64
+		wantHealthy bool
 	}{
-		{name: "no coupon", subTotal: 1000, taxValue: 230, coupon: 0, lines: line(100), want: true},
-		{name: "pre-tax coupon (tax on reduced base)", subTotal: 1000, taxValue: 207, coupon: -100, lines: line(100), want: true},
-		{name: "post-tax coupon (tax on full base)", subTotal: 1000, taxValue: 230, coupon: -100, lines: line(100), want: false},
-		{name: "no usable line rate falls back to pre-tax", subTotal: 1000, taxValue: 230, coupon: -100, lines: []*LineItem{{Total: 1000}}, want: true},
 		{
-			// Real order #16939: tax_value 97.2357 == 422.764 * 23% -> full base -> post-tax.
-			name: "order 16939 post-tax coupon", subTotal: 422.764, taxValue: 97.2357, coupon: -42.2764,
-			lines: []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 1, Total: 52.8455}}, want: false,
+			name: "no reductions - tax_value already lawful", total: 1230, taxValue: 230,
+			lines:      []*LineItem{{Price: 100, Tax: 23, Qty: 10, Total: 1000}},
+			wantLawful: 230, wantHealthy: true,
+		},
+		{
+			// Order 16939 as charged: 97.24 declared, but only 89.33 was collected as VAT.
+			name: "order 16939 - OpenCart over-declares", total: 477.7233, taxValue: 97.2357,
+			lines:      []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 8, Total: 422.764}},
+			wantLawful: 89.3304, wantHealthy: false,
+		},
+		{
+			// Order 16942 as charged: 100.29 zl of VAT declared but never collected.
+			name: "order 16942 - OpenCart over-declares", total: 2560.6872, taxValue: 579.1131,
+			lines:      []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 1, Total: 52.8455}},
+			wantLawful: 478.8277, wantHealthy: false,
+		},
+		{
+			// The same order once OpenCart reduces the taxable base: the gap closes.
+			name: "order 16942 after the OpenCart fix", total: 2508.5670, taxValue: 469.0816,
+			lines:      []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 1, Total: 52.8455}},
+			wantLawful: 469.0816, wantHealthy: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := &CheckoutParams{SubTotal: tt.subTotal, TaxValue: tt.taxValue, Coupon: tt.coupon, LineItems: tt.lines}
-			if got := c.CouponIsPreTax(); got != tt.want {
-				t.Errorf("CouponIsPreTax() = %v, want %v", got, tt.want)
+			c := &CheckoutParams{Total: tt.total, TaxValue: tt.taxValue, LineItems: tt.lines}
+			got := c.LawfulTax()
+			if diff := got - tt.wantLawful; diff > 0.01 || diff < -0.01 {
+				t.Errorf("LawfulTax() = %.4f, want %.4f", got, tt.wantLawful)
+			}
+			healthy := got-c.TaxValue < 0.01 && c.TaxValue-got < 0.01
+			if healthy != tt.wantHealthy {
+				t.Errorf("health check = %v, want %v (tax_value %.4f vs lawful %.4f)", healthy, tt.wantHealthy, c.TaxValue, got)
 			}
 		})
-	}
-}
-
-// TaxRate must use the full subtotal for a post-tax coupon and the reduced subtotal for a
-// pre-tax coupon, so the VAT% sent to Zoho matches how OpenCart charged it.
-func TestTaxRateWithCoupon(t *testing.T) {
-	postTax := &CheckoutParams{
-		SubTotal: 422.764, TaxValue: 97.2357, Coupon: -42.2764,
-		LineItems: []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 1, Total: 52.8455}},
-	}
-	if got := postTax.TaxRate(); got < 22.99 || got > 23.01 {
-		t.Errorf("post-tax coupon TaxRate() = %v, want ~23", got)
-	}
-
-	preTax := &CheckoutParams{
-		SubTotal: 1000, TaxValue: 207, Coupon: -100,
-		LineItems: []*LineItem{{Price: 100, Tax: 23, Qty: 10, Total: 1000}},
-	}
-	if got := preTax.TaxRate(); got < 22.99 || got > 23.01 {
-		t.Errorf("pre-tax coupon TaxRate() = %v, want ~23", got)
 	}
 }
 

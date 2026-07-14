@@ -1,31 +1,46 @@
 package core
 
 import (
+	"io"
+	"log/slog"
 	"math"
 	"testing"
 	"zohoclient/entity"
 )
 
-// r2 rounds to 2 decimals WITHOUT the sign-flipping that the production round2 helper
-// applies, so negative values (e.g. Adjustment) compare correctly in tests.
 func r2(v float64) float64 { return math.Round(v*100) / 100 }
 
 func approx(a, b, eps float64) bool { return math.Abs(a-b) <= eps }
 
-// zohoRecomputedGrand mimics how Zoho derives a Sales Order grand total: it sums the net
-// line totals, applies VAT% to that base, then adds the (negative) post-tax Adjustment.
+// zohoRecomputedGrand mimics how Zoho derives a Sales Order grand total:
+//
+//	line Total  = ListPrice x Quantity x (1 - DiscountP/100)   <- Zoho recomputes this itself;
+//	                                                              the Total we send is ignored
+//	Sub_Total   = sum(line Total)
+//	Grand_Total = Sub_Total x (1 + VAT/100)                    <- Adjustment is not in the formula
+//
 // This is the value that flows back to us on the reverse webhook.
 func zohoRecomputedGrand(o entity.ZohoOrder) float64 {
+	return r2(zohoNet(o) * (1 + o.VAT/100))
+}
+
+// zohoNet is Zoho's Sub_Total: the sum of the line totals it computes for itself.
+func zohoNet(o entity.ZohoOrder) float64 {
 	var net float64
 	for _, it := range o.OrderedItems {
-		net += it.Total
+		net += zohoLineTotal(it)
 	}
-	tax := r2(net * o.VAT / 100)
-	return r2(net + tax + o.Adjustment)
+	return net
+}
+
+// zohoLineTotal reproduces Zoho's own line-total calculation, ignoring OrderedItem.Total.
+func zohoLineTotal(it entity.OrderedItem) float64 {
+	return it.ListPrice * float64(it.Quantity) * (1 - it.DiscountP/100)
 }
 
 func newTestCore() *Core {
 	return &Core{
+		log:                slog.New(slog.NewTextHandler(io.Discard, nil)),
 		statuses:           map[int]string{1: "Нове"},
 		shippingItemZohoId: "SHIP",
 	}
@@ -35,99 +50,97 @@ func minimalClient() *entity.ClientDetails {
 	return &entity.ClientDetails{FirstName: "T", LastName: "U", Country: "Poland", ZipCode: "00-001"}
 }
 
-// ---- Forward: OpenCart -> Zoho (buildZohoOrder) ----
-
-func TestBuildZohoOrder_DiscountModel(t *testing.T) {
-	tests := []struct {
-		name          string
-		subTotal      float64
-		taxValue      float64
-		discount      float64 // order_total 'discount' (post-tax), positive
-		coupon        float64 // order_total 'coupon' (pre-tax), OpenCart-negative
-		couponTitle   string
-		total         float64
-		price         float64
-		qty           float64
-		wantVAT       float64
-		wantAdjust    float64
-		wantSubTotal  float64
-		wantCoupon    float64
-		wantLineTotal float64 // net line total Zoho receives
-	}{
-		{
-			name:     "plain - no reductions",
-			subTotal: 1000, taxValue: 230, total: 1230,
-			price: 100, qty: 10,
-			wantVAT: 23, wantAdjust: 0, wantSubTotal: 1000, wantCoupon: 0, wantLineTotal: 1000,
-		},
-		{
-			name:     "post-tax discount (first-buy 10% of gross)",
-			subTotal: 1000, taxValue: 230, discount: 123, total: 1107,
-			price: 100, qty: 10,
-			wantVAT: 23, wantAdjust: -123, wantSubTotal: 1000, wantCoupon: 0, wantLineTotal: 1000,
-		},
-		{
-			name:     "pre-tax coupon",
-			subTotal: 1000, taxValue: 207, coupon: -100, couponTitle: "SAVE", total: 1107,
-			price: 100, qty: 10,
-			wantVAT: 23, wantAdjust: 0, wantSubTotal: 1000, wantCoupon: 100, wantLineTotal: 900,
-		},
-		{
-			// OpenCart taxed the full subtotal (tax_value 230 = 1000*23%), so the coupon is
-			// applied after VAT and must go to Adjustment, leaving lines at list price.
-			// This is the order #16939 shape.
-			name:     "post-tax coupon (VAT on full subtotal)",
-			subTotal: 1000, taxValue: 230, coupon: -100, couponTitle: "SAVE", total: 1130,
-			price: 100, qty: 10,
-			wantVAT: 23, wantAdjust: -100, wantSubTotal: 1000, wantCoupon: 100, wantLineTotal: 1000,
+// ocOrder builds a stored OpenCart order. Tax on the line is the per-unit VAT at list price,
+// which is where VatRate reads the true 23% from.
+func ocOrder(subTotal, taxValue, discount, coupon float64, couponTitle string, total, price, qty float64) *entity.CheckoutParams {
+	return &entity.CheckoutParams{
+		OrderId: 1, Currency: "PLN",
+		SubTotal: subTotal, TaxValue: taxValue, Discount: discount,
+		Coupon: coupon, CouponTitle: couponTitle, Total: total,
+		ClientDetails: minimalClient(),
+		LineItems: []*entity.LineItem{
+			{Name: "P", ZohoId: "Z1", Price: price, Qty: qty, Tax: price * 0.23, Total: price * qty},
 		},
 	}
+}
 
+// reductionCase is one order shape driven through the whole channel.
+//
+// "fixed" cases are what OpenCart produces once discounts reduce the taxable base (the state we
+// are preparing for). "legacy" cases are what it produces today, charging VAT on discounted
+// amounts — they must still sync coherently, so the migration needs no flag day.
+var reductionCases = []struct {
+	name        string
+	subTotal    float64
+	taxValue    float64
+	discount    float64
+	coupon      float64
+	couponTitle string
+	total       float64
+	price       float64
+	qty         float64
+	wantDiscP   float64 // the single pre-tax line discount we send to Zoho
+	legacy      bool    // OpenCart charged VAT on the undiscounted subtotal
+}{
+	{name: "plain - no reductions", subTotal: 1000, taxValue: 230, total: 1230, price: 100, qty: 10, wantDiscP: 0},
+	{name: "coupon only", subTotal: 1000, taxValue: 207, coupon: -100, couponTitle: "SAVE", total: 1107, price: 100, qty: 10, wantDiscP: 10},
+	{name: "discount only", subTotal: 1000, taxValue: 207, discount: 100, total: 1107, price: 100, qty: 10, wantDiscP: 10},
+	{name: "coupon + discount", subTotal: 1000, taxValue: 186.3, coupon: -100, discount: 90, couponTitle: "SAVE", total: 996.3, price: 100, qty: 10, wantDiscP: 19},
+	{
+		// Order 16939 once OpenCart reduces the taxable base: a true 10% off 8 x 65.00 = 468.00.
+		name: "order 16939 (fixed)", subTotal: 422.764, taxValue: 87.5121, coupon: -42.2764,
+		couponTitle: "Kupon (dark-591B9EAB)", total: 468.00, price: 52.8455, qty: 8, wantDiscP: 10,
+	},
+	{
+		// Order 16942 once OpenCart reduces the taxable base: 10% promo then 10% volume.
+		name: "order 16942 (fixed)", subTotal: 2517.8832, taxValue: 469.0816, coupon: -251.7883, discount: 226.6095,
+		couponTitle: "Kupon (dark-68BE1A7D)", total: 2508.5670, price: 33.130042105263156, qty: 76, wantDiscP: 19,
+	},
+	{
+		// Order 16939 as OpenCart charges it TODAY (VAT on the undiscounted subtotal). Zoho must
+		// still receive the amount actually charged, 477.72, with the VAT that amount contains.
+		name: "order 16939 (legacy, OpenCart not yet fixed)", subTotal: 422.764, taxValue: 97.2357, coupon: -42.2764,
+		couponTitle: "Kupon (dark-591B9EAB)", total: 477.7233, price: 52.8455, qty: 8, wantDiscP: 8.1301, legacy: true,
+	},
+	{
+		// Order 16942 as charged today.
+		name: "order 16942 (legacy, OpenCart not yet fixed)", subTotal: 2517.8832, taxValue: 579.1131, coupon: -251.7883, discount: 284.5208,
+		couponTitle: "Kupon (dark-68BE1A7D)", total: 2560.6872, price: 33.130042105263156, qty: 76, wantDiscP: 17.3171, legacy: true,
+	},
+}
+
+// ---- Forward: OpenCart -> Zoho (buildZohoOrder) ----
+
+func TestBuildZohoOrder_ReductionModel(t *testing.T) {
 	core := newTestCore()
-	for _, tt := range tests {
+	for _, tt := range reductionCases {
 		t.Run(tt.name, func(t *testing.T) {
-			oc := &entity.CheckoutParams{
-				OrderId:       1,
-				Currency:      "PLN",
-				SubTotal:      tt.subTotal,
-				TaxValue:      tt.taxValue,
-				Discount:      tt.discount,
-				Coupon:        tt.coupon,
-				CouponTitle:   tt.couponTitle,
-				Total:         tt.total,
-				ClientDetails: minimalClient(),
-				LineItems: []*entity.LineItem{
-					// Tax is the per-unit VAT at list price; CouponIsPreTax reads it to tell
-					// which side of VAT the coupon sits on.
-					{Name: "P", ZohoId: "Z1", Price: tt.price, Qty: tt.qty, Tax: tt.price * 0.23, Total: tt.price * tt.qty},
-				},
-			}
-
+			oc := ocOrder(tt.subTotal, tt.taxValue, tt.discount, tt.coupon, tt.couponTitle, tt.total, tt.price, tt.qty)
 			zo, _ := core.buildZohoOrder(oc, "c1")
 
-			if zo.VAT != tt.wantVAT {
-				t.Errorf("VAT = %v, want %v", zo.VAT, tt.wantVAT)
+			if zo.VAT != 23 {
+				t.Errorf("VAT = %v, want 23", zo.VAT)
 			}
-			if !approx(zo.Adjustment, tt.wantAdjust, 0.001) {
-				t.Errorf("Adjustment = %v, want %v", zo.Adjustment, tt.wantAdjust)
-			}
-			if !approx(zo.SubTotal, tt.wantSubTotal, 0.001) {
-				t.Errorf("SubTotal = %v, want %v", zo.SubTotal, tt.wantSubTotal)
-			}
-			if !approx(zo.CouponValue, tt.wantCoupon, 0.001) {
-				t.Errorf("CouponValue = %v, want %v", zo.CouponValue, tt.wantCoupon)
+			// Nothing is applied after tax any more.
+			if zo.Adjustment != 0 {
+				t.Errorf("Adjustment = %v, want 0 (every reduction is pre-tax and lives in the lines)", zo.Adjustment)
 			}
 			if zo.Discount != 0 || zo.DiscountP != 0 {
 				t.Errorf("order-level Discount/DiscountP must be 0, got %v/%v", zo.Discount, zo.DiscountP)
 			}
-			if len(zo.OrderedItems) != 1 || !approx(zo.OrderedItems[0].Total, tt.wantLineTotal, 0.001) {
-				t.Errorf("line net total = %v, want %v", zo.OrderedItems[0].Total, tt.wantLineTotal)
+			if got := zo.OrderedItems[0].DiscountP; !approx(got, tt.wantDiscP, 0.001) {
+				t.Errorf("line DiscountP = %v, want %v", got, tt.wantDiscP)
 			}
 
-			// The key invariant: Zoho's recomputed grand total must equal OpenCart's total,
-			// i.e. no drift introduced by how the discount is modeled.
-			if got := zohoRecomputedGrand(zo); !approx(got, tt.total, 0.001) {
-				t.Errorf("Zoho recomputed grand = %v, want OpenCart total %v (drift %v)", got, tt.total, got-tt.total)
+			// The two invariants that matter:
+			// 1. Zoho's grand total is what the customer was actually charged.
+			if grand := zohoRecomputedGrand(zo); !approx(grand, tt.total, 0.01) {
+				t.Errorf("Zoho grand total = %.4f, want OpenCart total %.4f (drift %.4f)", grand, tt.total, grand-tt.total)
+			}
+			// 2. The VAT Zoho records is the VAT actually contained in that amount.
+			zohoVat := zohoNet(zo) * zo.VAT / 100
+			if lawful := oc.LawfulTax(); !approx(zohoVat, lawful, 0.01) {
+				t.Errorf("Zoho VAT = %.4f, want lawful VAT %.4f", zohoVat, lawful)
 			}
 		})
 	}
@@ -139,15 +152,15 @@ func TestBuildOrderedItem_DiscountCombination(t *testing.T) {
 		price      float64
 		master     float64
 		qty        float64
-		discountP  float64 // coupon percent
+		discountP  float64
 		wantList   float64
 		wantDiscP  float64
 		wantNetTot float64
 	}{
 		{"no discount", 100, 0, 1, 0, 100, 0, 100},
-		{"coupon only", 100, 0, 1, 10, 100, 10, 90},
+		{"order reduction only", 100, 0, 1, 10, 100, 10, 90},
 		{"special price only", 80, 100, 1, 0, 100, 20, 80},
-		{"special + coupon", 80, 100, 1, 10, 100, 28, 72},
+		{"special price + order reduction", 80, 100, 1, 10, 100, 28, 72},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -173,8 +186,7 @@ func TestComputeReverseTotals(t *testing.T) {
 		name       string
 		items      []entity.ApiOrderedItem
 		grandTotal float64
-		coupon     string
-		taxRate    float64
+		oc         *entity.CheckoutParams
 		wantSub    int64
 		wantTax    int64
 		wantDisc   int64
@@ -184,35 +196,47 @@ func TestComputeReverseTotals(t *testing.T) {
 		{
 			name:       "plain - no reductions",
 			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 10, Total: 1000}},
-			grandTotal: 1230, coupon: "", taxRate: 0.23,
-			wantSub: 100000, wantTax: 23000, wantDisc: 0, wantCoupon: 0, wantTotal: 123000,
+			grandTotal: 1230,
+			oc:         ocOrder(1000, 230, 0, 0, "", 1230, 100, 10),
+			wantSub:    100000, wantTax: 23000, wantDisc: 0, wantCoupon: 0, wantTotal: 123000,
 		},
 		{
-			name:       "post-tax discount reconstructed as negative order_total.discount",
-			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 10, Total: 1000}},
-			grandTotal: 1107, coupon: "", taxRate: 0.23,
-			wantSub: 100000, wantTax: 23000, wantDisc: -12300, wantCoupon: 0, wantTotal: 110700,
-		},
-		{
-			name:       "pre-tax coupon reconstructed as negative order_total.coupon",
+			name:       "coupon reconstructed as negative order_total.coupon",
 			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 10, Total: 900}},
-			grandTotal: 1107, coupon: "SAVE", taxRate: 0.23,
-			wantSub: 100000, wantTax: 20700, wantDisc: 0, wantCoupon: -10000, wantTotal: 110700,
+			grandTotal: 1107,
+			oc:         ocOrder(1000, 207, 0, -100, "SAVE", 1107, 100, 10),
+			wantSub:    100000, wantTax: 20700, wantDisc: 0, wantCoupon: -10000, wantTotal: 110700,
 		},
 		{
-			// Lines arrive at full price (Total == Price*Qty) despite a coupon code: this is a
-			// post-tax coupon. VAT is on the full base and the coupon is the gross gap.
-			name:       "post-tax coupon reconstructed as negative order_total.coupon",
-			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 10, Total: 1000}},
-			grandTotal: 1130, coupon: "SAVE", taxRate: 0.23,
-			wantSub: 100000, wantTax: 23000, wantDisc: 0, wantCoupon: -10000, wantTotal: 113000,
+			name:       "discount reconstructed as negative order_total.discount",
+			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 10, Total: 900}},
+			grandTotal: 1107,
+			oc:         ocOrder(1000, 207, 100, 0, "", 1107, 100, 10),
+			wantSub:    100000, wantTax: 20700, wantDisc: -10000, wantCoupon: 0, wantTotal: 110700,
+		},
+		{
+			// The lines blend coupon and discount into one figure; the split comes from the
+			// stored order's proportion (100 : 90).
+			name:       "coupon + discount split by stored proportion",
+			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 10, Total: 810}},
+			grandTotal: 996.3,
+			oc:         ocOrder(1000, 186.3, 90, -100, "SAVE", 996.3, 100, 10),
+			wantSub:    100000, wantTax: 18630, wantDisc: -9000, wantCoupon: -10000, wantTotal: 99630,
+		},
+		{
+			// A manager raised the quantity in Zoho: totals recompute, the reduction rescales.
+			name:       "manager raised quantity - totals recomputed",
+			items:      []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 100, Quantity: 12, Total: 1080}},
+			grandTotal: 1328.4,
+			oc:         ocOrder(1000, 207, 0, -100, "SAVE", 1107, 100, 10),
+			wantSub:    120000, wantTax: 24840, wantDisc: 0, wantCoupon: -12000, wantTotal: 132840,
 		},
 	}
 
 	core := newTestCore()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := core.computeReverseTotals(tt.items, tt.grandTotal, tt.coupon, tt.taxRate)
+			got := core.computeReverseTotals(tt.items, tt.grandTotal, tt.oc)
 			if got.ItemsTotal != tt.wantSub {
 				t.Errorf("ItemsTotal = %d, want %d", got.ItemsTotal, tt.wantSub)
 			}
@@ -236,71 +260,84 @@ func TestComputeReverseTotals(t *testing.T) {
 	}
 }
 
-// ---- Round trip: OpenCart -> Zoho -> OpenCart preserves the discount and the total ----
+// ---- Round trip: OpenCart -> Zoho -> OpenCart ----
 
-func TestForwardReverseRoundTrip(t *testing.T) {
-	tests := []struct {
-		name        string
-		subTotal    float64
-		taxValue    float64
-		discount    float64
-		coupon      float64
-		couponTitle string
-		total       float64
-		price       float64
-		qty         float64
-		wantDisc    int64 // expected reconstructed order_total.discount (negative)
-		wantCoupon  int64 // expected reconstructed order_total.coupon (negative)
-	}{
-		{name: "plain", subTotal: 1000, taxValue: 230, total: 1230, price: 100, qty: 10, wantDisc: 0, wantCoupon: 0},
-		{name: "post-tax discount", subTotal: 1000, taxValue: 230, discount: 123, total: 1107, price: 100, qty: 10, wantDisc: -12300, wantCoupon: 0},
-		{name: "pre-tax coupon", subTotal: 1000, taxValue: 207, coupon: -100, couponTitle: "SAVE", total: 1107, price: 100, qty: 10, wantDisc: 0, wantCoupon: -10000},
-		{name: "post-tax coupon", subTotal: 1000, taxValue: 230, coupon: -100, couponTitle: "SAVE", total: 1130, price: 100, qty: 10, wantDisc: 0, wantCoupon: -10000},
+// reversePayload maps a built Zoho order back to the webhook shape Zoho sends us, using the line
+// totals Zoho computes for itself rather than the ones we sent.
+func reversePayload(zo entity.ZohoOrder) []entity.ApiOrderedItem {
+	items := make([]entity.ApiOrderedItem, 0, len(zo.OrderedItems))
+	for _, it := range zo.OrderedItems {
+		items = append(items, entity.ApiOrderedItem{
+			ZohoID:   it.Product.ID,
+			Price:    it.ListPrice,
+			Quantity: int(it.Quantity),
+			Total:    zohoLineTotal(it),
+		})
 	}
+	return items
+}
 
+// The common case by far: Zoho pings a status change and the subform is untouched. UpdateOrder
+// must recognise that and leave items and totals alone — otherwise every status ping restates
+// the order, which is how order 16942's volume discount got wiped.
+func TestStatusOnlyWebhookLeavesTotalsAlone(t *testing.T) {
 	core := newTestCore()
-	for _, tt := range tests {
+	for _, tt := range reductionCases {
 		t.Run(tt.name, func(t *testing.T) {
-			oc := &entity.CheckoutParams{
-				OrderId: 1, Currency: "PLN",
-				SubTotal: tt.subTotal, TaxValue: tt.taxValue, Discount: tt.discount,
-				Coupon: tt.coupon, CouponTitle: tt.couponTitle, Total: tt.total,
-				ClientDetails: minimalClient(),
-				LineItems: []*entity.LineItem{
-					{Name: "P", ZohoId: "Z1", Price: tt.price, Qty: tt.qty, Tax: tt.price * 0.23, Total: tt.price * tt.qty},
-				},
-			}
-
-			// Forward, then take the VAT rate the way the order's stored totals express it.
-			taxRate := oc.TaxRate() / 100
+			oc := ocOrder(tt.subTotal, tt.taxValue, tt.discount, tt.coupon, tt.couponTitle, tt.total, tt.price, tt.qty)
 			zo, _ := core.buildZohoOrder(oc, "c1")
 
-			// Simulate Zoho recompute + the middleware mapping back to a reverse payload.
+			if !itemsUnchanged(reversePayload(zo), oc, core.shippingItemZohoId) {
+				t.Error("subform round-tripped unchanged but itemsUnchanged() said otherwise; " +
+					"a status-only webhook would rewrite this order's totals")
+			}
+		})
+	}
+}
+
+// When a manager really does edit the subform, the totals are recomputed. On a healthy order
+// that reproduces the stored rows; on a legacy one it normalises the order to the VAT actually
+// contained in the price — which is unavoidable, since an inconsistent order cannot survive an
+// edit unchanged.
+func TestForwardReverseRoundTrip(t *testing.T) {
+	core := newTestCore()
+	for _, tt := range reductionCases {
+		t.Run(tt.name, func(t *testing.T) {
+			oc := ocOrder(tt.subTotal, tt.taxValue, tt.discount, tt.coupon, tt.couponTitle, tt.total, tt.price, tt.qty)
+
+			zo, _ := core.buildZohoOrder(oc, "c1")
 			grand := zohoRecomputedGrand(zo)
-			reverseItems := make([]entity.ApiOrderedItem, 0, len(zo.OrderedItems))
-			for _, it := range zo.OrderedItems {
-				reverseItems = append(reverseItems, entity.ApiOrderedItem{
-					ZohoID:   it.Product.ID,
-					Price:    it.ListPrice,
-					Quantity: int(it.Quantity),
-					Total:    it.Total,
-				})
-			}
+			got := core.computeReverseTotals(reversePayload(zo), grand, oc)
 
-			got := core.computeReverseTotals(reverseItems, grand, zo.CouponTitle, taxRate)
-
-			if got.Discount != tt.wantDisc {
-				t.Errorf("round-trip Discount = %d, want %d", got.Discount, tt.wantDisc)
-			}
-			if got.Coupon != tt.wantCoupon {
-				t.Errorf("round-trip Coupon = %d, want %d", got.Coupon, tt.wantCoupon)
-			}
-			// Total must come back within a cent of the original OpenCart total.
+			// Always: the customer is charged exactly what they were charged before...
 			if !approx(float64(got.Total)/100, tt.total, 0.01) {
-				t.Errorf("round-trip total = %.2f, want %.2f (drift %.2f)", float64(got.Total)/100, tt.total, float64(got.Total)/100-tt.total)
+				t.Errorf("round-trip total = %.2f, want %.2f (drift %.2f)",
+					float64(got.Total)/100, tt.total, float64(got.Total)/100-tt.total)
 			}
+			// ...the tax row is the VAT that amount really contains...
+			if !approx(float64(got.Tax)/100, oc.LawfulTax(), 0.01) {
+				t.Errorf("round-trip tax = %.2f, want lawful VAT %.2f", float64(got.Tax)/100, oc.LawfulTax())
+			}
+			// ...and the rows reconcile, exactly.
 			if sum := got.ItemsTotal + got.Tax + got.Discount + got.Coupon + got.Shipping; sum != got.Total {
 				t.Errorf("rows sum %d != total %d", sum, got.Total)
+			}
+
+			if tt.legacy {
+				// The reductions are restated to their net equivalents (the post-tax portion is
+				// grossed down by 1+rate). The total is untouched, so the customer is unaffected.
+				return
+			}
+
+			// On a healthy order the reductions come back intact. They can land a grosz off:
+			// OpenCart keeps 4 decimals while order_total rows are integer cents, and the rows
+			// are derived so they sum to the total exactly — a sub-cent remainder must settle
+			// somewhere.
+			if !approx(float64(got.Coupon)/100, -math.Abs(tt.coupon), 0.011) {
+				t.Errorf("round-trip coupon = %.2f, want %.2f", float64(got.Coupon)/100, -math.Abs(tt.coupon))
+			}
+			if !approx(float64(got.Discount)/100, -math.Abs(tt.discount), 0.011) {
+				t.Errorf("round-trip discount = %.2f, want %.2f", float64(got.Discount)/100, -math.Abs(tt.discount))
 			}
 		})
 	}

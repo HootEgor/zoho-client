@@ -3,7 +3,6 @@ package entity
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -78,47 +77,38 @@ func (c *CheckoutParams) Validate() error {
 	return nil
 }
 
-// TaxRate calculates the VAT rate as a percentage from the stored tax value and the taxable
-// base. The base depends on which side of VAT the coupon sits: a PRE-tax coupon lowered the
-// base (SubTotal - coupon), a POST-tax coupon did not (SubTotal). Returns 0 if not applicable.
+// TaxRate returns the order's VAT rate as a percentage (e.g. 23.0). Returns 0 if not applicable.
 func (c *CheckoutParams) TaxRate() float64 {
-	if c.TaxValue == 0 {
-		return 0.0
-	}
-	// coupon value is stored as negative !!
-	if c.Coupon > 0 {
-		c.Coupon = -c.Coupon
-	}
-	base := c.SubTotal
-	if c.CouponIsPreTax() {
-		base = c.SubTotal + c.Coupon // coupon is negative -> coupon-reduced base
-	}
-	if base <= 0 {
-		return 0.0
-	}
-	return c.TaxValue * 100 / base
+	return c.VatRate() * 100
 }
 
-// CouponIsPreTax reports whether the order's coupon reduced the VAT base (charged before tax)
-// rather than being applied to the gross total after tax. OpenCart coupons can be configured
-// either way (via the coupon total's sort_order relative to tax), and the two must reach Zoho
-// through different fields or Zoho recomputes a wrong grand total. The side is inferred from
-// the stored tax_value: a pre-tax coupon makes tax_value match the coupon-reduced subtotal,
-// a post-tax coupon makes it match the full subtotal. The nominal per-unit VAT rate is read
-// from a line item (its tax/price is unaffected by order-level reductions). With no coupon,
-// no tax, or no usable line rate it returns true, preserving the historical assumption.
-func (c *CheckoutParams) CouponIsPreTax() bool {
-	coupon := math.Abs(c.Coupon)
-	if coupon == 0 || c.TaxValue == 0 || c.SubTotal <= 0 {
-		return true
+// VatRate returns the order's VAT rate as a decimal (e.g. 0.23). It is taken from the per-unit
+// rate carried on a line item (its tax/price is the catalogue rate, unaffected by shipping or
+// by any order-level reduction). Only when no line carries a usable rate does it fall back to
+// the rate implied by tax_value over sub_total.
+func (c *CheckoutParams) VatRate() float64 {
+	if r := c.nominalTaxRate(); r > 0 {
+		return r
 	}
-	rate := c.nominalTaxRate()
-	if rate <= 0 {
-		return true
+	if c.TaxValue > 0 && c.SubTotal > 0 {
+		return c.TaxValue / c.SubTotal
 	}
-	fullBaseTax := c.SubTotal * rate
-	reducedBaseTax := (c.SubTotal - coupon) * rate
-	return math.Abs(c.TaxValue-reducedBaseTax) <= math.Abs(c.TaxValue-fullBaseTax)
+	return 0
+}
+
+// LawfulTax returns the VAT actually contained in the amount the customer was charged,
+// Total x rate / (1 + rate).
+//
+// A discount granted at the moment of sale is excluded from the taxable base (ustawa o VAT,
+// art. 29a ust. 7 pkt 2), so on a correctly configured shop order_total.tax must equal this.
+// Where it does not, the shop is declaring VAT on money the customer never paid — see
+// docs/OPENCART_VAT_BUG_RU.md. Callers use the gap as a health check, not to alter the totals.
+func (c *CheckoutParams) LawfulTax() float64 {
+	r := c.VatRate()
+	if r <= 0 {
+		return 0
+	}
+	return c.Total * r / (1 + r)
 }
 
 // nominalTaxRate returns the order's per-unit VAT rate as a decimal (e.g. 0.23), taken from
