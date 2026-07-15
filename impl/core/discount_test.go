@@ -133,6 +133,16 @@ func TestBuildZohoOrder_ReductionModel(t *testing.T) {
 			}
 			assertDiscountPWireFormat(t, zo)
 
+			// The health check flags legacy orders (VAT declared on undiscounted amounts) with
+			// a positive gap, and must stay silent on healthy ones.
+			gap := taxHealthGap(oc)
+			if tt.legacy && gap <= 0.01 {
+				t.Errorf("taxHealthGap = %.4f, want > 0.01 for a legacy order", gap)
+			}
+			if !tt.legacy && math.Abs(gap) > 0.01 {
+				t.Errorf("taxHealthGap = %.4f, want ~0 for a healthy order", gap)
+			}
+
 			// The two invariants that matter:
 			// 1. Zoho's grand total is what the customer was actually charged.
 			if grand := zohoRecomputedGrand(zo); !approx(grand, tt.total, 0.01) {
@@ -178,6 +188,10 @@ func TestBuildZohoOrder_UntaxedShipping_Order16953(t *testing.T) {
 	zo, _ := core.buildZohoOrder(oc, "c1")
 	assertDiscountPWireFormat(t, zo)
 
+	// Untaxed shipping is how this shop is configured, not the VAT bug — no warning.
+	if gap := taxHealthGap(oc); math.Abs(gap) > 0.01 {
+		t.Errorf("taxHealthGap = %.4f, want ~0: untaxed shipping must not trigger the tax warning", gap)
+	}
 	if got := zo.OrderedItems[0].DiscountP; !approx(got, 2.65, 0.001) {
 		t.Errorf("line DiscountP = %v, want 2.65", got)
 	}

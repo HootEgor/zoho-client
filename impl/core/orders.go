@@ -477,6 +477,19 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 	return good
 }
 
+// taxHealthGap returns the signed difference between the VAT OpenCart declared (tax_value) and
+// the VAT actually contained in the taxed portion of what the customer was charged. OpenCart
+// does not tax shipping, so that portion is Total - Shipping. A positive gap means the shop
+// declared VAT on money the customer never paid (VAT charged on undiscounted amounts, the
+// docs/OPENCART_VAT_BUG_RU.md case); ~0 means the order is healthy.
+func taxHealthGap(oc *entity.CheckoutParams) float64 {
+	rate := oc.VatRate()
+	if rate <= 0 {
+		return 0
+	}
+	return oc.TaxValue - (oc.Total-oc.Shipping)*rate/(1+rate)
+}
+
 // buildZohoOrder constructs a ZohoOrder from CheckoutParams. Returns the order and any
 // additional item chunks that exceed ChunkSize (100 items) for subsequent API calls.
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
@@ -505,18 +518,17 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		}
 	}
 
-	// Health check. On a correctly configured OpenCart, tax_value is the VAT contained in the
-	// total. Where it is not, the shop is still charging VAT on discounted amounts and the order
-	// we are about to sync is worth more than the customer paid for — see
-	// docs/OPENCART_VAT_BUG_RU.md. The order still syncs coherently (Zoho gets the amount
-	// actually charged, with the VAT that amount really contains), but say so loudly.
-	if lawful := oc.LawfulTax(); math.Abs(oc.TaxValue-lawful) > 0.01 {
+	// Health check. Where tax_value is over-declared, the shop is still charging VAT on
+	// discounted amounts and the order we are about to sync is worth more than the customer
+	// paid for — see docs/OPENCART_VAT_BUG_RU.md. The order still syncs coherently (Zoho gets
+	// the amount actually charged, with the VAT that amount really contains), but say so loudly.
+	if gap := taxHealthGap(oc); math.Abs(gap) > 0.01 {
 		c.log.With(
 			slog.Int64("order_id", oc.OrderId),
 			slog.Float64("tax_value", round2(oc.TaxValue)),
-			slog.Float64("lawful_tax", round2(lawful)),
-			slog.Float64("over_declared", round2(oc.TaxValue-lawful)),
-		).Warn("OpenCart tax_value does not match the VAT contained in the order total")
+			slog.Float64("lawful_tax", round2(oc.TaxValue-gap)),
+			slog.Float64("over_declared", math.Round(gap*100)/100),
+		).Warn("OpenCart tax_value does not match the VAT contained in the taxed portion of the order total")
 	}
 
 	lineItems := oc.LineItems
