@@ -100,12 +100,12 @@ var reductionCases = []struct {
 		// Order 16939 as OpenCart charges it TODAY (VAT on the undiscounted subtotal). Zoho must
 		// still receive the amount actually charged, 477.72, with the VAT that amount contains.
 		name: "order 16939 (legacy, OpenCart not yet fixed)", subTotal: 422.764, taxValue: 97.2357, coupon: -42.2764,
-		couponTitle: "Kupon (dark-591B9EAB)", total: 477.7233, price: 52.8455, qty: 8, wantDiscP: 8.1301, legacy: true,
+		couponTitle: "Kupon (dark-591B9EAB)", total: 477.7233, price: 52.8455, qty: 8, wantDiscP: 8.13, legacy: true,
 	},
 	{
 		// Order 16942 as charged today.
 		name: "order 16942 (legacy, OpenCart not yet fixed)", subTotal: 2517.8832, taxValue: 579.1131, coupon: -251.7883, discount: 284.5208,
-		couponTitle: "Kupon (dark-68BE1A7D)", total: 2560.6872, price: 33.130042105263156, qty: 76, wantDiscP: 17.3171, legacy: true,
+		couponTitle: "Kupon (dark-68BE1A7D)", total: 2560.6872, price: 33.130042105263156, qty: 76, wantDiscP: 17.32, legacy: true,
 	},
 }
 
@@ -131,6 +131,7 @@ func TestBuildZohoOrder_ReductionModel(t *testing.T) {
 			if got := zo.OrderedItems[0].DiscountP; !approx(got, tt.wantDiscP, 0.001) {
 				t.Errorf("line DiscountP = %v, want %v", got, tt.wantDiscP)
 			}
+			assertDiscountPWireFormat(t, zo)
 
 			// The two invariants that matter:
 			// 1. Zoho's grand total is what the customer was actually charged.
@@ -143,6 +144,45 @@ func TestBuildZohoOrder_ReductionModel(t *testing.T) {
 				t.Errorf("Zoho VAT = %.4f, want lawful VAT %.4f", zohoVat, lawful)
 			}
 		})
+	}
+}
+
+// assertDiscountPWireFormat checks that every line DiscountP fits Zoho's Percent field, which
+// rejects values with more than 2 decimal places (INVALID_DATA on Ordered_Items[n].DiscountP).
+func assertDiscountPWireFormat(t *testing.T, zo entity.ZohoOrder) {
+	t.Helper()
+	for i, it := range zo.OrderedItems {
+		if !approx(it.DiscountP, r2(it.DiscountP), 1e-9) {
+			t.Errorf("Ordered_Items[%d].DiscountP = %v has more than 2 decimal places; Zoho rejects it", i, it.DiscountP)
+		}
+	}
+}
+
+// Order 16953: no reductions at all, but OpenCart does not tax shipping while the Zoho model
+// taxes every line — squeezing the shipping VAT out of the product lines yields a fractional
+// phantom discount (2.6521%). Zoho's Percent field takes at most 2 decimals, so the sent
+// DiscountP must be 2.65 with the residual folded into ListPrice, keeping the grand total at
+// what the customer was charged.
+func TestBuildZohoOrder_UntaxedShipping_Order16953(t *testing.T) {
+	core := newTestCore()
+	oc := &entity.CheckoutParams{
+		OrderId: 16953, Currency: "PLN",
+		SubTotal: 105.691, TaxValue: 24.3089, Shipping: 14.99, Total: 144.9899,
+		ClientDetails: minimalClient(),
+		LineItems: []*entity.LineItem{
+			{Name: "P1", ZohoId: "Z1", Price: 52.8455, Qty: 1, Tax: 12.1545, Total: 52.8455},
+			{Name: "P2", ZohoId: "Z2", Price: 52.8455, Qty: 1, Tax: 12.1545, Total: 52.8455},
+		},
+	}
+
+	zo, _ := core.buildZohoOrder(oc, "c1")
+	assertDiscountPWireFormat(t, zo)
+
+	if got := zo.OrderedItems[0].DiscountP; !approx(got, 2.65, 0.001) {
+		t.Errorf("line DiscountP = %v, want 2.65", got)
+	}
+	if grand := zohoRecomputedGrand(zo); !approx(grand, oc.Total, 0.01) {
+		t.Errorf("Zoho grand total = %.4f, want %.4f (drift %.4f)", grand, oc.Total, grand-oc.Total)
 	}
 }
 

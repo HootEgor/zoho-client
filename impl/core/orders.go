@@ -406,28 +406,31 @@ func (c *Core) processProductsWithoutZohoID(products []*entity.LineItem) {
 	}
 }
 
-// buildOrderedItem converts a LineItem to a Zoho OrderedItem with the given discount percentage.
-// When the LineItem carries a MasterPrice greater than the paid Price, the line is treated as
-// having a per-line "special price" discount: ListPrice is set to MasterPrice and DiscountP is
-// derived from the price gap, overriding the order-level discount for that line.
-// buildOrderedItem builds a Zoho subform line. discountP is the PRE-tax (coupon)
-// percentage applied uniformly across the order; a per-line special price (MasterPrice >
-// Price) is combined with it so the line reports a single ListPrice and one effective
-// discount. Both reductions are pre-tax — the post-tax order discount is carried as an
-// order-level Adjustment, not here.
+// buildOrderedItem builds a Zoho subform line. discountP is the PRE-tax percentage applied
+// uniformly across the order; a per-line special price (MasterPrice > Price) is combined with
+// it so the line reports a single ListPrice and one effective discount.
+//
+// Zoho's DiscountP subform field accepts at most 2 decimal places — too coarse to pin the VAT
+// base on its own. So the percentage is sent rounded to 2 decimals and the residual is folded
+// into ListPrice (which takes 4 decimals): the line net Zoho recomputes as
+// ListPrice x Qty x (1 - DiscountP/100) still equals the exact net. When the percentage fits
+// in 2 decimals the compensation is an identity and ListPrice stays at the catalogue price.
 func buildOrderedItem(lineItem *entity.LineItem, discountP float64) entity.OrderedItem {
 	listPrice := lineItem.Price
-	lineDiscountP := discountP
 	if lineItem.MasterPrice > 0 && lineItem.MasterPrice > lineItem.Price {
 		listPrice = lineItem.MasterPrice
-		// Effective net unit = special price further reduced by the coupon percentage,
-		// expressed as a single discount off the catalogue (list) price.
-		netUnit := lineItem.Price * (1 - discountP/100)
-		lineDiscountP = round4((1 - netUnit/lineItem.MasterPrice) * 100)
 	}
-	// Net line total = quantity * list price * (1 - effective discount). With no discount
-	// this is the full line total. Zoho recomputes this value from ListPrice and DiscountP
-	// rather than storing what we send, so it is kept at full precision to match.
+	// Exact net unit = paid price further reduced by the order-level percentage.
+	netUnit := lineItem.Price * (1 - discountP/100)
+	lineDiscountP := 0.0
+	if listPrice > 0 {
+		lineDiscountP = round2((1 - netUnit/listPrice) * 100)
+	}
+	if lineDiscountP < 100 {
+		listPrice = round4(netUnit / (1 - lineDiscountP/100))
+	}
+	// Net line total. Zoho recomputes this value from ListPrice and DiscountP rather than
+	// storing what we send, so it is kept at full precision to match.
 	totalNet := round4(lineItem.Qty * listPrice * (1 - lineDiscountP/100))
 	return entity.OrderedItem{
 		Product: entity.ZohoProduct{
@@ -487,8 +490,9 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	// base at Total/(1+rate) makes Zoho's grand total equal what the customer was actually
 	// charged, and the VAT Zoho records equal the VAT actually contained in that amount.
 	//
-	// DiscountP therefore needs real precision: it is rarely a whole percentage, and rounding it
-	// to an integer would move the VAT base by real money.
+	// The net base therefore needs real precision, but Zoho caps DiscountP at 2 decimal
+	// places — buildOrderedItem sends the rounded percentage and folds the residual into
+	// ListPrice so the recomputed base is still exact.
 	rate := oc.VatRate()
 	couponAmount := math.Abs(oc.Coupon)
 
