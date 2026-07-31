@@ -15,6 +15,7 @@ type Repository interface {
 	GetNewOrders() ([]*entity.CheckoutParams, error)
 	OrderSearchId(orderId int64) (string, *entity.CheckoutParams, error)
 	OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParams, error)
+	OrdersSyncedBetween(from, to time.Time) ([]sql.SyncedOrder, error)
 	ChangeOrderStatus(orderId, orderStatusId int64, comment string) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
 	OrderTotal(orderId int64, code string) (string, float64, error)
@@ -60,6 +61,8 @@ type Zoho interface {
 	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
 	AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error)
 	UpdateOrder(orderData entity.ZohoOrder, id string) (modifiedTime string, err error)
+	GetOrder(orderID string) (*entity.ZohoOrderRecord, error)
+	UpdateOrderItemRows(orderID string, rows []entity.OrderedItemPatch) (modifiedTime string, err error)
 	CreatePayment(payment entity.ZohoPayment) (string, error)
 	UpdatePaymentStatus(id, status string) error
 }

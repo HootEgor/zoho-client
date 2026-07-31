@@ -219,14 +219,15 @@ type reverseTotals struct {
 // reverse-sync payload. items must already be deduped by ZohoID; oc is the order as OpenCart
 // currently holds it, used to recover information the payload cannot carry.
 //
-// Zoho derives its grand total as Sub_Total x (1 + VAT%), where Sub_Total is the sum of the
-// subform line totals (which Zoho recomputes itself from ListPrice and DiscountP — the Total we
-// send is ignored). Since every at-sale reduction lowers the VAT base, the whole reduction is
-// carried in the lines and nothing is hidden at order level:
+// Zoho derives its grand total as Sub_Total x (1 + VAT%) + the non-taxable lines, where
+// Sub_Total is the sum of the taxable subform line totals (which Zoho recomputes itself from
+// ListPrice and DiscountP — the Total we send is ignored). Shipping is the non-taxable line and
+// is untaxed on both sides. Since every at-sale reduction lowers the VAT base, the whole
+// reduction is carried in the lines and nothing is hidden at order level:
 //
 //	itemsTotal = sum(qty x price actually paid)      -> order_total.sub_total
-//	netLines   = sum(line totals Zoho recomputed)
-//	tax        = (netLines + shipping) x rate        -> VAT sits on the discounted lines
+//	netLines   = sum(product line totals Zoho recomputed)
+//	tax        = netLines x rate                     -> VAT sits on the discounted product lines
 //	reduction  = itemsTotal + shipping + tax - grandTotal
 //
 // reduction is derived from the other rows rather than measured, so the rows always sum to the
@@ -249,7 +250,10 @@ func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFlo
 	products := make([]sql.OrderProductData, 0, len(items))
 	for _, item := range items {
 		if item.ZohoID == c.shippingItemZohoId {
-			shippingF += item.Price
+			// The line total, not the unit price: it is the amount the non-taxable line
+			// contributes to Zoho's grand total, so the order_total rows still reconcile if a
+			// manager discounts the carriage or splits it across several lines.
+			shippingF += item.Total
 			continue
 		}
 
@@ -276,7 +280,7 @@ func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFlo
 	grandTotal := cents(grandTotalFloat)
 	itemsTotal := cents(itemsTotalF)
 	shipping := cents(shippingF)
-	taxTotal := cents((netProductsF + shippingF) * rate)
+	taxTotal := cents(netProductsF * rate)
 
 	// Everything the lines gave up. Derived so the rows always sum to the grand total; a
 	// non-positive result means there was no reduction, and any remainder folds into tax so the

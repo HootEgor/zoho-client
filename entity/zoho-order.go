@@ -61,6 +61,41 @@ type ZohoProduct struct {
 	ID   string `json:"id"`
 }
 
+// ZohoOrderRecord is a Sales Order as Zoho returns it on GET, limited to the fields needed to
+// audit and repair an already-synced order.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/get-records.html
+type ZohoOrderRecord struct {
+	ID           string               `json:"id"`
+	Subject      string               `json:"Subject"`
+	IDsite       string               `json:"ID_site"`
+	ModifiedTime string               `json:"Modified_Time"`
+	GrandTotal   float64              `json:"Grand_Total"`
+	OrderedItems []ZohoOrderedItemRow `json:"Ordered_Items"`
+}
+
+// ZohoOrderedItemRow is one existing subform row, carrying the row id Zoho assigned it.
+type ZohoOrderedItemRow struct {
+	ID        string      `json:"id"`
+	Product   ZohoProduct `json:"Product_Name"`
+	Quantity  float64     `json:"Quantity"`
+	ListPrice float64     `json:"List_Price"`
+	DiscountP float64     `json:"DiscountP"`
+	Total     float64     `json:"Total"`
+}
+
+// OrderedItemPatch updates an existing subform row in place. The row id is mandatory: a row sent
+// without one is APPENDED as a new line rather than updating anything, and rows left out of the
+// payload are kept untouched.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-subforms.html
+type OrderedItemPatch struct {
+	ID        string      `json:"id"`
+	Product   ZohoProduct `json:"Product_Name"`
+	Quantity  int64       `json:"Quantity"`
+	ListPrice float64     `json:"List_Price"`
+	DiscountP float64     `json:"DiscountP"`
+	Total     float64     `json:"Total"`
+}
+
 type ProductDetail struct {
 	Product     ProductID `json:"product"`
 	Quantity    int       `json:"quantity"`

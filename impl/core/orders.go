@@ -478,16 +478,14 @@ func buildGood(lineItem *entity.LineItem, currency Currency, discountP float64) 
 }
 
 // taxHealthGap returns the signed difference between the VAT OpenCart declared (tax_value) and
-// the VAT actually contained in the taxed portion of what the customer was charged. OpenCart
-// does not tax shipping, so that portion is Total - Shipping. A positive gap means the shop
+// the VAT actually contained in what the customer was charged. A positive gap means the shop
 // declared VAT on money the customer never paid (VAT charged on undiscounted amounts, the
 // docs/OPENCART_VAT_BUG_RU.md case); ~0 means the order is healthy.
 func taxHealthGap(oc *entity.CheckoutParams) float64 {
-	rate := oc.VatRate()
-	if rate <= 0 {
+	if oc.VatRate() <= 0 {
 		return 0
 	}
-	return oc.TaxValue - (oc.Total-oc.Shipping)*rate/(1+rate)
+	return oc.TaxValue - oc.LawfulTax()
 }
 
 // buildZohoOrder constructs a ZohoOrder from CheckoutParams. Returns the order and any
@@ -497,11 +495,16 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	// base, so all of them reach Zoho as a single PRE-tax per-line discount. Nothing is left to
 	// apply after tax, which is why the order-level Adjustment stays zero.
 	//
-	// Zoho derives its grand total as Sub_Total x (1 + VAT%), where Sub_Total is the sum of the
-	// line totals it recomputes itself as ListPrice x Quantity x (1 - DiscountP/100) — the Total
-	// we send is ignored. So DiscountP is the only lever on the order's net base. Pinning that
-	// base at Total/(1+rate) makes Zoho's grand total equal what the customer was actually
-	// charged, and the VAT Zoho records equal the VAT actually contained in that amount.
+	// Zoho derives its grand total as Sub_Total x (1 + VAT%) + the non-taxable lines, where
+	// Sub_Total is the sum of the taxable line totals it recomputes itself as
+	// ListPrice x Quantity x (1 - DiscountP/100) — the Total we send is ignored. The shipping
+	// item is flagged non-taxable in Zoho, matching OpenCart, which does not tax shipping
+	// either: it rides through both systems at face value and carries no VAT on either side.
+	//
+	// So DiscountP is the only lever on the order's net base, and that base covers products
+	// alone. Pinning it at (Total - Shipping)/(1+rate) makes Zoho's grand total equal what the
+	// customer was actually charged, and the VAT Zoho records equal the VAT actually contained
+	// in that amount.
 	//
 	// The net base therefore needs real precision, but Zoho caps DiscountP at 2 decimal
 	// places — buildOrderedItem sends the rounded percentage and folds the residual into
@@ -511,7 +514,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 
 	var discountP float64
 	if oc.SubTotal > 0 {
-		productNet := oc.Total/(1+rate) - oc.Shipping
+		productNet := (oc.Total - oc.Shipping) / (1 + rate)
 		discountP = round4((1 - productNet/oc.SubTotal) * 100)
 		if discountP < 0 {
 			discountP = 0

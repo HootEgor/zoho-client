@@ -97,7 +97,8 @@ func (c *CheckoutParams) VatRate() float64 {
 }
 
 // LawfulTax returns the VAT actually contained in the amount the customer was charged,
-// Total x rate / (1 + rate).
+// (Total - Shipping) x rate / (1 + rate). Shipping is excluded because OpenCart adds it after
+// tax and never taxes it — it is not part of the taxable base on either side of the sync.
 //
 // A discount granted at the moment of sale is excluded from the taxable base (ustawa o VAT,
 // art. 29a ust. 7 pkt 2), so on a correctly configured shop order_total.tax must equal this.
@@ -108,7 +109,7 @@ func (c *CheckoutParams) LawfulTax() float64 {
 	if r <= 0 {
 		return 0
 	}
-	return c.Total * r / (1 + r)
+	return (c.Total - c.Shipping) * r / (1 + r)
 }
 
 // nominalTaxRate returns the order's per-unit VAT rate as a decimal (e.g. 0.23), taken from

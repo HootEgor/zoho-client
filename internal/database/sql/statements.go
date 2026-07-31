@@ -102,6 +102,46 @@ func (s *MySql) stmtUpdateProductZohoId() (*sql.Stmt, error) {
 	return s.prepareStmt("updateProductZohoId", query)
 }
 
+// stmtSelectOrdersSynced selects orders placed in a date window that already carry a real Zoho
+// Sales Order id, so an already-synced record can be audited or repaired. The "[B2B]" sentinel is
+// excluded — it names no Zoho record.
+func (s *MySql) stmtSelectOrdersSynced() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`SELECT
+			order_id,
+			order_status_id,
+			date_added,
+			firstname,
+			lastname,
+			email,
+			telephone,
+			customer_group_id,
+			custom_field,
+			shipping_country,
+			shipping_postcode,
+			shipping_city,
+			shipping_address_1,
+			shipping_zone,
+			shipping_zone_id,
+			currency_code,
+			currency_value,
+			total,
+			comment,
+			zoho_id,
+			wf_payment_status,
+			wf_payment_id,
+			wf_payment_amount,
+			wf_payment_session,
+			shipping_code
+		 FROM %sorder
+		 WHERE date_added >= ? AND date_added < ?
+			AND zoho_id IS NOT NULL AND zoho_id <> '' AND zoho_id <> '[B2B]'
+		 ORDER BY order_id`,
+		s.prefix,
+	)
+	return s.prepareStmt("selectOrdersSynced", query)
+}
+
 func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT

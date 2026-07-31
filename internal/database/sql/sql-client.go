@@ -367,6 +367,49 @@ func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.Check
 	return orders, nil
 }
 
+// SyncedOrder pairs an OpenCart order with the Zoho Sales Order id it was synced to.
+type SyncedOrder struct {
+	ZohoID string
+	Order  *entity.CheckoutParams
+}
+
+// OrdersSyncedBetween returns every order placed in [from, to) that already carries a real Zoho
+// Sales Order id, fully populated with line items and totals.
+func (s *MySql) OrdersSyncedBetween(from, to time.Time) ([]SyncedOrder, error) {
+	stmt, err := s.stmtSelectOrdersSynced()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query(from, to)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
+
+	var found []SyncedOrder
+	for rows.Next() {
+		order, zohoId, err := s.scanOrderFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, SyncedOrder{ZohoID: zohoId, Order: order})
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, f := range found {
+		if _, err = s.addOrderData(f.Order.OrderId, f.Order); err != nil {
+			return nil, fmt.Errorf("add order data for %d: %w", f.Order.OrderId, err)
+		}
+	}
+
+	return found, nil
+}
+
 func (s *MySql) OrderSearchId(orderId int64) (string, *entity.CheckoutParams, error) {
 	stmt, err := s.stmtSelectOrderId()
 	if err != nil {

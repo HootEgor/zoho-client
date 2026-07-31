@@ -594,6 +594,117 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) (string
 	return details.ModifiedTime, nil
 }
 
+// GetOrder reads a Sales Order back from Zoho, including its Ordered_Items subform rows with
+// the row ids needed to update them in place.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/get-records.html
+func (s *ZohoService) GetOrder(orderID string) (*entity.ZohoOrderRecord, error) {
+	body, err := s.doRawRequest(http.MethodGet, nil, "Sales_Orders", orderID)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data []entity.ZohoOrderRecord `json:"data"`
+	}
+	if err = json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decode order: %w", err)
+	}
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("order %s not found", orderID)
+	}
+
+	return &resp.Data[0], nil
+}
+
+// UpdateOrderItemRows updates existing Ordered_Items rows in place, matched by their subform row
+// id. Rows not listed are left untouched — Zoho only removes a row when it is sent with
+// "_delete": null, and only appends when a row arrives without an id.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-subforms.html
+func (s *ZohoService) UpdateOrderItemRows(orderID string, rows []entity.OrderedItemPatch) (string, error) {
+	if len(rows) == 0 {
+		return "", fmt.Errorf("no rows to update")
+	}
+	for i, row := range rows {
+		if row.ID == "" {
+			return "", fmt.Errorf("row %d has no subform id: it would be appended as a new line", i)
+		}
+	}
+
+	payload := map[string]interface{}{
+		"data": []map[string]interface{}{
+			{"Ordered_Items": rows},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders", orderID)
+	if err != nil {
+		return "", err
+	}
+
+	item := apiResp.Data[0]
+	if item.Status != "success" {
+		return "", formatZohoError("order items not updated", item)
+	}
+
+	details, err := extractRecordDetails(item)
+	if err != nil {
+		return "", err
+	}
+
+	s.log.With(
+		slog.String("id", orderID),
+		slog.Int("rows", len(rows)),
+	).Debug("order items updated")
+
+	return details.ModifiedTime, nil
+}
+
+// doRawRequest is doRequest for endpoints whose response is a record rather than the standard
+// per-record status envelope.
+func (s *ZohoService) doRawRequest(method string, body []byte, pathSegments ...string) ([]byte, error) {
+	segments := append([]string{s.scope, s.apiVersion}, pathSegments...)
+	fullURL, err := buildURL(s.crmUrl, segments...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.RefreshToken(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(method, fullURL, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Zoho-oauthtoken "+s.refreshToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer httputil.CloseBody(resp.Body, s.log)
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("rate limited by Zoho API, retry after: %s", resp.Header.Get("Retry-After"))
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("zoho api: %s: %s", resp.Status, string(bodyBytes))
+	}
+
+	return bodyBytes, nil
+}
+
 // doRequest executes an authenticated request against the Zoho CRM v8 REST API.
 // It automatically refreshes the OAuth token, constructs the full URL from path segments
 // (e.g., "Sales_Orders", "upsert"), and handles rate-limit (429) responses.

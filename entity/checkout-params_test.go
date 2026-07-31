@@ -109,6 +109,7 @@ func TestLawfulTax(t *testing.T) {
 		name        string
 		total       float64
 		taxValue    float64
+		shipping    float64
 		lines       []*LineItem
 		wantLawful  float64
 		wantHealthy bool
@@ -136,11 +137,26 @@ func TestLawfulTax(t *testing.T) {
 			lines:      []*LineItem{{Price: 52.8455, Tax: 12.1545, Qty: 1, Total: 52.8455}},
 			wantLawful: 469.0816, wantHealthy: true,
 		},
+		{
+			// Shipping is added after tax and never taxed, so it is not part of the base:
+			// 1000 net + 230 VAT + 39.90 carriage. Counting it would inflate the lawful VAT to
+			// 237.46 and make a healthy order look under-declared.
+			name: "shipping is outside the taxable base", total: 1269.90, taxValue: 230, shipping: 39.90,
+			lines:      []*LineItem{{Price: 100, Tax: 23, Qty: 10, Total: 1000}},
+			wantLawful: 230, wantHealthy: true,
+		},
+		{
+			// Order 17103: 21% Spanish order, 10% coupon, DHL 39.90. Healthy — OpenCart taxed the
+			// discounted base — and it must stay healthy once shipping is excluded.
+			name: "order 17103 - shipping plus coupon, healthy", total: 996.0936, taxValue: 165.9510, shipping: 39.90,
+			lines:      []*LineItem{{Price: 24.3902, Tax: 5.1219, Qty: 30, Total: 731.706}},
+			wantLawful: 165.9510, wantHealthy: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := &CheckoutParams{Total: tt.total, TaxValue: tt.taxValue, LineItems: tt.lines}
+			c := &CheckoutParams{Total: tt.total, TaxValue: tt.taxValue, Shipping: tt.shipping, LineItems: tt.lines}
 			got := c.LawfulTax()
 			if diff := got - tt.wantLawful; diff > 0.01 || diff < -0.01 {
 				t.Errorf("LawfulTax() = %.4f, want %.4f", got, tt.wantLawful)
