@@ -124,6 +124,19 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// have been declared. So when the subform still matches what OpenCart holds, move the status
 	// and touch nothing else.
 	if itemsUnchanged(mergedItems, orderParams, c.shippingItemZohoId) {
+		// Leaving the totals alone is the right call, but it is not the same as nothing having
+		// changed: itemsUnchanged compares products and quantities only, so Zoho repricing those
+		// same lines (a manager editing DiscountP or List_Price, a workflow reapplying a discount
+		// rule) passes as "unchanged" here. Neither side will ever reconcile that, so the order
+		// silently ends up worth two different amounts in two systems. Report it.
+		if diff, diverged := totalsDiverged(orderParams.Total, orderDetails.GrandTotal); diverged {
+			log.With(
+				slog.Float64("oc_total", round2(orderParams.Total)),
+				slog.Float64("zoho_total", round2(orderDetails.GrandTotal)),
+				slog.Float64("diff", round2(diff)),
+				slog.String("currency", orderParams.Currency),
+			).Warn("Zoho grand total diverges from OpenCart while items are unchanged; totals left untouched")
+		}
 		if newStatusId != previousStatusId {
 			if err := c.repo.ChangeOrderStatus(orderId, int64(newStatusId), "Updated via API"); err != nil {
 				log.With(sl.Err(err)).Error("failed to update order status")
@@ -327,6 +340,30 @@ func itemsUnchanged(items []entity.ApiOrderedItem, oc *entity.CheckoutParams, sh
 		seen++
 	}
 	return seen == len(stored)
+}
+
+const (
+	// totalsDivergenceFloor is the smallest gap worth reporting, in order currency. Below this a
+	// difference cannot be anything but rounding, whatever the order's size.
+	totalsDivergenceFloor = 1.0
+	// totalsDivergenceRate scales the tolerance with the order so long subforms, where the drift
+	// accumulates line by line, are not reported over and over.
+	totalsDivergenceRate = 0.001
+)
+
+// totalsDiverged reports whether Zoho's grand total has moved away from the total OpenCart holds
+// by more than per-line rounding can account for. Zoho recomputes its grand total from List_Price
+// and DiscountP values it stores to 2 decimals, so a few groszy of drift across a long subform is
+// expected and meaningless; past max(1.00, 0.1% of the order) the money itself has changed.
+// Returns the signed difference (Zoho minus OpenCart) and whether it exceeds the tolerance.
+// A payload carrying no usable grand total never diverges — there is nothing to compare against.
+func totalsDiverged(ocTotal, zohoTotal float64) (float64, bool) {
+	if ocTotal <= 0 || zohoTotal <= 0 {
+		return 0, false
+	}
+	diff := zohoTotal - ocTotal
+	tolerance := math.Max(totalsDivergenceFloor, ocTotal*totalsDivergenceRate)
+	return diff, math.Abs(diff) > tolerance
 }
 
 // splitReductions divides the reduction recovered from a Zoho payload between OpenCart's coupon
