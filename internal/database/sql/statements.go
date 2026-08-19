@@ -83,7 +83,8 @@ func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 			wf_payment_id,
 			wf_payment_amount,
 			wf_payment_session,
-			shipping_code
+			shipping_code,
+			shipping_method
 		 FROM %sorder
 		 WHERE order_status_id = ?
 		 	AND (zoho_id = '' OR zoho_id IS NULL)
@@ -132,7 +133,8 @@ func (s *MySql) stmtSelectOrdersSynced() (*sql.Stmt, error) {
 			wf_payment_id,
 			wf_payment_amount,
 			wf_payment_session,
-			shipping_code
+			shipping_code,
+			shipping_method
 		 FROM %sorder
 		 WHERE date_added >= ? AND date_added < ?
 			AND zoho_id IS NOT NULL AND zoho_id <> '' AND zoho_id <> '[B2B]'
@@ -169,7 +171,8 @@ func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 			wf_payment_id,
 			wf_payment_amount,
 			wf_payment_session,
-			shipping_code
+			shipping_code,
+			shipping_method
 		 FROM %sorder
 		 WHERE order_id = ?`,
 		s.prefix,
@@ -238,7 +241,8 @@ func (s *MySql) stmtSelectOrderByZohoId() (*sql.Stmt, error) {
 			wf_payment_id,
 			wf_payment_amount,
 			wf_payment_session,
-			shipping_code
+			shipping_code,
+			shipping_method
 		 FROM %sorder
 		 WHERE zoho_id = ?`,
 		s.prefix,
@@ -331,7 +335,8 @@ func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
 			wf_payment_id,
 			wf_payment_amount,
 			wf_payment_session,
-			shipping_code
+			shipping_code,
+			shipping_method
 		 FROM %sorder
 		 WHERE zoho_id != '' AND zoho_id IS NOT NULL
 		 	AND wf_payment_status != '' AND wf_payment_status IS NOT NULL
@@ -372,7 +377,8 @@ func (s *MySql) stmtSelectOrdersPendingPaymentUpdate() (*sql.Stmt, error) {
 			wf_payment_id,
 			wf_payment_amount,
 			wf_payment_session,
-			shipping_code
+			shipping_code,
+			shipping_method
 		 FROM %sorder
 		 WHERE zoho_id != '' AND zoho_id IS NOT NULL
 		 	AND zoho_payment_id != '' AND zoho_payment_id IS NOT NULL

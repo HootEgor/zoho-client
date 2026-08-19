@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/lib/sl"
@@ -606,25 +607,70 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		RecipientAddress:   oc.ClientDetails.Street,
 		RecipientCityId:    recipientCityId(oc.ClientDetails),
 		PostTerminal:       oc.PostTerminal,
-		PostType:           mapPostType(oc.ShippingCode),
+		PostType:           mapPostType(oc.ShippingCode, oc.ShippingMethod),
 	}, chunkedItems
 }
 
-// mapPostType maps an OpenCart shipping_code to the corresponding Zoho Post_type value.
-// Returns an empty string when the code is unknown, so omitempty drops the field.
-func mapPostType(shippingCode string) string {
+// Zoho Post_type picklist values. Values not covered by the picklist (worldwide
+// delivery, FedEx) intentionally map to "" so omitempty drops the field and the
+// record stays at -None- for a manager to fill in.
+const (
+	postTypeInPost         = "InPost"
+	postTypeInPostCourier  = "InPost (кур'єр)"
+	postTypeInPostTerminal = "InPost (поштомат)"
+	postTypeDHLCourier     = "DHL (кур'єр)"
+	postTypePickup         = "Самовивіз"
+)
+
+// mapPostType maps an OpenCart shipping method to the corresponding Zoho Post_type value.
+//
+// The method name is matched first: shipping_method is stored in the customer's language
+// (Ukrainian, Polish or English), so matching is done on lowercased keywords across all
+// three. shipping_code is only a fallback, because production data holds rows where the
+// code and the name disagree (e.g. a "DHL Kurier" order carrying the InPost courier code).
+//
+// Returns an empty string when nothing matches, so omitempty drops the field.
+func mapPostType(shippingCode, shippingMethod string) string {
+	m := strings.ToLower(shippingMethod)
+
+	switch {
+	case strings.Contains(m, "inpost"):
+		// Paczkomat (pl) / поштомат (ua) / parcel machine (en)
+		if strings.Contains(m, "paczkomat") || strings.Contains(m, "поштомат") || strings.Contains(m, "parcel machine") {
+			return postTypeInPostTerminal
+		}
+		if isCourier(m) {
+			return postTypeInPostCourier
+		}
+		return postTypeInPost
+	case strings.Contains(m, "dhl"):
+		return postTypeDHLCourier
+	case strings.Contains(m, "pickup") || strings.Contains(m, "odbiór") || strings.Contains(m, "самовивіз"):
+		return postTypePickup
+	}
+
+	// Name unrecognised or empty: fall back to the shipping module code.
 	switch shippingCode {
 	case "filterit1.filterit0":
-		return "InPost (кур'єр)"
+		return postTypeInPostCourier
 	case "filterit1.filterit1":
-		return "InPost (поштомат)"
-	case "filterit2.filterit0":
-		return "DHL (кур'єр)"
+		return postTypeInPostTerminal
+	case "filterit0.filterit2":
+		return postTypeInPost
+	case "filterit0.filterit0", "filterit2.filterit0", "filterit2.filterit1", "dhl_country.dhl_country":
+		return postTypeDHLCourier
 	case "pickup.pickup":
-		return "Самовивіз"
+		return postTypePickup
 	default:
+		// filterit3.* (worldwide delivery) and fedex_country.* have no picklist value.
 		return ""
 	}
+}
+
+// isCourier reports whether a lowercased shipping method name says "courier" in any of
+// the three languages OpenCart stores it in.
+func isCourier(m string) bool {
+	return strings.Contains(m, "kurier") || strings.Contains(m, "кур'єр") || strings.Contains(m, "courier")
 }
 
 func recipientCityId(client *entity.ClientDetails) string {

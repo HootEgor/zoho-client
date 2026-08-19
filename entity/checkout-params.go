@@ -26,31 +26,32 @@ const (
 )
 
 type CheckoutParams struct {
-	ClientDetails *ClientDetails `json:"client_details" bson:"client_details" validate:"required"`
-	LineItems     []*LineItem    `json:"line_items" bson:"line_items" validate:"required,min=1,dive"`
-	Total         float64        `json:"total" bson:"total" validate:"required,min=1"`
-	SubTotal      float64        `json:"sub_total" bson:"sub_total"`
-	ShippingTitle string         `json:"shipping_title,omitempty" bson:"shipping_title,omitempty"`
-	Shipping      float64        `json:"shipping,omitempty" bson:"shipping,omitempty"`
-	CouponTitle   string         `json:"coupon_title,omitempty" bson:"coupon_title,omitempty"`
-	Coupon        float64        `json:"coupon,omitempty" bson:"coupon,omitempty"`
-	TaxTitle      string         `json:"tax_title" bson:"tax_title"`
-	TaxValue      float64        `json:"tax_value" bson:"tax_value"`
-	DiscountTitle string         `json:"discount_title,omitempty" bson:"discount_title,omitempty"`
-	Discount      float64        `json:"discount,omitempty" bson:"discount,omitempty"`
-	Currency      string         `json:"currency" bson:"currency" validate:"required,oneof=PLN EUR"`
-	CurrencyValue float64        `json:"currency_value,omitempty" bson:"currency_value,omitempty"`
-	OrderId       int64          `json:"order_id" bson:"order_id" validate:"required"`
-	Created       time.Time      `json:"created" bson:"created"`
-	Status        string         `json:"status" bson:"status"`
-	StatusId      int            `json:"status_id,omitempty" bson:"status_id,omitempty"`
-	InvoiceId     string         `json:"invoice_id,omitempty" bson:"invoice_id,omitempty"`
-	InvoiceFile   string         `json:"invoice_file,omitempty" bson:"invoice_file,omitempty"`
-	ProformaId    string         `json:"proforma_id,omitempty" bson:"proforma_id,omitempty"`
-	ProformaFile  string         `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
-	Source        Source         `json:"source,omitempty" bson:"source"`
-	Comment       string         `json:"comment,omitempty" bson:"comment,omitempty"`
-	ShippingCode  string         `json:"shipping_code,omitempty" bson:"shipping_code,omitempty"`
+	ClientDetails  *ClientDetails `json:"client_details" bson:"client_details" validate:"required"`
+	LineItems      []*LineItem    `json:"line_items" bson:"line_items" validate:"required,min=1,dive"`
+	Total          float64        `json:"total" bson:"total" validate:"required,min=1"`
+	SubTotal       float64        `json:"sub_total" bson:"sub_total"`
+	ShippingTitle  string         `json:"shipping_title,omitempty" bson:"shipping_title,omitempty"`
+	Shipping       float64        `json:"shipping,omitempty" bson:"shipping,omitempty"`
+	CouponTitle    string         `json:"coupon_title,omitempty" bson:"coupon_title,omitempty"`
+	Coupon         float64        `json:"coupon,omitempty" bson:"coupon,omitempty"`
+	TaxTitle       string         `json:"tax_title" bson:"tax_title"`
+	TaxValue       float64        `json:"tax_value" bson:"tax_value"`
+	DiscountTitle  string         `json:"discount_title,omitempty" bson:"discount_title,omitempty"`
+	Discount       float64        `json:"discount,omitempty" bson:"discount,omitempty"`
+	Currency       string         `json:"currency" bson:"currency" validate:"required,oneof=PLN EUR"`
+	CurrencyValue  float64        `json:"currency_value,omitempty" bson:"currency_value,omitempty"`
+	OrderId        int64          `json:"order_id" bson:"order_id" validate:"required"`
+	Created        time.Time      `json:"created" bson:"created"`
+	Status         string         `json:"status" bson:"status"`
+	StatusId       int            `json:"status_id,omitempty" bson:"status_id,omitempty"`
+	InvoiceId      string         `json:"invoice_id,omitempty" bson:"invoice_id,omitempty"`
+	InvoiceFile    string         `json:"invoice_file,omitempty" bson:"invoice_file,omitempty"`
+	ProformaId     string         `json:"proforma_id,omitempty" bson:"proforma_id,omitempty"`
+	ProformaFile   string         `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
+	Source         Source         `json:"source,omitempty" bson:"source"`
+	Comment        string         `json:"comment,omitempty" bson:"comment,omitempty"`
+	ShippingCode   string         `json:"shipping_code,omitempty" bson:"shipping_code,omitempty"`
+	ShippingMethod string         `json:"shipping_method,omitempty" bson:"shipping_method,omitempty"`
 
 	// Payment data populated from wfsync columns in oc_order table.
 	// wfsync is an external service that writes Stripe webhook data into OpenCart.

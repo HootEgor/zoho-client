@@ -633,7 +633,7 @@ func (s *MySql) OrderPostTerminal(orderId int64) (string, error) {
 // order_id, order_status_id, date_added, firstname, lastname, email, telephone,
 // customer_group_id, custom_field, shipping_country, shipping_postcode, shipping_city,
 // shipping_address_1, shipping_zone, shipping_zone_id, currency_code, currency_value, total, comment, zoho_id,
-// wf_payment_status, wf_payment_id, wf_payment_amount, wf_payment_session, shipping_code
+// wf_payment_status, wf_payment_id, wf_payment_amount, wf_payment_session, shipping_code, shipping_method
 func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, string, error) {
 	var order entity.CheckoutParams
 	var client entity.ClientDetails
@@ -666,6 +666,7 @@ func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, strin
 		&order.PaymentAmount,
 		&order.PaymentSessionId,
 		&order.ShippingCode,
+		&order.ShippingMethod,
 	); err != nil {
 		return nil, "", err
 	}
