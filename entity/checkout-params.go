@@ -178,7 +178,7 @@ type ClientDetails struct {
 // Group IDs are from the oc_customer_group table; B2B groups are excluded from
 // standard Zoho Sales_Orders sync and routed to the Deals module instead.
 func (c *ClientDetails) IsB2B() bool {
-	return c.GroupId == 6 || c.GroupId == 7 || c.GroupId == 16 || c.GroupId == 18 || c.GroupId == 19
+	return c.GroupId == 6 || c.GroupId == 16 || c.GroupId == 18 || c.GroupId == 19
 }
 
 func (c *ClientDetails) TrimSpaces() {

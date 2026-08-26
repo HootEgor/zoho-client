@@ -273,7 +273,7 @@ func TestIsB2B(t *testing.T) {
 		{"group 1 is not B2B", 1, false},
 		{"group 5 is not B2B", 5, false},
 		{"group 6 is B2B", 6, true},
-		{"group 7 is B2B", 7, true},
+		{"group 7 is not B2B", 7, false},
 		{"group 8 is not B2B", 8, false},
 		{"group 16 is B2B", 16, true},
 		{"group 17 is not B2B", 17, false},
