@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	// These three describe the B2B portal itself rather than any one shop: the portal feeds one
+	// Deals pipeline for every site, so they stay fixed here rather than moving into site config.
 	B2BWebhookPipeline    = "B2B"
 	B2BWebhookOrderSource = "B2B Portal"
 	B2BWebhookStatus      = "Нове замовлення"
@@ -161,7 +163,7 @@ func (c *Core) buildZohoOrderFromWebhook(
 	}
 
 	// Chunk items for Zoho API (max 100 per call)
-	chunkedItems := chunkSlice(allItems, ChunkSize)
+	chunkedItems := chunkSlice(allItems, c.site.ChunkSize)
 
 	// Calculate VAT rate from totals
 	vatRate := 0.0
@@ -180,7 +182,7 @@ func (c *Core) buildZohoOrderFromWebhook(
 		Pipeline:       B2BWebhookPipeline,
 		BillingStreet:  order.ShippingAddress,
 		Subject:        fmt.Sprintf("B2B Order %s", order.OrderNumber),
-		Location:       ZohoLocation,
+		Location:       c.site.ZohoLocation,
 		OrderSource:    B2BWebhookOrderSource,
 	}
 

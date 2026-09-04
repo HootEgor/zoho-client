@@ -94,9 +94,8 @@ type Core struct {
 	mongoRepo          MongoRepository
 	zoho               Zoho
 	ms                 MessageService
+	site               *config.SiteSettings
 	shippingItemZohoId string
-	statuses           map[int]string
-	statusesB2B        map[int]string
 	authKey            string
 	keys               map[string]string
 	keysMu             sync.RWMutex
@@ -117,19 +116,10 @@ type Core struct {
 	ssResumeMu         sync.RWMutex
 }
 
-func New(log *slog.Logger, conf config.Config) *Core {
+func New(log *slog.Logger, conf config.Config, site *config.SiteSettings) *Core {
 	return &Core{
-		log: log.With(sl.Module("core")),
-		statuses: map[int]string{
-			entity.OrderStatusNew:                "Нове",
-			entity.OrderStatusPayed:              "Оплачено, формування ТТН",
-			entity.OrderStatusPrepareForShipping: "Перевірка та збір",
-		},
-		statusesB2B: map[int]string{
-			entity.OrderStatusNew:                "Нове замовлення",
-			entity.OrderStatusPayed:              "Оплачено формування ТТН",
-			entity.OrderStatusPrepareForShipping: "Передано на збір",
-		},
+		log:             log.With(sl.Module("core")),
+		site:            site,
 		authKey:         conf.Listen.ApiKey,
 		keys:            make(map[string]string),
 		stopCh:          make(chan struct{}),
@@ -145,7 +135,7 @@ func (c *Core) SetRepository(repo Repository) {
 	c.repo = repo
 
 	// Load shipping item zoho_id from database
-	zohoId, err := repo.GetProductZohoIdByUid(entity.ShippingItemUid)
+	zohoId, err := repo.GetProductZohoIdByUid(c.site.ShippingItemUID)
 	if err != nil {
 		c.log.Warn("failed to load shipping item zoho_id", sl.Err(err))
 	} else if zohoId != "" {
@@ -193,15 +183,10 @@ func (c *Core) SendEvent(message *entity.EventMessage) (interface{}, error) {
 	return nil, c.ms.SendEventMessage(message)
 }
 
-// GetStatusIdByName performs reverse lookup of status ID by status name (Ukrainian string).
-// Returns the status ID or -1 if not found.
+// GetStatusIdByName performs reverse lookup of an OpenCart status ID by the Zoho status name an
+// inbound webhook carries. Returns -1 if the name is not in this site's status map.
 func (c *Core) GetStatusIdByName(statusName string) int {
-	for id, name := range c.statuses {
-		if name == statusName {
-			return id
-		}
-	}
-	return -1
+	return c.site.OrderStatusIdByName(statusName)
 }
 
 func (c *Core) Start() {
@@ -221,7 +206,7 @@ func (c *Core) Start() {
 	}
 
 	go func() {
-		ticker := time.NewTicker(2 * time.Minute)
+		ticker := time.NewTicker(c.site.PollInterval)
 		defer ticker.Stop()
 
 		for {
@@ -231,8 +216,12 @@ func (c *Core) Start() {
 				return
 			default:
 				c.ProcessOrders()
-				c.ProcessPendingPayments()
-				c.ProcessPaymentUpdates()
+				// The payment pollers read the wfsync wf_payment_* columns, which a site
+				// without wfsync does not have at all.
+				if c.site.Payments {
+					c.ProcessPendingPayments()
+					c.ProcessPaymentUpdates()
+				}
 			}
 
 			select {
@@ -244,27 +233,29 @@ func (c *Core) Start() {
 		}
 	}()
 
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
+	if c.site.CustomerSync {
+		go func() {
+			ticker := time.NewTicker(c.site.CustomerPollInterval)
+			defer ticker.Stop()
 
-		for {
-			select {
-			case <-c.stopCh:
-				c.log.Info("customer processing stopped")
-				return
-			default:
-				c.ProcessCustomers()
-			}
+			for {
+				select {
+				case <-c.stopCh:
+					c.log.Info("customer processing stopped")
+					return
+				default:
+					c.ProcessCustomers()
+				}
 
-			select {
-			case <-c.stopCh:
-				c.log.Info("customer processing stopped")
-				return
-			case <-ticker.C:
+				select {
+				case <-c.stopCh:
+					c.log.Info("customer processing stopped")
+					return
+				case <-ticker.C:
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	// Separate goroutine for MongoDB cleanup (runs every 12 hours)
 	go func() {

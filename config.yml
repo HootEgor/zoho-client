@@ -10,13 +10,89 @@ sql:
   database: db           # Database name
   port: 8080             # Database port
   prefix: prefix_        # Database table prefix
-## Telegram bot configuration
+## Optional order-version archive. Every synced order payload is stored here, and rows older than
+## expired_days are pruned. Order versions are keyed by order_id alone, so each shop needs its OWN
+## database — two shops pointed at one would mix unrelated orders into the same document.
+mongo:
+  enabled: false
+  host: 127.0.0.1
+  port: 27017
+  user: admin
+  password: pass
+  database: zohoclient
+  expired_days: 90
+## Telegram bot configuration. One bot token per instance: the bot long-polls getUpdates for the
+## /level command, and Telegram allows only one such connection per token.
 telegram:
   enabled: false
   api_key: telegram-api-key
   admin_id: 123456789
   bot_name: Zoho Client
   min_log_level: debug
+
+## Site configuration.
+##
+## One process serves ONE OpenCart shop; a second shop runs a second process with its own copy of
+## this file, its own systemd unit and its own listen port.
+##
+## Every key below is OPTIONAL. An omitted key keeps the value the service used when these were Go
+## constants (the first shop's), so an older config file behaves exactly as it did before. The
+## whole section is resolved and validated at startup — a bad value stops the process there.
+site:
+  name: local                    # Log tag only; identifies which shop a log line came from
+  log_file: zohoclient.log       # File inside the -log directory; must differ per instance
+  timezone: Europe/Warsaw        # Used for OpenCart datetimes and Zoho timestamps
+  language_id: 2                 # oc_product_description.language_id to read product names from
+  lookback_days: 30              # How far back the order poller looks at date_modified
+  batch_limit: 10                # Max orders returned per poll of a single status
+  poll_interval: 120             # Order poll interval, seconds
+  customer_poll_interval: 300    # Customer sync interval, seconds
+  nip_custom_field_id: "2"       # oc_custom_field id holding the buyer's tax number (NIP)
+  post_terminal_field: field29   # oc_order_simple_fields column holding the parcel-locker code
+  shipping_item_uid: cd3cc23c-6dfb-11ec-b75f-00155d018000  # oc_product.product_uid carriage is billed as
+  currencies: [PLN, EUR]         # Currencies an order may be placed in
+  order_statuses:
+    # oc_order.order_status_id values that trigger a Zoho sync. See entity/oc-order.go for the
+    # payment-link lifecycle these cover.
+    poll: [1, 2, 5, 17, 22, 23]
+    new: 1                       # Status a fresh order carries; also the Zoho status fallback
+    canceled: 7
+  # Customer groups routed to the Zoho Deals pipeline instead of Sales_Orders.
+  # An explicitly empty list ([]) means no group is B2B.
+  b2b_group_ids: [6, 16, 18, 19]
+  # oc_customer.customer_group_id -> Zoho customer_category. Unlisted groups leave the field unset.
+  customer_categories:
+    20: Інструктори
+    14: Салони Європа
+    5: Салони Польща
+  # oc_order_total.code for each logical total. Merged with the defaults, so list only what differs.
+  total_codes:
+    sub_total: sub_total
+    shipping: shipping
+    coupon: coupon
+    tax: tax
+    total: total
+    discount: discount
+  # Optional subsystems. Each one off means the service never touches the columns or tables that
+  # subsystem owns, so a shop that lacks them runs cleanly.
+  features:
+    payments: true               # wfsync wf_payment_* columns + the Zoho Payments module
+    customer_sync: true          # oc_customer -> Zoho Contacts upsert loop
+    b2b: true                    # B2B group routing, Deals/Goods modules, /zoho/webhook/b2b route
+  # OpenCart shipping module code -> logical post-type key (resolved via zoho.post_types below).
+  # Only consulted when the shipping method NAME says nothing recognisable; production data holds
+  # rows where the code and the name disagree, and the name wins.
+  # Valid keys: inpost, inpost_courier, inpost_terminal, dhl_courier, pickup
+  shipping_code_map:
+    filterit1.filterit0: inpost_courier
+    filterit1.filterit1: inpost_terminal
+    filterit0.filterit2: inpost
+    filterit0.filterit0: dhl_courier
+    filterit2.filterit0: dhl_courier
+    filterit2.filterit1: dhl_courier
+    dhl_country.dhl_country: dhl_courier
+    pickup.pickup: pickup
+
 zoho:
   client_id: zoho_client_id
   client_secret: zoho_client_secret
@@ -25,6 +101,42 @@ zoho:
   crm_url: zoho_crm_url
   scope: crm
   api_version: v8
+  ## Picklist values and literals written onto Zoho records. Field API names are NOT configurable —
+  ## every site syncs into the same Zoho org, so they are fixed in entity/.
+  location: Польша               # Location_DR
+  order_source: OpenCart         # Order_Source
+  terms: Standard terms apply.   # Terms_and_Conditions
+  chunk_size: 200                # Max subform rows per Sales Order API call
+  b2b_pipeline: B2B
+  # OpenCart order_status_id -> Zoho Sales Order Status. Also used in reverse, to turn a status
+  # arriving on a Zoho webhook back into an OpenCart id. A polled status with no entry here falls
+  # back to the name mapped for site.order_statuses.new.
+  order_status_map:
+    1: Нове
+    17: Оплачено, формування ТТН
+    5: Перевірка та збір
+  order_status_b2b_map:
+    1: Нове замовлення
+    17: Оплачено формування ТТН
+    5: Передано на збір
+  # Logical post-type key -> Zoho Post_type picklist. All five keys are required.
+  post_types:
+    inpost: InPost
+    inpost_courier: InPost (кур'єр)
+    inpost_terminal: InPost (поштомат)
+    dhl_courier: DHL (кур'єр)
+    pickup: Самовивіз
+  # Logical payment state -> Zoho Payments status picklist. Required when site.features.payments
+  # is on. The Stripe/wfsync status strings that feed these keys live in entity/payment-status.go.
+  payment_statuses:
+    created: Створено
+    in_progress: В процесі
+    held: Кошти зарезервовано
+    paid: Оплачено
+    canceled: Скасовано
+    refunded: Відшкодовано
+    error: Помилка операції
+
 prod_repo:
   login: repo_login
   password: repo_password

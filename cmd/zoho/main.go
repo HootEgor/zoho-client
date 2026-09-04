@@ -29,7 +29,7 @@ func main() {
 	flag.Parse()
 
 	conf := config.MustLoad(*configPath)
-	lg := logger.SetupLogger(conf.Env, *logPath)
+	lg := logger.SetupLogger(conf.Env, *logPath, conf.Site.LogFile)
 
 	// Initialize Telegram bot if enabled
 	var tgBot *bot.TgBot
@@ -52,12 +52,22 @@ func main() {
 		}
 	}
 
+	// Resolve the site description before anything is constructed: a mistyped picklist key or an
+	// unknown timezone must stop the process here, not surface on the first order that syncs.
+	site, err := conf.SiteSettings()
+	if err != nil {
+		lg.With(sl.Err(err)).Error("invalid site configuration")
+		os.Exit(1)
+	}
+	lg = lg.With(slog.String("site", site.Name))
+
 	lg.Info("starting zohoclient", slog.String("config", *configPath), slog.String("env", conf.Env))
+	lg.Info("site settings resolved", slog.String("settings", site.LogValue()))
 	lg.Debug("debug messages enabled")
 
-	handler := core.New(lg, *conf)
+	handler := core.New(lg, *conf, site)
 
-	db, err := sql.NewSQLClient(conf, lg)
+	db, err := sql.NewSQLClient(conf, site, lg)
 	if err != nil {
 		lg.With(sl.Err(err)).Error("mysql client")
 	}
@@ -86,7 +96,7 @@ func main() {
 		}()
 	}
 
-	zoho, err := services.NewZohoService(conf, lg)
+	zoho, err := services.NewZohoService(conf, site, lg)
 	if err != nil {
 		lg.Error("zoho service", sl.Err(err))
 	}
@@ -168,7 +178,7 @@ func main() {
 	handler.Start()
 
 	// Create an HTTP server
-	server, err := api.New(conf, lg, handler)
+	server, err := api.New(conf, site, lg, handler)
 	if err != nil {
 		lg.Error("server create", sl.Err(err))
 		return

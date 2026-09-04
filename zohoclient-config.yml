@@ -24,6 +24,51 @@ telegram:
   admin_id: ${TELEGRAM_ADMIN_ID}
   bot_name: Zoho Client
   min_log_level: debug
+## Site configuration. Values are stated explicitly rather than left to the built-in defaults, so
+## this file documents what production actually runs. See config.yml for what each key means.
+site:
+  name: ${SITE_NAME}
+  log_file: zohoclient.log
+  timezone: Europe/Warsaw
+  language_id: 2
+  lookback_days: 30
+  batch_limit: 10
+  poll_interval: 120
+  customer_poll_interval: 300
+  nip_custom_field_id: "2"
+  post_terminal_field: field29
+  shipping_item_uid: cd3cc23c-6dfb-11ec-b75f-00155d018000
+  currencies: [PLN, EUR]
+  order_statuses:
+    poll: [1, 2, 5, 17, 22, 23]
+    new: 1
+    canceled: 7
+  b2b_group_ids: [6, 16, 18, 19]
+  customer_categories:
+    20: Інструктори
+    14: Салони Європа
+    5: Салони Польща
+  total_codes:
+    sub_total: sub_total
+    shipping: shipping
+    coupon: coupon
+    tax: tax
+    total: total
+    discount: discount
+  features:
+    payments: true
+    customer_sync: true
+    b2b: true
+  shipping_code_map:
+    filterit1.filterit0: inpost_courier
+    filterit1.filterit1: inpost_terminal
+    filterit0.filterit2: inpost
+    filterit0.filterit0: dhl_courier
+    filterit2.filterit0: dhl_courier
+    filterit2.filterit1: dhl_courier
+    dhl_country.dhl_country: dhl_courier
+    pickup.pickup: pickup
+
 zoho:
   client_id: ${ZOHO_CLIENT_ID}
   client_secret: ${ZOHO_CLIENT_SECRET}
@@ -32,6 +77,33 @@ zoho:
   crm_url: ${ZOHO_CRM_URL}
   scope: crm
   api_version: v8
+  location: Польша
+  order_source: OpenCart
+  terms: Standard terms apply.
+  chunk_size: 200
+  b2b_pipeline: B2B
+  order_status_map:
+    1: Нове
+    17: Оплачено, формування ТТН
+    5: Перевірка та збір
+  order_status_b2b_map:
+    1: Нове замовлення
+    17: Оплачено формування ТТН
+    5: Передано на збір
+  post_types:
+    inpost: InPost
+    inpost_courier: InPost (кур'єр)
+    inpost_terminal: InPost (поштомат)
+    dhl_courier: DHL (кур'єр)
+    pickup: Самовивіз
+  payment_statuses:
+    created: Створено
+    in_progress: В процесі
+    held: Кошти зарезервовано
+    paid: Оплачено
+    canceled: Скасовано
+    refunded: Відшкодовано
+    error: Помилка операції
 prod_repo:
   login: ${REPO_LOGIN}
   password: ${REPO_PASSWORD}
@@ -41,7 +113,7 @@ listen:
   port: ${LISTEN_PORT}
   key: ${API_KEY}
 smartsender:
-  enabled: true
+  enabled: false
   api_key: ${SMARTSENDER_API_KEY}
   base_url: https://api.smartsender.com/v1
   zoho_api_key: ${ZOHO_API_KEY}

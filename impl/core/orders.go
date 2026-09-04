@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"strings"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/lib/sl"
@@ -14,11 +13,6 @@ import (
 )
 
 const (
-	ZohoLocation    = "Польша"
-	ZohoOrderSource = "OpenCart"
-
-	ChunkSize = 200
-
 	// paymentZohoIdError is a sentinel written into oc_order.zoho_payment_id when a
 	// payment cannot be created in Zoho due to non-transient errors (e.g. the linked
 	// Sales Order was deleted), so the order is not retried forever.
@@ -45,7 +39,7 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 		return "", fmt.Errorf("order search: %w", err)
 	}
 
-	zohoId, err := c.processOrder(order, existingZohoId, order.ClientDetails.IsB2B())
+	zohoId, err := c.processOrder(order, existingZohoId, c.site.IsB2B(order.ClientDetails.GroupId))
 	if err != nil {
 		return "", err
 	}
@@ -79,13 +73,13 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 		slog.String("coupon", order.CouponTitle),
 		slog.Float64("shipping", order.Shipping),
 		slog.String("shipping_method", order.ShippingMethod),
-		slog.String("post_type", mapPostType(order.ShippingCode, order.ShippingMethod)),
+		slog.String("post_type", c.site.PostType(order.ShippingCode, order.ShippingMethod)),
 		slog.String("name", fmt.Sprintf("%s : %s", order.ClientDetails.FirstName, order.ClientDetails.LastName)),
 		slog.String("country", order.ClientDetails.Country),
 		slog.String("tax_id", order.ClientDetails.TaxId),
 	)
 
-	if err := order.Validate(); err != nil {
+	if err := order.Validate(c.site.AllowedCurrency); err != nil {
 		log.With(sl.Err(err)).Warn("validation failed")
 		return "", err
 	}
@@ -127,7 +121,8 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 		if len(chunkedItems) > 0 {
 			c.log.With(
 				slog.Int("exceed quantity", len(chunkedItems)),
-			).Info("order contains > 200 items")
+				slog.Int("chunk_size", c.site.ChunkSize),
+			).Info("order exceeds one subform batch")
 
 			zohoOrder.Subject += " !"
 		}
@@ -208,14 +203,14 @@ func (c *Core) ProcessOrders() {
 			slog.Int64("order_id", order.OrderId),
 		)
 
-		if order.ClientDetails.IsB2B() {
+		if c.site.IsB2B(order.ClientDetails.GroupId) {
 			log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client")
 			_ = c.repo.ChangeOrderZohoId(order.OrderId, b2bZohoId)
 			continue
 		}
 
 		// GetNewOrders only returns orders with an empty zoho_id, so these are always creates.
-		zohoId, err := c.processOrder(order, "", order.ClientDetails.IsB2B())
+		zohoId, err := c.processOrder(order, "", c.site.IsB2B(order.ClientDetails.GroupId))
 		if err != nil {
 			log.With(sl.Err(err)).Error("process order failed")
 			continue
@@ -244,10 +239,10 @@ func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId strin
 		Currency:                order.Currency,
 		StripePaymentIntentID:   order.PaymentId,
 		StripeCheckoutSessionID: order.PaymentSessionId,
-		PaymentTime:             time.Now().Format("2006-01-02T15:04:05+02:00"),
+		PaymentTime:             time.Now().In(c.site.Location).Format("2006-01-02T15:04:05-07:00"),
 	}
 
-	payment.Status = entity.ConvertPaymentStatus(order.PaymentStatus)
+	payment.Status = c.site.PaymentStatus(order.PaymentStatus)
 
 	if order.ClientDetails != nil {
 		payment.Email = order.ClientDetails.Email
@@ -310,7 +305,7 @@ func (c *Core) updateZohoPayment(order *entity.CheckoutParams) {
 		return
 	}
 
-	zohoStatus := entity.ConvertPaymentStatus(order.PaymentStatus)
+	zohoStatus := c.site.PaymentStatus(order.PaymentStatus)
 	if err := c.zoho.UpdatePaymentStatus(zohoPaymentId, zohoStatus); err != nil {
 		log.With(sl.Err(err)).Error("update Zoho payment status")
 		return
@@ -558,12 +553,12 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 	var orderedItems []entity.OrderedItem
 	var chunkedItems [][]*entity.OrderedItem
 
-	if len(allItems) <= ChunkSize {
+	if len(allItems) <= c.site.ChunkSize {
 		orderedItems = allItems
 	} else {
-		orderedItems = allItems[:ChunkSize]
-		remaining := allItems[ChunkSize:]
-		chunkedItems = chunkSlice(remaining, ChunkSize)
+		orderedItems = allItems[:c.site.ChunkSize]
+		remaining := allItems[c.site.ChunkSize:]
+		chunkedItems = chunkSlice(remaining, c.site.ChunkSize)
 	}
 
 	return entity.ZohoOrder{
@@ -586,7 +581,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		Currency:        oc.Currency,
 		BillingCountry:  oc.ClientDetails.Country,
 		Carrier:         "",
-		Status:          "Нове",
+		Status:          c.site.NewOrderStatusName(),
 		SalesCommission: 0,
 		DueDate:         time.Now().Format("2006-01-02"),
 		BillingStreet:   oc.ClientDetails.Street,
@@ -594,14 +589,14 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		// Nothing is applied after tax. (Zoho's grand total ignores this field anyway — its
 		// formula is Sub_Total x (1 + VAT%).)
 		Adjustment:         0,
-		TermsAndConditions: "Standard terms apply.",
+		TermsAndConditions: c.site.ZohoTerms,
 		BillingCode:        oc.ClientDetails.ZipCode,
 		ProductDetails:     nil,
 		Subject:            fmt.Sprintf("Order #%d", oc.OrderId),
 		IDsite:             fmt.Sprintf("%d", oc.OrderId),
 		NIP:                oc.ClientDetails.TaxId,
-		Location:           ZohoLocation,
-		OrderSource:        ZohoOrderSource,
+		Location:           c.site.ZohoLocation,
+		OrderSource:        c.site.ZohoOrderSource,
 		Postcode:           oc.ClientDetails.ZipCode,
 		RecipientCountry:   oc.ClientDetails.Country,
 		RecipientRegion:    oc.ClientDetails.Region,
@@ -609,70 +604,8 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		RecipientAddress:   oc.ClientDetails.Street,
 		RecipientCityId:    recipientCityId(oc.ClientDetails),
 		PostTerminal:       oc.PostTerminal,
-		PostType:           mapPostType(oc.ShippingCode, oc.ShippingMethod),
+		PostType:           c.site.PostType(oc.ShippingCode, oc.ShippingMethod),
 	}, chunkedItems
-}
-
-// Zoho Post_type picklist values. Values not covered by the picklist (worldwide
-// delivery, FedEx) intentionally map to "" so omitempty drops the field and the
-// record stays at -None- for a manager to fill in.
-const (
-	postTypeInPost         = "InPost"
-	postTypeInPostCourier  = "InPost (кур'єр)"
-	postTypeInPostTerminal = "InPost (поштомат)"
-	postTypeDHLCourier     = "DHL (кур'єр)"
-	postTypePickup         = "Самовивіз"
-)
-
-// mapPostType maps an OpenCart shipping method to the corresponding Zoho Post_type value.
-//
-// The method name is matched first: shipping_method is stored in the customer's language
-// (Ukrainian, Polish or English), so matching is done on lowercased keywords across all
-// three. shipping_code is only a fallback, because production data holds rows where the
-// code and the name disagree (e.g. a "DHL Kurier" order carrying the InPost courier code).
-//
-// Returns an empty string when nothing matches, so omitempty drops the field.
-func mapPostType(shippingCode, shippingMethod string) string {
-	m := strings.ToLower(shippingMethod)
-
-	switch {
-	case strings.Contains(m, "inpost"):
-		// Paczkomat (pl) / поштомат (ua) / parcel machine (en)
-		if strings.Contains(m, "paczkomat") || strings.Contains(m, "поштомат") || strings.Contains(m, "parcel machine") {
-			return postTypeInPostTerminal
-		}
-		if isCourier(m) {
-			return postTypeInPostCourier
-		}
-		return postTypeInPost
-	case strings.Contains(m, "dhl"):
-		return postTypeDHLCourier
-	case strings.Contains(m, "pickup") || strings.Contains(m, "odbiór") || strings.Contains(m, "самовивіз"):
-		return postTypePickup
-	}
-
-	// Name unrecognised or empty: fall back to the shipping module code.
-	switch shippingCode {
-	case "filterit1.filterit0":
-		return postTypeInPostCourier
-	case "filterit1.filterit1":
-		return postTypeInPostTerminal
-	case "filterit0.filterit2":
-		return postTypeInPost
-	case "filterit0.filterit0", "filterit2.filterit0", "filterit2.filterit1", "dhl_country.dhl_country":
-		return postTypeDHLCourier
-	case "pickup.pickup":
-		return postTypePickup
-	default:
-		// filterit3.* (worldwide delivery) and fedex_country.* have no picklist value.
-		return ""
-	}
-}
-
-// isCourier reports whether a lowercased shipping method name says "courier" in any of
-// the three languages OpenCart stores it in.
-func isCourier(m string) bool {
-	return strings.Contains(m, "kurier") || strings.Contains(m, "кур'єр") || strings.Contains(m, "courier")
 }
 
 func recipientCityId(client *entity.ClientDetails) string {
@@ -709,7 +642,7 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 	}
 
 	// Split into chunks
-	chunkedItems := chunkSlice(allItems, ChunkSize)
+	chunkedItems := chunkSlice(allItems, c.site.ChunkSize)
 
 	order := entity.ZohoOrderB2B{
 		ContactName: entity.ContactName{ID: contactID},
@@ -721,13 +654,13 @@ func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (e
 		VAT:            round0(oc.TaxRate()),
 		Currency:       oc.Currency,
 		BillingCountry: oc.ClientDetails.Country,
-		Status:         c.statusesB2B[oc.StatusId],
-		Pipeline:       "B2B",
+		Status:         c.site.OrderStatusB2BName(oc.StatusId),
+		Pipeline:       c.site.B2BPipeline,
 		BillingStreet:  oc.ClientDetails.Street,
 		Subject:        fmt.Sprintf("Order #%d", oc.OrderId),
 		NIP:            oc.ClientDetails.TaxId,
-		Location:       ZohoLocation,
-		OrderSource:    ZohoOrderSource,
+		Location:       c.site.ZohoLocation,
+		OrderSource:    c.site.ZohoOrderSource,
 	}
 
 	setCurrencyTotals(&order, orderCurrency.Code,

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 	"zohoclient/entity"
+	"zohoclient/internal/config"
 	"zohoclient/internal/database/sql"
 )
 
@@ -49,7 +50,7 @@ func backfillCore(repo *backfillRepo, zoho *backfillZoho) *Core {
 		log:                slog.New(slog.NewTextHandler(io.Discard, nil)),
 		repo:               repo,
 		zoho:               zoho,
-		statuses:           map[int]string{1: "Нове"},
+		site:               config.DefaultSiteSettings(),
 		shippingItemZohoId: testShippingZohoID,
 	}
 }

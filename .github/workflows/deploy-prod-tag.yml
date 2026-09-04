@@ -29,6 +29,7 @@ jobs:
       - name: Prepare configuration file
         run: |
           sed -i 's|${LOG_ENV}|'"$LOG_ENV"'|g' zohoclient-config.yml
+          sed -i 's|${SITE_NAME}|'"$SITE_NAME"'|g' zohoclient-config.yml
           sed -i 's|${LISTEN_PORT}|'"$LISTEN_PORT"'|g' zohoclient-config.yml
           sed -i 's|${API_KEY}|'"$API_KEY"'|g' zohoclient-config.yml
           sed -i 's|${SQL_DRIVER}|'"$SQL_DRIVER"'|g' zohoclient-config.yml
@@ -55,6 +56,7 @@ jobs:
           sed -i 's|${REPO_PROD_URL}|'"$REPO_PROD_URL"'|g' zohoclient-config.yml
         env:
           LOG_ENV: ${{ vars.LOG_ENV }}
+          SITE_NAME: ${{ vars.SITE_NAME }}
           SQL_DRIVER: ${{ vars.SQL_DRIVER }}
           SQL_HOSTNAME: ${{ vars.SQL_HOSTNAME }}
           SQL_USERNAME: ${{ vars.SQL_USERNAME }}

@@ -53,17 +53,58 @@ Note: Most testing is done via integration testing against live databases and AP
 
 ## Configuration
 
-Configuration is managed via YAML files. The template is `config.yml` but the production config is `zohoclient-config.yml` (which uses environment variable placeholders for CI/CD).
+Configuration is managed via YAML files. The template is `config.yml`; the production configs are
+`zohoclient-config.yml` (shop 1) and `zohoclient-config-ua.yml` (shop 2, the UA site), which use environment
+variable placeholders for CI/CD.
+
+**One process serves one OpenCart shop.** A second shop runs a second process with its own config
+file, systemd unit (`zohoclient-ua.service`) and listen port. Nothing in the code is
+multi-tenant.
+
+Three things must never be shared between instances:
+- **The log file.** `site.log_file` names it inside the `-log` directory (default `zohoclient.log`);
+  it is read straight off `Config` rather than through `SiteSettings`, because the logger is built
+  before the settings are resolved.
+- **The Telegram bot token.** `bot/tgbot.go` receives commands via `getUpdates` long polling, and
+  Telegram permits only one such connection per token — two instances sharing one would keep
+  terminating each other's poll with 409 Conflict.
+- **The Mongo database.** Order versions are keyed by `order_id` alone (the `orders` collection in
+  `internal/database/mongo/mongo.go`) and OpenCart order ids restart from 1 per shop, so a shared
+  database would mix unrelated orders into one document. The Mongo *server* can be shared.
 
 **Key configuration sections:**
 - `env`: Environment name for logging (local, production, etc.)
 - `sql`: OpenCart database connection (can be disabled with `enabled: false`)
 - `telegram`: Optional Telegram bot for admin notifications
-- `zoho`: Zoho CRM API credentials (OAuth refresh token flow)
+- `site`: **everything that differs between shops** — status ids, B2B groups, language id, custom
+  field ids, poll windows, shipping code map, and the feature flags for the optional subsystems
+- `zoho`: Zoho CRM API credentials (OAuth refresh token flow) plus the picklist values written onto
+  records (field API *names* stay fixed in `entity/` — all shops share one Zoho org)
 - `prod_repo`: External product repository API for fetching Zoho product IDs
 - `listen`: HTTP API server settings (bind IP, port, authentication key)
 
-See `docs/config.md` for detailed configuration structure.
+See `docs/config.md` for the full key reference.
+
+**Site settings (`internal/config/site.go`)**
+- `Config.SiteSettings()` resolves the `site:` and `zoho:` sections into a validated, immutable
+  `SiteSettings`, applying `DefaultSiteSettings()` for every omitted key — so an old config file
+  keeps its exact previous behaviour. `main.go` fails the process on a validation error and logs
+  the resolved settings (`site settings resolved`).
+- `SiteSettings` is injected into `sql.NewSQLClient`, `services.NewZohoService`, `core.New` and
+  `api.New`. Anything shop-specific belongs there, not in a package-level constant.
+- Helper methods replace what used to be free functions: `IsB2B`, `CustomerCategory`, `PostType`,
+  `PaymentStatus`, `OrderStatusName`, `OrderStatusIdByName`, `TotalCode`, `AllowedCurrency`.
+- Feature flags (`site.features.payments` / `customer_sync` / `b2b`, plus `smartsender.enabled`)
+  make a subsystem inert, not merely idle: with one off the service never creates or reads the
+  columns it owns. `orderColumns()` in `statements.go` drops the `wf_payment_*` group from every
+  order SELECT when payments are off, and `scanOrderFromRows` matches.
+- `impl/core/testdata/zoho_order.golden.json` pins the exact Sales Order payload for a fixed order
+  under the defaults. Treat a diff there as a production behaviour change, not a test to update.
+- `zoho.order_status_map` runs in both directions and they are NOT symmetric. Outbound,
+  `buildZohoOrder` always stamps `NewOrderStatusName()` (the `order_statuses.new` entry) — Zoho
+  owns the status after that, so deriving it from the OpenCart status would let a re-push overwrite
+  a status a Zoho user had moved on. Inbound, `OrderStatusIdByName` resolves through the whole map,
+  so every status a Zoho user can set needs an entry. Do not trim the map.
 
 ## Code Architecture
 
@@ -127,10 +168,10 @@ docs/                       # API documentation (apiv1.md, config.md)
 ### Data Flow
 
 1. **Order Retrieval** (`database.GetNewOrders()`)
-   - Fetches orders with statuses: New (1), Pending (2), PrepareForShipping (5), Payed (17), PaymentLinkRequest (22), PaymentLinkCreated (23)
+   - Fetches orders with the statuses in `site.order_statuses.poll` — by default New (1), Pending (2), PrepareForShipping (5), Payed (17), PaymentLinkRequest (22), PaymentLinkCreated (23)
    - The payment-link statuses are included so an order that stalls anywhere in the wfsync flow (confirmed → 2 → 22 request → 23 link created → 17 paid) still reaches Zoho even if the customer never pays; its payment record is created/updated later once wfsync reports a payment status
-   - Only processes orders modified in the last 30 days, and skips any already synced (`zoho_id` set)
-   - Excludes B2B orders (identified by customer group ID)
+   - Only processes orders modified in the last `site.lookback_days` days (default 30), and skips any already synced (`zoho_id` set)
+   - Excludes B2B orders (customer groups listed in `site.b2b_group_ids`)
 
 2. **Validation** (`impl/core/orders.go:85-103`)
    - Checks for empty product UIDs (fails fast)
@@ -139,8 +180,9 @@ docs/                       # API documentation (apiv1.md, config.md)
 
 3. **Order Building** (`buildZohoOrder()`)
    - Converts OpenCart money values (stored as cents) to floats
-   - Chunks line items if >100 items (Zoho API limitation)
-   - Adds metadata: location="Польша", source="OpenCart"
+   - Chunks line items beyond `zoho.chunk_size` (Zoho API limitation)
+   - Adds metadata from config: `zoho.location`, `zoho.order_source`, and the Status mapped from
+     the OpenCart status via `zoho.order_status_map`
 
 4. **Zoho Sync** (`impl/core/orders.go:107-142`)
    - Creates contact (handles duplicates gracefully)
@@ -164,7 +206,7 @@ docs/                       # API documentation (apiv1.md, config.md)
   - wfsync **writes**, zoho-client **reads**: `wf_payment_status` VARCHAR(32), `wf_payment_id` VARCHAR(64), `wf_payment_amount` BIGINT (cents), `wf_payment_session` VARCHAR(128). zoho-client (re)creates these defensively in `sql-client.go` so deploy order / a fresh DB never breaks reads — **definitions must stay identical to wfsync's** (`opencart/database/sql-client.go`).
   - zoho-client owns: `zoho_id`, `zoho_payment_id`, `zoho_payment_status`, `zoho_modified_time` (order); `zoho_id` (product, customer).
 - **Order status 17 coordination**: wfsync sets `order_status_id = 17` when a Stripe hold is confirmed (`requires_capture`). zoho-client polls statuses {1,5,17} and treats 17 as a sync trigger — at that point `wf_payment_status = "requires_capture"` maps to Zoho "Кошти зарезервовано" (held), which is correct.
-- **Payment status vocabulary**: `entity/payment-status.go` maps every Stripe/wfsync status string wfsync can write into the Zoho Payments picklist. Keep this map complete if wfsync's status values change.
+- **Payment status vocabulary**: `entity/payment-status.go` maps every Stripe/wfsync status string wfsync can write onto a *logical* payment state (`entity.PaymentKey*`); `zoho.payment_statuses` in the config then maps those states onto the Zoho Payments picklist. Keep the entity map complete if wfsync's status values change.
 - **Payment status advancement**: a Zoho Payments record is created once (`createZohoPayment`), recording the synced status in `zoho_payment_status`. `ProcessPaymentUpdates()` detects when `wf_payment_status` later advances (e.g. held → paid) and pushes the new status via `ZohoService.UpdatePaymentStatus` — so a captured payment is not left stuck at "held".
 
 **Money Handling**
@@ -183,11 +225,12 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Token refresh happens automatically before each API call with 3 retry attempts
 
 **B2B Orders**
-- Identified by `customer_group_id` via `ClientDetails.IsB2B()`
+- Identified by `customer_group_id` via `SiteSettings.IsB2B()` (config `site.b2b_group_ids`)
 - Skipped from Zoho sync but marked with `zoho_id = "[B2B]"`
 
 **Database Schema Modifications**
-- Application automatically adds `zoho_id VARCHAR(64)` columns to OpenCart tables
+- Application automatically adds `zoho_id VARCHAR(64)` columns to OpenCart tables; the payment and
+  customer-sync column families are only created when their feature flag is on
 - Uses prepared statements stored in `statements` map for performance
 - Connection pooling: 50 max open, 10 max idle, 1-hour lifetime
 
