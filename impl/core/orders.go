@@ -581,7 +581,7 @@ func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (enti
 		Currency:        oc.Currency,
 		BillingCountry:  oc.ClientDetails.Country,
 		Carrier:         "",
-		Status:          c.site.OrderStatusName(oc.StatusId),
+		Status:          c.site.NewOrderStatusName(),
 		SalesCommission: 0,
 		DueDate:         time.Now().Format("2006-01-02"),
 		BillingStreet:   oc.ClientDetails.Street,

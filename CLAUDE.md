@@ -100,6 +100,11 @@ See `docs/config.md` for the full key reference.
   order SELECT when payments are off, and `scanOrderFromRows` matches.
 - `impl/core/testdata/zoho_order.golden.json` pins the exact Sales Order payload for a fixed order
   under the defaults. Treat a diff there as a production behaviour change, not a test to update.
+- `zoho.order_status_map` runs in both directions and they are NOT symmetric. Outbound,
+  `buildZohoOrder` always stamps `NewOrderStatusName()` (the `order_statuses.new` entry) — Zoho
+  owns the status after that, so deriving it from the OpenCart status would let a re-push overwrite
+  a status a Zoho user had moved on. Inbound, `OrderStatusIdByName` resolves through the whole map,
+  so every status a Zoho user can set needs an entry. Do not trim the map.
 
 ## Code Architecture
 

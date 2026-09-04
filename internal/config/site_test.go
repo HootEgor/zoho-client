@@ -224,3 +224,26 @@ func TestSiteSettings_PaymentStatusesUncheckedWhenPaymentsOff(t *testing.T) {
 		t.Fatalf("SiteSettings() error = %v, want nil", err)
 	}
 }
+
+// TestNewOrderStatusName_IsNotDerivedFromOrderStatus pins the asymmetry between the two
+// directions: the Sales Order the sync writes always carries the new-order status, whatever the
+// OpenCart status happens to be, while the reverse lookup still resolves every mapped name.
+// Deriving the forward status from the OpenCart one would let a re-push overwrite a status a Zoho
+// user had already moved on.
+func TestNewOrderStatusName_IsNotDerivedFromOrderStatus(t *testing.T) {
+	s := DefaultSiteSettings()
+
+	if got := s.NewOrderStatusName(); got != "Нове" {
+		t.Errorf("NewOrderStatusName() = %q, want Нове", got)
+	}
+	// Reverse direction keeps the full map: a webhook carrying any mapped name resolves.
+	for name, want := range map[string]int{
+		"Нове":              1,
+		"Перевірка та збір": 5,
+		"Оплачено, формування ТТН": 17,
+	} {
+		if got := s.OrderStatusIdByName(name); got != want {
+			t.Errorf("OrderStatusIdByName(%q) = %d, want %d", name, got, want)
+		}
+	}
+}

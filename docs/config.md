@@ -110,14 +110,22 @@ fixed in `entity/zoho-order.go`.
 | `terms` | `Standard terms apply.` | `Terms_and_Conditions` |
 | `chunk_size` | `200` | Max subform rows per Sales Order API call |
 | `b2b_pipeline` | `B2B` | Deals pipeline name |
-| `order_status_map` | see template | `order_status_id` → Zoho `Status`, and its reverse for inbound webhooks |
+| `order_status_map` | see template | `order_status_id` → Zoho `Status` name, **and its reverse** for inbound webhooks |
 | `order_status_b2b_map` | see template | the same for the Deals pipeline |
 | `post_types` | see template | logical post-type key → `Post_type` picklist |
 | `payment_statuses` | see template | logical payment state → Payments status picklist |
 
-A polled status with no entry in `order_status_map` falls back to the name mapped for
-`site.order_statuses.new` — the payment-link statuses describe where an order sits in the wfsync
-flow, not a state Zoho has a name for.
+`order_status_map` is used in **both** directions, and they are not symmetric:
+
+- **Outbound**, a Sales Order the sync creates or overwrites always carries the name mapped for
+  `order_statuses.new`, whatever the OpenCart status is. Zoho owns the record's status from there,
+  so deriving it from OpenCart would let a re-push overwrite a status a Zoho user had moved on.
+- **Inbound**, a status arriving on a Zoho webhook is resolved back to an OpenCart id through the
+  whole map, so every status a Zoho user can set needs an entry here.
+
+Because of that, do not trim the map to just the new-order status: that would leave inbound
+webhooks unable to resolve any other status, and they would be logged as
+`unknown status name from Zoho, keeping current`.
 
 The Stripe/wfsync status strings that feed `payment_statuses` are a contract with wfsync, not a
 per-site setting, and live in `entity/payment-status.go`.

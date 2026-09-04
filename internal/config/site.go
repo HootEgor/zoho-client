@@ -377,12 +377,23 @@ func (s *SiteSettings) AllowedCurrency(code string) bool {
 	return false
 }
 
-// OrderStatusName maps an OpenCart order_status_id to the Zoho Sales Order Status picklist value.
+// NewOrderStatusName is the Zoho Status stamped on a Sales Order the sync creates or overwrites.
 //
-// Not every polled status needs a mapping — the payment-link statuses, for instance, describe
-// where an order sits in the wfsync flow, not a state Zoho has a name for. Those fall back to the
-// new-order status, which is what the Sales Order carried before any of this was configurable.
-// validate() guarantees that fallback exists, so this never returns "".
+// It is deliberately NOT derived from the order's OpenCart status. The two directions are not
+// symmetric: OpenCart drives the order forward through statuses the sync does not represent (the
+// payment-link states, and anything a manager sets), whereas the Sales Order the sync writes is
+// the order as placed. Zoho then owns the record's status from there — which is what the reverse
+// path (OrderStatusIdByName) brings back. Deriving it from the OpenCart status would let a
+// re-push overwrite a status a Zoho user had moved on.
+//
+// validate() guarantees order_status_map has an entry for order_statuses.new, so this is never "".
+func (s *SiteSettings) NewOrderStatusName() string {
+	return s.orderStatus[s.StatusNew]
+}
+
+// OrderStatusName maps an OpenCart order_status_id to the Zoho Sales Order Status picklist value,
+// falling back to the new-order status for an unmapped id. Used for the B2B pipeline and for
+// logging; the Sales Order sync uses NewOrderStatusName.
 func (s *SiteSettings) OrderStatusName(statusId int) string {
 	if name, ok := s.orderStatus[statusId]; ok {
 		return name
