@@ -1,6 +1,10 @@
 ---
 
 env: ${LOG_ENV}
+# Flip to true to run against the live shop without writing anything to Zoho, then restart the
+# service. Deliberately not a deploy variable: it is a temporary switch, so it is edited here on the
+# server and a deploy resets it to false.
+dry_run: false
 sql:
   enabled: true
   driver: ${SQL_DRIVER}

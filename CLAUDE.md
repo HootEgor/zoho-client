@@ -229,6 +229,14 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Also handles `MULTIPLE_OR_MULTI_ERRORS` with embedded duplicate info
 - Token refresh happens automatically before each API call with 3 retry attempts
 
+**Dry run**
+- `dry_run: true` (top level, not under `site:`) stops every write to Zoho while leaving polling,
+  validation and product resolution running; the built Sales Order is logged instead of sent.
+- Crucially it does not record `zoho_id`, so nothing is marked synced and the queued orders sync
+  normally once it is switched off. `processOrder` returns an empty id in this mode, and both
+  callers treat that as "nothing to record" — `PushOrderToZoho` must not write it back or it would
+  wipe an existing id.
+
 **Seeding a new shop**
 - A shop whose database is copied from an existing one starts with years of orders the poller
   would push to Zoho. `./zohoclient -conf=… -mark-synced -apply` stamps every order with no

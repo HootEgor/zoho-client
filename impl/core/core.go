@@ -97,6 +97,7 @@ type Core struct {
 	zoho               Zoho
 	ms                 MessageService
 	site               *config.SiteSettings
+	dryRun             bool
 	shippingItemZohoId string
 	authKey            string
 	keys               map[string]string
@@ -122,6 +123,7 @@ func New(log *slog.Logger, conf config.Config, site *config.SiteSettings) *Core 
 	return &Core{
 		log:             log.With(sl.Module("core")),
 		site:            site,
+		dryRun:          conf.DryRun,
 		authKey:         conf.Listen.ApiKey,
 		keys:            make(map[string]string),
 		stopCh:          make(chan struct{}),
@@ -192,6 +194,11 @@ func (c *Core) GetStatusIdByName(statusName string) int {
 }
 
 func (c *Core) Start() {
+	if c.dryRun {
+		c.log.Warn("DRY RUN: no records will be created or updated in Zoho, and no order will be " +
+			"marked synced; product Zoho ids are still resolved and stored")
+	}
+
 	if c.zoho == nil {
 		c.log.Error("zoho service not set")
 		return
@@ -219,8 +226,9 @@ func (c *Core) Start() {
 			default:
 				c.ProcessOrders()
 				// The payment pollers read the wfsync wf_payment_* columns, which a site
-				// without wfsync does not have at all.
-				if c.site.Payments {
+				// without wfsync does not have at all. Both create or update Zoho Payments
+				// records, so dry-run skips them.
+				if c.site.Payments && !c.dryRun {
 					c.ProcessPendingPayments()
 					c.ProcessPaymentUpdates()
 				}
@@ -235,7 +243,8 @@ func (c *Core) Start() {
 		}
 	}()
 
-	if c.site.CustomerSync {
+	// The customer sync upserts Contacts into Zoho, so dry-run leaves it stopped.
+	if c.site.CustomerSync && !c.dryRun {
 		go func() {
 			ticker := time.NewTicker(c.site.CustomerPollInterval)
 			defer ticker.Stop()

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"zohoclient/entity"
@@ -367,5 +368,53 @@ func TestZohoOrderExists_Sentinels(t *testing.T) {
 		if got := zohoOrderExists(zohoId); got != want {
 			t.Errorf("zohoOrderExists(%q) = %v, want %v", zohoId, got, want)
 		}
+	}
+}
+
+// dryRunZoho fails every call: under dry-run nothing at all may reach Zoho.
+type dryRunZoho struct{ fakeZoho }
+
+func (z *dryRunZoho) CreateContact(*entity.ClientDetails) (string, error) {
+	return "", fmt.Errorf("CreateContact must not be called in dry run")
+}
+
+func (z *dryRunZoho) CreateOrder(entity.ZohoOrder) (string, string, error) {
+	return "", "", fmt.Errorf("CreateOrder must not be called in dry run")
+}
+
+func (z *dryRunZoho) UpdateOrder(entity.ZohoOrder, string) (string, error) {
+	return "", fmt.Errorf("UpdateOrder must not be called in dry run")
+}
+
+// TestProcessOrders_DryRun: the read side still runs, but nothing reaches Zoho and — the part that
+// matters — no zoho_id is recorded, so the order still syncs for real once dry-run is switched off.
+func TestProcessOrders_DryRun(t *testing.T) {
+	repo := &fakeRepo{zohoId: "", order: pushableOrder()}
+	core := pushTestCore(repo, &fakeZoho{})
+	core.zoho = &dryRunZoho{}
+	core.dryRun = true
+
+	zohoId, err := core.processOrder(pushableOrder(), "", false)
+	if err != nil {
+		t.Fatalf("processOrder() error = %v", err)
+	}
+	if zohoId != "" {
+		t.Errorf("zohoId = %q, want empty so nothing is marked synced", zohoId)
+	}
+}
+
+// A re-push under dry-run must not wipe an order's existing zoho_id.
+func TestPushOrderToZoho_DryRunKeepsExistingId(t *testing.T) {
+	repo := &fakeRepo{zohoId: "5891234000001", order: pushableOrder()}
+	core := pushTestCore(repo, &fakeZoho{})
+	core.zoho = &dryRunZoho{}
+	core.dryRun = true
+
+	if _, err := core.PushOrderToZoho(16939); err != nil {
+		t.Fatalf("PushOrderToZoho() error = %v", err)
+	}
+	if repo.changeZohoIdCalls != 0 {
+		t.Errorf("ChangeOrderZohoId called %d time(s) in dry run, want 0 (it would have written %q)",
+			repo.changeZohoIdCalls, repo.changedTo)
 	}
 }

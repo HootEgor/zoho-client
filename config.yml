@@ -1,6 +1,11 @@
 ---
 
 env: local               # Environment for logging
+# Stops the service writing anything to Zoho. Orders are still polled, validated and built, and
+# missing product Zoho ids are still resolved from prod_repo and stored, so order monitoring and
+# product search can be exercised against a live shop. Nothing is marked synced, so switching it
+# back off lets the queued orders sync normally.
+dry_run: false
 sql:
   enabled: false         # Enable or disable SQL connection
   driver: mysqli         # Database driver

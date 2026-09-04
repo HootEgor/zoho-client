@@ -22,6 +22,10 @@ const (
 	// from the Sales_Orders sync. It is not a real Zoho record id.
 	b2bZohoId = "[B2B]"
 
+	// dryRunContactId stands in for a real Contact id while dry-run is on, so the Sales Order can
+	// still be built and logged without creating a Contact record in Zoho.
+	dryRunContactId = "[DRY-RUN]"
+
 	// skippedZohoId is a sentinel written into oc_order.zoho_id for orders that predate the sync
 	// on this shop — history carried over when the database was seeded. They are deliberately
 	// never pushed to Zoho. Written once by the -mark-synced maintenance run. Not a real Zoho
@@ -50,8 +54,10 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 		return "", err
 	}
 
-	// An update keeps the same id; only a create needs to be written back.
-	if zohoId != existingZohoId {
+	// An update keeps the same id; only a create needs to be written back. An empty id means
+	// dry-run built the order without sending it, so there is nothing to record — and writing it
+	// would wipe an existing zoho_id.
+	if zohoId != "" && zohoId != existingZohoId {
 		if err = c.repo.ChangeOrderZohoId(orderId, zohoId); err != nil {
 			return zohoId, fmt.Errorf("update zoho_id in database: %w", err)
 		}
@@ -106,15 +112,21 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 		return "", err
 	}
 
-	// Create or find contact in Zoho
-	contactID, err := c.zoho.CreateContact(order.ClientDetails)
-	if err != nil {
-		log.With(
-			slog.String("email", order.ClientDetails.Email),
-			slog.String("phone", order.ClientDetails.Phone),
-			sl.Err(err),
-		).Error("create contact")
-		return "", fmt.Errorf("create contact: %w", err)
+	// Create or find contact in Zoho. Under dry-run nothing is created: the order is still built
+	// and reported so order monitoring and product resolution can be exercised, but the Contact
+	// lookup is filled with a placeholder.
+	contactID := dryRunContactId
+	if !c.dryRun {
+		var err error
+		contactID, err = c.zoho.CreateContact(order.ClientDetails)
+		if err != nil {
+			log.With(
+				slog.String("email", order.ClientDetails.Email),
+				slog.String("phone", order.ClientDetails.Phone),
+				sl.Err(err),
+			).Error("create contact")
+			return "", fmt.Errorf("create contact: %w", err)
+		}
 	}
 
 	// Validate product UIDs
@@ -136,6 +148,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 	zohoId := ""
 	zohoModifiedTime := ""
 	infoTag := "order created"
+	var err error
 	isUpdate := zohoOrderExists(existingZohoId)
 	if !isB2B {
 		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
@@ -147,6 +160,15 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 			).Info("order exceeds one subform batch")
 
 			zohoOrder.Subject += " !"
+		}
+
+		// Dry-run stops here: everything up to and including building the payload has run, so
+		// polling, validation, product resolution and the money arithmetic are all exercised, but
+		// nothing is written to Zoho and no zoho_id is recorded — the order stays queued and syncs
+		// for real once dry-run is switched off.
+		if c.dryRun {
+			c.reportDryRunOrder(log, zohoOrder)
+			return "", nil
 		}
 
 		if isUpdate {
@@ -210,6 +232,26 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 	return zohoId, nil
 }
 
+// reportDryRunOrder logs the Sales Order that would have been sent. The whole payload goes out at
+// debug level so the field values can be checked against Zoho, with a one-line summary at info
+// level for a quick read of a batch.
+func (c *Core) reportDryRunOrder(log *slog.Logger, order entity.ZohoOrder) {
+	log = log.With(
+		slog.String("subject", order.Subject),
+		slog.Int("items", len(order.OrderedItems)),
+		slog.Float64("grand_total", order.GrandTotal),
+		slog.Float64("sub_total", order.SubTotal),
+		slog.Float64("vat", order.VAT),
+		slog.String("status", order.Status),
+		slog.String("post_type", order.PostType),
+		slog.String("location", order.Location),
+	)
+	if payload, err := json.Marshal(order); err == nil {
+		log = log.With(slog.String("payload", string(payload)))
+	}
+	log.Info("dry run: order built, nothing sent to Zoho")
+}
+
 // ProcessOrders fetches all new orders from the database and pushes them to Zoho CRM.
 // B2B orders are skipped and marked with "[B2B]" zoho_id. Orders with missing product
 // UIDs or Zoho IDs are skipped until the missing data is available.
@@ -227,7 +269,9 @@ func (c *Core) ProcessOrders() {
 
 		if c.site.IsB2B(order.ClientDetails.GroupId) {
 			log.With(slog.Int64("group_id", order.ClientDetails.GroupId)).Debug("b2b client")
-			_ = c.repo.ChangeOrderZohoId(order.OrderId, b2bZohoId)
+			if !c.dryRun {
+				_ = c.repo.ChangeOrderZohoId(order.OrderId, b2bZohoId)
+			}
 			continue
 		}
 
@@ -235,6 +279,12 @@ func (c *Core) ProcessOrders() {
 		zohoId, err := c.processOrder(order, "", c.site.IsB2B(order.ClientDetails.GroupId))
 		if err != nil {
 			log.With(sl.Err(err)).Error("process order failed")
+			continue
+		}
+
+		// Dry-run returns no id because nothing was created; recording one would mark the order
+		// synced and it would never reach Zoho for real.
+		if zohoId == "" {
 			continue
 		}
 

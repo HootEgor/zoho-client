@@ -13,6 +13,7 @@ files, whose `${PLACEHOLDER}` values the deploy workflows substitute.
 | Section | Purpose |
 |---|---|
 | `env` | Environment name used by the logger (`local`, `production`, …) |
+| `dry_run` | Stops all writes to Zoho while leaving the read side running — see below |
 | `sql` | OpenCart MySQL connection; `enabled: false` runs the service without a database |
 | `mongo` | Optional order-version archive — **one database per instance**, see below |
 | `telegram` | Optional admin notification bot — **one bot token per instance**, see below |
@@ -34,6 +35,29 @@ Two instances must not share a `telegram.api_key`. Notifications (`sendMessage`)
 both, but the bot also long-polls `getUpdates` for the `/level` command, and Telegram allows only
 one such connection per token — the instances would keep terminating each other's poll with
 409 Conflict. Give each shop its own bot; `telegram.bot_name` then also tells their messages apart.
+
+## `dry_run`
+
+`dry_run: true` lets an instance run against a live shop without creating anything in Zoho. Useful
+for a new site: you can watch order monitoring and product resolution work before letting records
+through.
+
+**Still runs:** order polling, validation, currency and status resolution, the product Zoho id
+lookup through `prod_repo` (including writing the resolved id to `oc_product.zoho_id`), the money
+arithmetic, and the built Sales Order payload — logged in full at debug level, with a summary line
+at info.
+
+**Suppressed:** Contact creation, Sales Order create/update, Payments create/update, the customer
+sync goroutine, the `[B2B]` marking, and — the important one — writing `zoho_id` back to
+`oc_order`. Nothing is marked synced, so switching `dry_run` back off lets every queued order sync
+normally.
+
+**Not affected:** the inbound HTTP API. A Zoho webhook still updates the OpenCart database, because
+that is not a push to Zoho.
+
+It is deliberately not a deploy variable. Flip it in `/etc/conf/<instance>.yml` and restart the
+service; a deploy resets it to `false`, which is the fail-safe direction. Startup logs a `DRY RUN`
+warning so an instance left in this mode is obvious.
 
 ## The `site` section
 
