@@ -151,10 +151,9 @@ docs/                       # API documentation (apiv1.md, config.md)
 **internal/services/ProductRepo**
 - Fetches product Zoho IDs from external REST API using Basic Auth
 - Used when OpenCart products don't have `zoho_id` populated yet
-- `prod_repo.site_code` scopes the lookup: `.../product/{site_code}/{uid}`. The repository holds one
-  Zoho product id per site, so an unscoped lookup returns the default site's ids and Zoho rejects
-  the resulting Sales Order with `FILTER_CRITERIA_NOT_SATISFIED`. Empty falls back to the old
-  `.../product/{uid}` path.
+- `prod_repo.site_code` scopes the lookup: `GET /bot/product/{uid}?site={site_code}`. The repository
+  holds one Zoho product id per site, so a lookup without it returns the default site's ids and Zoho
+  rejects the resulting Sales Order with `FILTER_CRITERIA_NOT_SATISFIED`. Empty omits the parameter.
 - Only products with an empty `oc_product.zoho_id` are fetched. A database seeded from another shop
   carries that shop's ids and must have them cleared to be re-fetched.
 

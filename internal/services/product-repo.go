@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
 	"zohoclient/internal/lib/sl"
@@ -15,9 +16,9 @@ import (
 type ProductRepo struct {
 	login    string
 	password string
-	// productUrl is the repository's product endpoint. siteCode, when set, is inserted as a path
-	// segment before the product UID: the repository holds one Zoho product id per site, and
-	// without the code it answers with the default site's ids.
+	// productUrl is the repository's product endpoint. siteCode, when set, is sent as the "site"
+	// query parameter: the repository holds one Zoho product id per site, and without the
+	// parameter it answers with the default site's ids.
 	productUrl string
 	siteCode   string
 	log        *slog.Logger
@@ -44,17 +45,23 @@ func (p *ProductRepo) GetProductZohoID(productUID string) (string, error) {
 		return "", fmt.Errorf("product UID is empty")
 	}
 
-	// .../product/{site_code}/{uid} once a site code is configured, .../product/{uid} without one.
-	// The unscoped form is kept so a deployment keeps working until the repository's per-site
-	// endpoint is live and the code is set — it answers with the default site's ids.
-	segments := []string{productUID}
-	if p.siteCode != "" {
-		segments = []string{p.siteCode, productUID}
-	}
-
-	fullURL, err := buildURL(p.productUrl, segments...)
+	fullURL, err := buildURL(p.productUrl, productUID)
 	if err != nil {
 		return "", err
+	}
+
+	// GET /bot/product/{uid}?site={site_code}. The parameter is optional: without it the
+	// repository answers with the default site's ids, which is what an unconfigured deployment
+	// relied on before per-site ids existed.
+	if p.siteCode != "" {
+		u, parseErr := url.Parse(fullURL)
+		if parseErr != nil {
+			return "", fmt.Errorf("parse product url: %w", parseErr)
+		}
+		q := u.Query()
+		q.Set("site", p.siteCode)
+		u.RawQuery = q.Encode()
+		fullURL = u.String()
 	}
 
 	req, err := http.NewRequest(http.MethodGet, fullURL, nil)

@@ -132,11 +132,16 @@ per-site setting, and live in `entity/payment-status.go`.
 
 ## `prod_repo.site_code`
 
-The repository holds one Zoho product id per site. With `site_code` set, lookups go to
-`.../product/{site_code}/{uid}`; left empty they use the older `.../product/{uid}`, which answers
-with the default site's ids. A shop querying unscoped gets another shop's product ids, and Zoho
-then rejects the Sales Order with `FILTER_CRITERIA_NOT_SATISFIED` on
-`Ordered_Items[].Product_Name.id`.
+The repository holds one Zoho product id per site:
+
+```
+GET /bot/product/{uid}?site={site_code}
+```
+
+`site_code` is optional — left empty the parameter is omitted and the repository answers with the
+default site's ids. A shop querying without it gets another shop's product ids, and Zoho then
+rejects the Sales Order with `FILTER_CRITERIA_NOT_SATISFIED` on
+`Ordered_Items[].Product_Name.id`. It is an opaque code, not a number, so quote it (e.g. `"00005"`).
 
 Note that this only affects products the service *looks up*. A product whose `oc_product.zoho_id`
 is already populated is never re-fetched — see `processProductsWithoutZohoID`. On a database seeded

@@ -115,9 +115,9 @@ type Config struct {
 		Login    string `yaml:"login" env-default:""`
 		Password string `yaml:"password" env-default:""`
 		ProdUrl  string `yaml:"prod_url" env-default:""`
-		// SiteCode scopes product lookups to this shop: .../product/{site_code}/{uid}. The
-		// repository holds one Zoho product id per site, so without it the default site's ids come
-		// back. Left empty, the old unscoped .../product/{uid} path is used.
+		// SiteCode scopes product lookups to this shop, sent as ?site=<code>. The repository holds
+		// one Zoho product id per site, so without it the default site's ids come back. It is an
+		// opaque code, not a number: keep it quoted in YAML so leading zeros read as intentional.
 		SiteCode string `yaml:"site_code" env-default:""`
 	} `yaml:"prod_repo"`
 	Listen struct {
