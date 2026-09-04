@@ -13,9 +13,13 @@ import (
 )
 
 type ProductRepo struct {
-	login      string
-	password   string
+	login    string
+	password string
+	// productUrl is the repository's product endpoint. siteCode, when set, is inserted as a path
+	// segment before the product UID: the repository holds one Zoho product id per site, and
+	// without the code it answers with the default site's ids.
 	productUrl string
+	siteCode   string
 	log        *slog.Logger
 }
 
@@ -24,6 +28,7 @@ func NewProductRepo(conf *config.Config, log *slog.Logger) (*ProductRepo, error)
 		login:      conf.ProdRepo.Login,
 		password:   conf.ProdRepo.Password,
 		productUrl: conf.ProdRepo.ProdUrl,
+		siteCode:   conf.ProdRepo.SiteCode,
 		log:        log.With(sl.Module("product-repo")),
 	}
 
@@ -39,7 +44,15 @@ func (p *ProductRepo) GetProductZohoID(productUID string) (string, error) {
 		return "", fmt.Errorf("product UID is empty")
 	}
 
-	fullURL, err := buildURL(p.productUrl, productUID)
+	// .../product/{site_code}/{uid} once a site code is configured, .../product/{uid} without one.
+	// The unscoped form is kept so a deployment keeps working until the repository's per-site
+	// endpoint is live and the code is set — it answers with the default site's ids.
+	segments := []string{productUID}
+	if p.siteCode != "" {
+		segments = []string{p.siteCode, productUID}
+	}
+
+	fullURL, err := buildURL(p.productUrl, segments...)
 	if err != nil {
 		return "", err
 	}

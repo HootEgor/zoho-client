@@ -18,7 +18,7 @@ files, whose `${PLACEHOLDER}` values the deploy workflows substitute.
 | `telegram` | Optional admin notification bot — **one bot token per instance**, see below |
 | `site` | **Everything that differs between shops** — see below |
 | `zoho` | Zoho OAuth credentials plus the picklist vocabulary written onto records |
-| `prod_repo` | External product repository used to fill in missing product Zoho IDs |
+| `prod_repo` | External product repository used to fill in missing product Zoho IDs; `site_code` scopes lookups per shop |
 | `listen` | HTTP API bind address, port and bearer key |
 | `smartsender` | Optional SmartSender ↔ Zoho Functions chat sync |
 
@@ -129,6 +129,19 @@ webhooks unable to resolve any other status, and they would be logged as
 
 The Stripe/wfsync status strings that feed `payment_statuses` are a contract with wfsync, not a
 per-site setting, and live in `entity/payment-status.go`.
+
+## `prod_repo.site_code`
+
+The repository holds one Zoho product id per site. With `site_code` set, lookups go to
+`.../product/{site_code}/{uid}`; left empty they use the older `.../product/{uid}`, which answers
+with the default site's ids. A shop querying unscoped gets another shop's product ids, and Zoho
+then rejects the Sales Order with `FILTER_CRITERIA_NOT_SATISFIED` on
+`Ordered_Items[].Product_Name.id`.
+
+Note that this only affects products the service *looks up*. A product whose `oc_product.zoho_id`
+is already populated is never re-fetched — see `processProductsWithoutZohoID`. On a database seeded
+from another shop those ids are the other shop's, and clearing them
+(`UPDATE oc_product SET zoho_id = ''`) is what makes them be fetched again.
 
 ## Validation
 

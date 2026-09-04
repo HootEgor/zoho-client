@@ -42,6 +42,7 @@ jobs:
           sed -i 's|${REPO_LOGIN}|'"$REPO_LOGIN"'|g' zohoclient-config.yml
           sed -i 's|${REPO_PASSWORD}|'"$REPO_PASSWORD"'|g' zohoclient-config.yml
           sed -i 's|${REPO_PROD_URL}|'"$REPO_PROD_URL"'|g' zohoclient-config.yml
+          sed -i 's|${REPO_SITE_CODE}|'"$REPO_SITE_CODE"'|g' zohoclient-config.yml
           sed -i 's|${SMARTSENDER_API_KEY}|'"$SMARTSENDER_API_KEY"'|g' zohoclient-config.yml
           sed -i 's|${ZOHO_API_KEY}|'"$ZOHO_API_KEY"'|g' zohoclient-config.yml
         env:
@@ -69,6 +70,7 @@ jobs:
           REPO_LOGIN: ${{ secrets.REPO_LOGIN }}
           REPO_PASSWORD: ${{ secrets.REPO_PASSWORD }}
           REPO_PROD_URL: ${{ vars.REPO_PROD_URL }}
+          REPO_SITE_CODE: ${{ vars.REPO_SITE_CODE }}
           LISTEN_PORT: ${{ vars.LISTEN_PORT }}
           API_KEY: ${{ secrets.API_KEY }}
           SMARTSENDER_API_KEY: ${{ secrets.SMARTSENDER_API_KEY }}

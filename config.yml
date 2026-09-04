@@ -141,6 +141,10 @@ prod_repo:
   login: repo_login
   password: repo_password
   prod_url: repo_base_url
+  # Scopes product lookups to this shop: .../product/{site_code}/{uid}. The repository holds one
+  # Zoho product id per site, so leaving this empty falls back to .../product/{uid}, which answers
+  # with the default site's ids.
+  site_code: ""
 listen:
   bind_ip: 127.0.0.1
   port: 8080

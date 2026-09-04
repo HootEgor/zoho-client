@@ -49,6 +49,7 @@ jobs:
           sed -i 's|${REPO_LOGIN}|'"$REPO_LOGIN"'|g' zohoclient-config-ua.yml
           sed -i 's|${REPO_PASSWORD}|'"$REPO_PASSWORD"'|g' zohoclient-config-ua.yml
           sed -i 's|${REPO_PROD_URL}|'"$REPO_PROD_URL"'|g' zohoclient-config-ua.yml
+          sed -i 's|${REPO_SITE_CODE}|'"$REPO_SITE_CODE"'|g' zohoclient-config-ua.yml
           # Fail loudly rather than shipping a config with an unsubstituted placeholder.
           if grep -n '\${' zohoclient-config-ua.yml; then
             echo "unsubstituted placeholders remain in zohoclient-config-ua.yml" >&2
@@ -85,6 +86,7 @@ jobs:
           REPO_LOGIN: ${{ secrets.REPO_LOGIN }}
           REPO_PASSWORD: ${{ secrets.REPO_PASSWORD }}
           REPO_PROD_URL: ${{ vars.REPO_PROD_URL }}
+          REPO_SITE_CODE: ${{ vars.UA_REPO_SITE_CODE }}
           LISTEN_PORT: ${{ vars.UA_LISTEN_PORT }}
           API_KEY: ${{ secrets.UA_API_KEY }}
 

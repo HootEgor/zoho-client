@@ -108,6 +108,7 @@ prod_repo:
   login: ${REPO_LOGIN}
   password: ${REPO_PASSWORD}
   prod_url: ${REPO_PROD_URL}
+  site_code: ${REPO_SITE_CODE}
 listen:
   bind_ip: 127.0.0.1
   port: ${LISTEN_PORT}

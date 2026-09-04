@@ -54,6 +54,7 @@ jobs:
           sed -i 's|${REPO_LOGIN}|'"$REPO_LOGIN"'|g' zohoclient-config.yml
           sed -i 's|${REPO_PASSWORD}|'"$REPO_PASSWORD"'|g' zohoclient-config.yml
           sed -i 's|${REPO_PROD_URL}|'"$REPO_PROD_URL"'|g' zohoclient-config.yml
+          sed -i 's|${REPO_SITE_CODE}|'"$REPO_SITE_CODE"'|g' zohoclient-config.yml
         env:
           LOG_ENV: ${{ vars.LOG_ENV }}
           SITE_NAME: ${{ vars.SITE_NAME }}
@@ -79,6 +80,7 @@ jobs:
           REPO_LOGIN: ${{ secrets.REPO_LOGIN }}
           REPO_PASSWORD: ${{ secrets.REPO_PASSWORD }}
           REPO_PROD_URL: ${{ vars.REPO_PROD_URL }}
+          REPO_SITE_CODE: ${{ vars.REPO_SITE_CODE }}
           LISTEN_PORT: ${{ vars.LISTEN_PORT }}
           API_KEY: ${{ secrets.API_KEY }}
 
