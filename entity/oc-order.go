@@ -65,8 +65,12 @@ type OCOrder struct {
 	DateModified          time.Time `json:"date_modified"`
 }
 
-// OpenCart order status IDs from the oc_order_status table.
-// Statuses 1, 2, 5, 17, 22, and 23 trigger Zoho CRM sync (see database.GetNewOrders).
+// OpenCart order status IDs from the oc_order_status table of the first shop, kept as readable
+// names for tests and documentation.
+//
+// These are NOT the authoritative set any more: status IDs differ per shop, so the statuses that
+// trigger a sync come from site.order_statuses.poll in the config file (resolved into
+// config.SiteSettings.PollStatuses). The values below are that setting's defaults.
 //
 // Payment-link lifecycle (handled by the wfsync service): a confirmed order moves to
 // Pending (2), then OpenCart sets PaymentLinkRequest (22) which wfsync polls; wfsync

@@ -3,6 +3,7 @@ package sql
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 func (s *MySql) prepareStmt(name, query string) (*sql.Stmt, error) {
@@ -56,41 +57,57 @@ func (s *MySql) stmtUpdateOrderZohoId() (*sql.Stmt, error) {
 	return s.prepareStmt("updateOrderZohoId", query)
 }
 
+// orderColumns is the SELECT list every oc_order query shares, in the order scanOrderFromRows
+// expects. The wf_payment_* columns are owned by the wfsync service; a site that does not run
+// wfsync (site.features.payments = false) may not have them at all, so they are left out entirely
+// rather than selected and discarded.
+func (s *MySql) orderColumns() string {
+	cols := []string{
+		"order_id",
+		"order_status_id",
+		"date_added",
+		"firstname",
+		"lastname",
+		"email",
+		"telephone",
+		"customer_group_id",
+		"custom_field",
+		"shipping_country",
+		"shipping_postcode",
+		"shipping_city",
+		"shipping_address_1",
+		"shipping_zone",
+		"shipping_zone_id",
+		"currency_code",
+		"currency_value",
+		"total",
+		"comment",
+		"zoho_id",
+	}
+	if s.site.Payments {
+		cols = append(cols,
+			"wf_payment_status",
+			"wf_payment_id",
+			"wf_payment_amount",
+			"wf_payment_session",
+		)
+	}
+	cols = append(cols, "shipping_code", "shipping_method")
+	return strings.Join(cols, ",\n\t\t\t")
+}
+
 func (s *MySql) stmtSelectOrderStatus() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-			order_id,
-			order_status_id,
-			date_added,
-			firstname,
-			lastname,
-			email,
-			telephone,
-			customer_group_id,
-			custom_field,
-			shipping_country,
-			shipping_postcode,
-			shipping_city,
-			shipping_address_1,
-			shipping_zone,
-			shipping_zone_id,
-			currency_code,
-			currency_value,
-			total,
-			comment,
-			zoho_id,
-			wf_payment_status,
-			wf_payment_id,
-			wf_payment_amount,
-			wf_payment_session,
-			shipping_code,
-			shipping_method
+			%s
 		 FROM %sorder
 		 WHERE order_status_id = ?
 		 	AND (zoho_id = '' OR zoho_id IS NULL)
 		 	AND date_modified > ?
-		 LIMIT 10`,
+		 LIMIT %d`,
+		s.orderColumns(),
 		s.prefix,
+		s.site.BatchLimit,
 	)
 	return s.prepareStmt("selectOrderStatus", query)
 }
@@ -109,36 +126,12 @@ func (s *MySql) stmtUpdateProductZohoId() (*sql.Stmt, error) {
 func (s *MySql) stmtSelectOrdersSynced() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-			order_id,
-			order_status_id,
-			date_added,
-			firstname,
-			lastname,
-			email,
-			telephone,
-			customer_group_id,
-			custom_field,
-			shipping_country,
-			shipping_postcode,
-			shipping_city,
-			shipping_address_1,
-			shipping_zone,
-			shipping_zone_id,
-			currency_code,
-			currency_value,
-			total,
-			comment,
-			zoho_id,
-			wf_payment_status,
-			wf_payment_id,
-			wf_payment_amount,
-			wf_payment_session,
-			shipping_code,
-			shipping_method
+			%s
 		 FROM %sorder
 		 WHERE date_added >= ? AND date_added < ?
 			AND zoho_id IS NOT NULL AND zoho_id <> '' AND zoho_id <> '[B2B]'
 		 ORDER BY order_id`,
+		s.orderColumns(),
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrdersSynced", query)
@@ -147,34 +140,10 @@ func (s *MySql) stmtSelectOrdersSynced() (*sql.Stmt, error) {
 func (s *MySql) stmtSelectOrderId() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-			order_id,
-			order_status_id,
-			date_added,
-			firstname,
-			lastname,
-			email,
-			telephone,
-			customer_group_id,
-			custom_field,
-			shipping_country,
-			shipping_postcode,
-			shipping_city,
-			shipping_address_1,
-			shipping_zone,
-			shipping_zone_id,
-			currency_code,
-			currency_value,
-			total,
-			comment,
-			zoho_id,
-			wf_payment_status,
-			wf_payment_id,
-			wf_payment_amount,
-			wf_payment_session,
-			shipping_code,
-			shipping_method
+			%s
 		 FROM %sorder
 		 WHERE order_id = ?`,
+		s.orderColumns(),
 		s.prefix,
 	)
 	return s.prepareStmt("stmtSelectOrderId", query)
@@ -208,8 +177,8 @@ func (s *MySql) stmtSelectOrderProducts() (*sql.Stmt, error) {
 		 FROM %sorder_product op
 		 JOIN %sproduct_description pd ON op.product_id = pd.product_id
 		 JOIN %sproduct pr ON op.product_id = pr.product_id
-		 WHERE op.order_id = ? AND pd.language_id = 2`,
-		s.prefix, s.prefix, s.prefix,
+		 WHERE op.order_id = ? AND pd.language_id = %d`,
+		s.prefix, s.prefix, s.prefix, s.site.LanguageID,
 	)
 	return s.prepareStmt("selectOrderProducts", query)
 }
@@ -217,34 +186,10 @@ func (s *MySql) stmtSelectOrderProducts() (*sql.Stmt, error) {
 func (s *MySql) stmtSelectOrderByZohoId() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-			order_id,
-			order_status_id,
-			date_added,
-			firstname,
-			lastname,
-			email,
-			telephone,
-			customer_group_id,
-			custom_field,
-			shipping_country,
-			shipping_postcode,
-			shipping_city,
-			shipping_address_1,
-			shipping_zone,
-			shipping_zone_id,
-			currency_code,
-			currency_value,
-			total,
-			comment,
-			zoho_id,
-			wf_payment_status,
-			wf_payment_id,
-			wf_payment_amount,
-			wf_payment_session,
-			shipping_code,
-			shipping_method
+			%s
 		 FROM %sorder
 		 WHERE zoho_id = ?`,
+		s.orderColumns(),
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrderByZohoId", query)
@@ -311,37 +256,13 @@ func (s *MySql) stmtSetOrderZohoPaymentStatus() (*sql.Stmt, error) {
 func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-			order_id,
-			order_status_id,
-			date_added,
-			firstname,
-			lastname,
-			email,
-			telephone,
-			customer_group_id,
-			custom_field,
-			shipping_country,
-			shipping_postcode,
-			shipping_city,
-			shipping_address_1,
-			shipping_zone,
-			shipping_zone_id,
-			currency_code,
-			currency_value,
-			total,
-			comment,
-			zoho_id,
-			wf_payment_status,
-			wf_payment_id,
-			wf_payment_amount,
-			wf_payment_session,
-			shipping_code,
-			shipping_method
+			%s
 		 FROM %sorder
 		 WHERE zoho_id != '' AND zoho_id IS NOT NULL
 		 	AND wf_payment_status != '' AND wf_payment_status IS NOT NULL
 		 	AND (zoho_payment_id = '' OR zoho_payment_id IS NULL)
 		 LIMIT 10`,
+		s.orderColumns(),
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrdersPendingPayment", query)
@@ -353,32 +274,7 @@ func (s *MySql) stmtSelectOrdersPendingPayment() (*sql.Stmt, error) {
 func (s *MySql) stmtSelectOrdersPendingPaymentUpdate() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
-			order_id,
-			order_status_id,
-			date_added,
-			firstname,
-			lastname,
-			email,
-			telephone,
-			customer_group_id,
-			custom_field,
-			shipping_country,
-			shipping_postcode,
-			shipping_city,
-			shipping_address_1,
-			shipping_zone,
-			shipping_zone_id,
-			currency_code,
-			currency_value,
-			total,
-			comment,
-			zoho_id,
-			wf_payment_status,
-			wf_payment_id,
-			wf_payment_amount,
-			wf_payment_session,
-			shipping_code,
-			shipping_method
+			%s
 		 FROM %sorder
 		 WHERE zoho_id != '' AND zoho_id IS NOT NULL
 		 	AND zoho_payment_id != '' AND zoho_payment_id IS NOT NULL
@@ -387,6 +283,7 @@ func (s *MySql) stmtSelectOrdersPendingPaymentUpdate() (*sql.Stmt, error) {
 		 	AND wf_payment_status != zoho_payment_status
 		 	AND date_modified > DATE_SUB(NOW(), INTERVAL 60 DAY)
 		 LIMIT 10`,
+		s.orderColumns(),
 		s.prefix,
 		paymentZohoIdError,
 	)
@@ -401,7 +298,8 @@ const paymentZohoIdError = "[ERR]"
 
 func (s *MySql) stmtSelectOrderSimpleFields() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
-		`SELECT IFNULL(field29, '') FROM %sorder_simple_fields WHERE order_id = ?`,
+		`SELECT IFNULL(%s, '') FROM %sorder_simple_fields WHERE order_id = ?`,
+		s.site.PostTerminalField,
 		s.prefix,
 	)
 	return s.prepareStmt("selectOrderSimpleFields", query)

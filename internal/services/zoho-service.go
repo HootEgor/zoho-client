@@ -41,11 +41,12 @@ type ZohoService struct {
 	crmUrl       string
 	scope        string
 	apiVersion   string
+	site         *config.SiteSettings
 	log          *slog.Logger
 	httpClient   *http.Client
 }
 
-func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error) {
+func NewZohoService(conf *config.Config, site *config.SiteSettings, log *slog.Logger) (*ZohoService, error) {
 
 	service := &ZohoService{
 		clientID:     conf.Zoho.ClientId,
@@ -55,6 +56,7 @@ func NewZohoService(conf *config.Config, log *slog.Logger) (*ZohoService, error)
 		crmUrl:       conf.Zoho.CrmUrl,
 		scope:        conf.Zoho.Scope,
 		apiVersion:   conf.Zoho.ApiVersion,
+		site:         site,
 		log:          log.With(sl.Module("zoho")),
 		httpClient:   httputil.NewHTTPClient(30 * time.Second),
 	}
@@ -164,7 +166,7 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 		LastName:         contact.LastName,
 		City:             contact.City,
 		Country:          contact.Country,
-		CustomerCategory: mapCustomerCategory(contact.GroupId),
+		CustomerCategory: s.site.CustomerCategory(contact.GroupId),
 	}
 
 	return s.upsertContact(payload, contactDuplicateCheckFields(payload), log)
@@ -197,7 +199,7 @@ func (s *ZohoService) UpsertContact(contact *entity.ClientDetails) (string, erro
 		LastName:         contact.LastName,
 		City:             contact.City,
 		Country:          contact.Country,
-		CustomerCategory: mapCustomerCategory(contact.GroupId),
+		CustomerCategory: s.site.CustomerCategory(contact.GroupId),
 	}
 
 	return s.upsertContact(payload, contactDuplicateCheckFields(payload), log)
@@ -279,21 +281,6 @@ func (s *ZohoService) upsertContact(contact entity.Contact, dupFields []string, 
 	}
 
 	return successDetails.ID, nil
-}
-
-// mapCustomerCategory maps an OpenCart customer_group_id to the Zoho customer_category value.
-// Returns an empty string when the group is unmapped, so omitempty drops the field.
-func mapCustomerCategory(groupId int64) string {
-	switch groupId {
-	case 20:
-		return "Інструктори"
-	case 14:
-		return "Салони Європа"
-	case 5:
-		return "Салони Польща"
-	default:
-		return ""
-	}
 }
 
 // CreateOrder creates a Sales Order in the Zoho CRM Sales_Orders module.

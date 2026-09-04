@@ -16,8 +16,7 @@ import (
 type Source string
 
 const (
-	SourceOpenCart  Source = "opencart"
-	ShippingItemUid        = "cd3cc23c-6dfb-11ec-b75f-00155d018000"
+	SourceOpenCart Source = "opencart"
 
 	CurrencyUAH = "UAH"
 	CurrencyPLN = "PLN"
@@ -26,36 +25,38 @@ const (
 )
 
 type CheckoutParams struct {
-	ClientDetails  *ClientDetails `json:"client_details" bson:"client_details" validate:"required"`
-	LineItems      []*LineItem    `json:"line_items" bson:"line_items" validate:"required,min=1,dive"`
-	Total          float64        `json:"total" bson:"total" validate:"required,min=1"`
-	SubTotal       float64        `json:"sub_total" bson:"sub_total"`
-	ShippingTitle  string         `json:"shipping_title,omitempty" bson:"shipping_title,omitempty"`
-	Shipping       float64        `json:"shipping,omitempty" bson:"shipping,omitempty"`
-	CouponTitle    string         `json:"coupon_title,omitempty" bson:"coupon_title,omitempty"`
-	Coupon         float64        `json:"coupon,omitempty" bson:"coupon,omitempty"`
-	TaxTitle       string         `json:"tax_title" bson:"tax_title"`
-	TaxValue       float64        `json:"tax_value" bson:"tax_value"`
-	DiscountTitle  string         `json:"discount_title,omitempty" bson:"discount_title,omitempty"`
-	Discount       float64        `json:"discount,omitempty" bson:"discount,omitempty"`
-	Currency       string         `json:"currency" bson:"currency" validate:"required,oneof=PLN EUR"`
-	CurrencyValue  float64        `json:"currency_value,omitempty" bson:"currency_value,omitempty"`
-	OrderId        int64          `json:"order_id" bson:"order_id" validate:"required"`
-	Created        time.Time      `json:"created" bson:"created"`
-	Status         string         `json:"status" bson:"status"`
-	StatusId       int            `json:"status_id,omitempty" bson:"status_id,omitempty"`
-	InvoiceId      string         `json:"invoice_id,omitempty" bson:"invoice_id,omitempty"`
-	InvoiceFile    string         `json:"invoice_file,omitempty" bson:"invoice_file,omitempty"`
-	ProformaId     string         `json:"proforma_id,omitempty" bson:"proforma_id,omitempty"`
-	ProformaFile   string         `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
-	Source         Source         `json:"source,omitempty" bson:"source"`
-	Comment        string         `json:"comment,omitempty" bson:"comment,omitempty"`
-	ShippingCode   string         `json:"shipping_code,omitempty" bson:"shipping_code,omitempty"`
-	ShippingMethod string         `json:"shipping_method,omitempty" bson:"shipping_method,omitempty"`
+	ClientDetails *ClientDetails `json:"client_details" bson:"client_details" validate:"required"`
+	LineItems     []*LineItem    `json:"line_items" bson:"line_items" validate:"required,min=1,dive"`
+	Total         float64        `json:"total" bson:"total" validate:"required,min=1"`
+	SubTotal      float64        `json:"sub_total" bson:"sub_total"`
+	ShippingTitle string         `json:"shipping_title,omitempty" bson:"shipping_title,omitempty"`
+	Shipping      float64        `json:"shipping,omitempty" bson:"shipping,omitempty"`
+	CouponTitle   string         `json:"coupon_title,omitempty" bson:"coupon_title,omitempty"`
+	Coupon        float64        `json:"coupon,omitempty" bson:"coupon,omitempty"`
+	TaxTitle      string         `json:"tax_title" bson:"tax_title"`
+	TaxValue      float64        `json:"tax_value" bson:"tax_value"`
+	DiscountTitle string         `json:"discount_title,omitempty" bson:"discount_title,omitempty"`
+	Discount      float64        `json:"discount,omitempty" bson:"discount,omitempty"`
+	// Currency is checked against the shop's configured currency list at Validate() time —
+	// which currencies a shop sells in varies per site, so it cannot be an `oneof` tag.
+	Currency       string    `json:"currency" bson:"currency" validate:"required"`
+	CurrencyValue  float64   `json:"currency_value,omitempty" bson:"currency_value,omitempty"`
+	OrderId        int64     `json:"order_id" bson:"order_id" validate:"required"`
+	Created        time.Time `json:"created" bson:"created"`
+	Status         string    `json:"status" bson:"status"`
+	StatusId       int       `json:"status_id,omitempty" bson:"status_id,omitempty"`
+	InvoiceId      string    `json:"invoice_id,omitempty" bson:"invoice_id,omitempty"`
+	InvoiceFile    string    `json:"invoice_file,omitempty" bson:"invoice_file,omitempty"`
+	ProformaId     string    `json:"proforma_id,omitempty" bson:"proforma_id,omitempty"`
+	ProformaFile   string    `json:"proforma_file,omitempty" bson:"proforma_file,omitempty"`
+	Source         Source    `json:"source,omitempty" bson:"source"`
+	Comment        string    `json:"comment,omitempty" bson:"comment,omitempty"`
+	ShippingCode   string    `json:"shipping_code,omitempty" bson:"shipping_code,omitempty"`
+	ShippingMethod string    `json:"shipping_method,omitempty" bson:"shipping_method,omitempty"`
 
 	// Payment data populated from wfsync columns in oc_order table.
 	// wfsync is an external service that writes Stripe webhook data into OpenCart.
-	PostTerminal string `json:"post_terminal,omitempty" bson:"post_terminal,omitempty"` // post terminal number from oc_order_simple_fields.field29
+	PostTerminal string `json:"post_terminal,omitempty" bson:"post_terminal,omitempty"` // parcel-locker code from oc_order_simple_fields (column per site.post_terminal_field)
 
 	PaymentStatus    string `json:"payment_status,omitempty" bson:"payment_status,omitempty"`         // wf_payment_status: Stripe status string (e.g. "succeeded", "pending")
 	PaymentId        string `json:"payment_id,omitempty" bson:"payment_id,omitempty"`                 // wf_payment_id: Stripe PaymentIntent ID (pi_xxx)
@@ -68,12 +69,18 @@ func (c *CheckoutParams) Bind(_ *http.Request) error {
 	return validate.Struct(c)
 }
 
-func (c *CheckoutParams) Validate() error {
+// Validate checks the order is complete enough to sync. allowedCurrency reports whether a
+// currency code is one the shop sells in; pass nil to skip that check. It is a function rather
+// than a config type because internal/config imports this package.
+func (c *CheckoutParams) Validate(allowedCurrency func(string) bool) error {
 	if len(c.LineItems) == 0 {
 		return fmt.Errorf("no line items")
 	}
 	if c.ClientDetails == nil {
 		return fmt.Errorf("no client details")
+	}
+	if allowedCurrency != nil && !allowedCurrency(c.Currency) {
+		return fmt.Errorf("currency %q is not configured for this site", c.Currency)
 	}
 	return nil
 }
@@ -172,13 +179,6 @@ type ClientDetails struct {
 	Street    string `json:"street" bson:"street"`
 	TaxId     string `json:"tax_id" bson:"tax_id"`
 	GroupId   int64  `json:"group_id" bson:"group_id"`
-}
-
-// IsB2B returns true if the customer belongs to a B2B customer group in OpenCart.
-// Group IDs are from the oc_customer_group table; B2B groups are excluded from
-// standard Zoho Sales_Orders sync and routed to the Deals module instead.
-func (c *ClientDetails) IsB2B() bool {
-	return c.GroupId == 6 || c.GroupId == 16 || c.GroupId == 18 || c.GroupId == 19
 }
 
 func (c *ClientDetails) TrimSpaces() {

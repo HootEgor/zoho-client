@@ -263,37 +263,6 @@ func TestDiscountPercent(t *testing.T) {
 	}
 }
 
-func TestIsB2B(t *testing.T) {
-	tests := []struct {
-		name     string
-		groupId  int64
-		expected bool
-	}{
-		{"group 0 is not B2B", 0, false},
-		{"group 1 is not B2B", 1, false},
-		{"group 5 is not B2B", 5, false},
-		{"group 6 is B2B", 6, true},
-		{"group 7 is not B2B", 7, false},
-		{"group 8 is not B2B", 8, false},
-		{"group 16 is B2B", 16, true},
-		{"group 17 is not B2B", 17, false},
-		{"group 18 is B2B", 18, true},
-		{"group 19 is B2B", 19, true},
-		{"group 20 is not B2B", 20, false},
-		{"group 100 is not B2B", 100, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := &ClientDetails{GroupId: tt.groupId}
-			result := c.IsB2B()
-			if result != tt.expected {
-				t.Errorf("IsB2B() for group %d = %v, want %v", tt.groupId, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestTrimSpaces(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -538,7 +507,7 @@ func TestValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.params.Validate()
+			err := tt.params.Validate(nil)
 			if (err != nil) != tt.expectErr {
 				t.Errorf("Validate() error = %v, expectErr %v", err, tt.expectErr)
 			}

@@ -1,0 +1,121 @@
+---
+## Second OpenCart shop (UA). Deployed as its own process (zohoclient-ua.service) with its own
+## listen port, against its own OpenCart database, syncing into the same Zoho org.
+##
+## Its database is a copy of shop 1's, so the status ids, custom-field ids, order_total codes,
+## shipping module codes and the carriage product all match shop 1 and are stated as such below.
+## What genuinely differs is the currency (UAH only), the language id, and the fact that none of
+## the optional subsystems run here.
+
+env: ${LOG_ENV}
+sql:
+  enabled: true
+  driver: ${SQL_DRIVER}
+  hostname: ${SQL_HOSTNAME}
+  username: ${SQL_USERNAME}
+  password: ${SQL_PASSWORD}
+  database: ${SQL_DATABASE}
+  port: ${SQL_PORT}
+  prefix: ${SQL_PREFIX}
+mongo:
+  enabled: true
+  host: ${MONGO_HOST}
+  port: ${MONGO_PORT}
+  user: ${MONGO_USER}
+  password: ${MONGO_PASSWORD}
+  # MUST be a different database from shop 1's. Order versions are keyed by order_id alone
+  # (mongo.go: filter {"order_id": …} in the "orders" collection), so two shops sharing one
+  # database would append versions of unrelated orders to the same document.
+  database: ${MONGO_DATABASE}
+  expired_days: 90
+telegram:
+  enabled: true
+  api_key: ${TELEGRAM_API_KEY}
+  admin_id: ${TELEGRAM_ADMIN_ID}
+  bot_name: Zoho Client UA
+  min_log_level: debug
+site:
+  name: ${SITE_NAME}
+  # Its own file: two instances appending to one log interleave their output and share rotation.
+  log_file: zohoclient-ua.log
+  timezone: Europe/Kyiv
+  # NOT 2: this database has only language 1 (English) and 3 (Ukrainian). The product-description
+  # joins are INNER joins, so a language id with no rows would silently return orders with zero
+  # line items rather than failing outright.
+  language_id: 3
+  lookback_days: 30
+  batch_limit: 10
+  poll_interval: 120
+  customer_poll_interval: 300
+  nip_custom_field_id: "2"
+  post_terminal_field: field29
+  # Same catalogue as shop 1, so the same carriage pseudo-product — and the same Zoho product,
+  # since both shops sync into one Zoho org.
+  shipping_item_uid: 05ce91cd-5f7c-11ef-b7f6-00155d018000
+  currencies: [UAH]
+  order_statuses:
+    # No payment-link statuses (22, 23): wfsync does not run against this shop.
+    poll: [1, 2, 5, 17]
+    new: 1
+    canceled: 7
+  # Empty: this shop runs no B2B flow, so no customer group is treated as B2B.
+  b2b_group_ids: []
+  customer_categories: {}
+  total_codes:
+    sub_total: sub_total
+    shipping: shipping
+    coupon: coupon
+    tax: tax
+    total: total
+    discount: discount
+  # None of the optional subsystems run here: no wfsync/Stripe payments, no B2B pipeline, no
+  # customer sync, no SmartSender (below). With these off the service never creates or reads the
+  # wf_payment_*, zoho_payment_* or oc_customer.zoho_id columns.
+  features:
+    payments: false
+    customer_sync: false
+    b2b: false
+  # Same shipping modules as shop 1 (copied database).
+  shipping_code_map:
+    filterit1.filterit0: inpost_courier
+    filterit1.filterit1: inpost_terminal
+    filterit0.filterit2: inpost
+    filterit0.filterit0: dhl_courier
+    filterit2.filterit0: dhl_courier
+    filterit2.filterit1: dhl_courier
+    dhl_country.dhl_country: dhl_courier
+    pickup.pickup: pickup
+zoho:
+  client_id: ${ZOHO_CLIENT_ID}
+  client_secret: ${ZOHO_CLIENT_SECRET}
+  refresh_token: ${ZOHO_REFRESH_TOKEN}
+  refresh_url: ${ZOHO_REFRESH_URL}
+  crm_url: ${ZOHO_CRM_URL}
+  scope: crm
+  api_version: v8
+  location: ${ZOHO_LOCATION}
+  order_source: ${ZOHO_ORDER_SOURCE}
+  terms: Standard terms apply.
+  chunk_size: 200
+  # Same Zoho org and the same Ukrainian picklist as shop 1.
+  order_status_map:
+    1: Нове
+    17: Оплачено, формування ТТН
+    5: Перевірка та збір
+  post_types:
+    inpost: InPost
+    inpost_courier: InPost (кур'єр)
+    inpost_terminal: InPost (поштомат)
+    dhl_courier: DHL (кур'єр)
+    pickup: Самовивіз
+  # payment_statuses is omitted: site.features.payments is off, so no Payments record is ever made.
+prod_repo:
+  login: ${REPO_LOGIN}
+  password: ${REPO_PASSWORD}
+  prod_url: ${REPO_PROD_URL}
+listen:
+  bind_ip: 127.0.0.1
+  port: ${LISTEN_PORT}
+  key: ${API_KEY}
+smartsender:
+  enabled: false

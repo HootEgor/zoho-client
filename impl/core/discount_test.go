@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 	"zohoclient/entity"
+	"zohoclient/internal/config"
 )
 
 func r2(v float64) float64 { return math.Round(v*100) / 100 }
@@ -62,7 +63,7 @@ const testShippingZohoID = "SHIP"
 func newTestCore() *Core {
 	return &Core{
 		log:                slog.New(slog.NewTextHandler(io.Discard, nil)),
-		statuses:           map[int]string{1: "Нове"},
+		site:               config.DefaultSiteSettings(),
 		shippingItemZohoId: testShippingZohoID,
 	}
 }

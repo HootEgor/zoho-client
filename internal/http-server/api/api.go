@@ -22,6 +22,7 @@ import (
 
 type Server struct {
 	conf       *config.Config
+	site       *config.SiteSettings
 	httpServer *http.Server
 	log        *slog.Logger
 }
@@ -32,9 +33,10 @@ type Handler interface {
 	b2b.Core
 }
 
-func New(conf *config.Config, log *slog.Logger, handler Handler) (*Server, error) {
+func New(conf *config.Config, site *config.SiteSettings, log *slog.Logger, handler Handler) (*Server, error) {
 	server := &Server{
 		conf: conf,
+		site: site,
 		log:  log.With(sl.Module("api.server")),
 	}
 
@@ -53,9 +55,14 @@ func New(conf *config.Config, log *slog.Logger, handler Handler) (*Server, error
 			webhook.Route("/order", func(r chi.Router) {
 				r.Post("/", order.UpdateOrder(log, handler))
 			})
-			webhook.Route("/b2b", func(r chi.Router) {
-				r.Post("/", b2b.Webhook(log, handler))
-			})
+			// The B2B portal webhook feeds the Deals pipeline; a site that does not run the
+			// B2B flow has no route for it at all, so a stray call 404s rather than creating
+			// a Deal nobody will look at.
+			if site.B2B {
+				webhook.Route("/b2b", func(r chi.Router) {
+					r.Post("/", b2b.Webhook(log, handler))
+				})
+			}
 		})
 		v1.Route("/push", func(push chi.Router) {
 			push.Route("/order", func(r chi.Router) {

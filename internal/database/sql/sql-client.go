@@ -16,20 +16,13 @@ import (
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
-const (
-	totalCodeShipping = "shipping"
-	totalCodeCoupon   = "coupon"
-	totalCodeTax      = "tax"
-	totalCodeTotal    = "total"
-	subTotalCode      = "sub_total"
-	discountCode      = "discount"
-	customFieldNip    = "2"
-	locationCode      = "Europe/Warsaw"
-)
-
 type MySql struct {
-	db         *sql.DB
-	loc        *time.Location
+	db  *sql.DB
+	loc *time.Location
+	// site carries everything about this shop that the queries depend on: table prefix aside,
+	// the description language, the poll window and batch size, the custom-field ids, and which
+	// optional column families exist at all.
+	site       *config.SiteSettings
 	prefix     string
 	structure  map[string]map[string]Column
 	statements map[string]*sql.Stmt
@@ -37,7 +30,7 @@ type MySql struct {
 	log        *slog.Logger
 }
 
-func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
+func NewSQLClient(conf *config.Config, site *config.SiteSettings, log *slog.Logger) (*MySql, error) {
 	if !conf.SQL.Enabled {
 		return nil, fmt.Errorf("SQL client is disabled in configuration")
 	}
@@ -65,6 +58,8 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 
 	sdb := &MySql{
 		db:         db,
+		loc:        site.Location,
+		site:       site,
 		prefix:     conf.SQL.Prefix,
 		structure:  make(map[string]map[string]Column),
 		statements: make(map[string]*sql.Stmt),
@@ -77,50 +72,53 @@ func NewSQLClient(conf *config.Config, log *slog.Logger) (*MySql, error) {
 	if err = sdb.addColumnIfNotExists("order", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
 		return nil, err
 	}
-	if err = sdb.addColumnIfNotExists("order", "zoho_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
-		return nil, err
-	}
-	// zoho_payment_status mirrors the wf_payment_status value that was last reflected
-	// into the linked Zoho Payments record. It lets the pending-payment poller detect
-	// when wfsync advances the payment (e.g. held -> paid) and push the new status to
-	// Zoho, instead of treating the payment as done forever once zoho_payment_id is set.
-	if err = sdb.addColumnIfNotExists("order", "zoho_payment_status", "VARCHAR(32) NOT NULL DEFAULT ''"); err != nil {
-		return nil, err
-	}
 	// zoho_modified_time mirrors Zoho's Sales_Orders.Modified_Time and is used to
 	// suppress echo webhooks: an inbound update whose Modified_Time is older than or
 	// equal to the stored value is our own write coming back and is skipped.
 	if err = sdb.addColumnIfNotExists("order", "zoho_modified_time", "DATETIME NULL"); err != nil {
 		return nil, err
 	}
-	if err = sdb.addColumnIfNotExists("customer", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
-		return nil, err
+	// The customer sync is the only thing that reads or writes oc_customer.zoho_id, so a site
+	// that does not run it leaves the customer table untouched.
+	if site.CustomerSync {
+		if err = sdb.addColumnIfNotExists("customer", "zoho_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
 	}
 
-	// The wf_* columns are owned and written by the wfsync service (Stripe payment state);
-	// zoho-client only reads them when syncing payments to Zoho. We (re)create them
-	// defensively so that a fresh database, or a deploy that starts zoho-client before
-	// wfsync, does not break order reads with an "unknown column" error. addColumnIfNotExists
-	// is idempotent, so this is a no-op once wfsync has run. Definitions MUST stay in sync
-	// with wfsync (opencart/database/sql-client.go).
-	if err = sdb.addColumnIfNotExists("order", "wf_payment_status", "VARCHAR(32) NOT NULL DEFAULT ''"); err != nil {
-		return nil, err
-	}
-	if err = sdb.addColumnIfNotExists("order", "wf_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
-		return nil, err
-	}
-	if err = sdb.addColumnIfNotExists("order", "wf_payment_amount", "BIGINT NOT NULL DEFAULT 0"); err != nil {
-		return nil, err
-	}
-	if err = sdb.addColumnIfNotExists("order", "wf_payment_session", "VARCHAR(128) NOT NULL DEFAULT ''"); err != nil {
-		return nil, err
-	}
+	// Payment sync columns. A site without wfsync never reads or writes any of them, so nothing
+	// is created there — see orderColumns(), which also drops the wf_* columns from every SELECT.
+	if site.Payments {
+		if err = sdb.addColumnIfNotExists("order", "zoho_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
+		// zoho_payment_status mirrors the wf_payment_status value that was last reflected
+		// into the linked Zoho Payments record. It lets the pending-payment poller detect
+		// when wfsync advances the payment (e.g. held -> paid) and push the new status to
+		// Zoho, instead of treating the payment as done forever once zoho_payment_id is set.
+		if err = sdb.addColumnIfNotExists("order", "zoho_payment_status", "VARCHAR(32) NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
 
-	loc, err := time.LoadLocation(locationCode)
-	if err != nil {
-		return nil, fmt.Errorf("load location: %w", err)
+		// The wf_* columns are owned and written by the wfsync service (Stripe payment state);
+		// zoho-client only reads them when syncing payments to Zoho. We (re)create them
+		// defensively so that a fresh database, or a deploy that starts zoho-client before
+		// wfsync, does not break order reads with an "unknown column" error. addColumnIfNotExists
+		// is idempotent, so this is a no-op once wfsync has run. Definitions MUST stay in sync
+		// with wfsync (opencart/database/sql-client.go).
+		if err = sdb.addColumnIfNotExists("order", "wf_payment_status", "VARCHAR(32) NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
+		if err = sdb.addColumnIfNotExists("order", "wf_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
+		if err = sdb.addColumnIfNotExists("order", "wf_payment_amount", "BIGINT NOT NULL DEFAULT 0"); err != nil {
+			return nil, err
+		}
+		if err = sdb.addColumnIfNotExists("order", "wf_payment_session", "VARCHAR(128) NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
 	}
-	sdb.loc = loc
 
 	return sdb, nil
 }
@@ -145,19 +143,10 @@ func (s *MySql) Stats() string {
 }
 
 func (s *MySql) GetNewOrders() ([]*entity.CheckoutParams, error) {
-	statuses := []int{
-		entity.OrderStatusNew,
-		entity.OrderStatusPending,
-		entity.OrderStatusPayed,
-		entity.OrderStatusPrepareForShipping,
-		entity.OrderStatusPaymentLinkRequest,
-		entity.OrderStatusPaymentLinkCreated,
-	}
-
-	from := time.Now().Add(-30 * 24 * time.Hour)
+	from := time.Now().AddDate(0, 0, -s.site.LookbackDays)
 
 	var orders []*entity.CheckoutParams
-	for _, status := range statuses {
+	for _, status := range s.site.PollStatuses {
 		params, err := s.OrderSearchStatus(status, from)
 		if err != nil {
 			s.log.With(
@@ -317,8 +306,8 @@ func (s *MySql) GetProductByUid(productUID string) (name string, zohoId string, 
 		SELECT pd.name, p.zoho_id
 		FROM %sproduct p
 		JOIN %sproduct_description pd ON p.product_id = pd.product_id
-		WHERE p.product_uid = ? AND pd.language_id = 2
-	`, s.prefix, s.prefix)
+		WHERE p.product_uid = ? AND pd.language_id = %d
+	`, s.prefix, s.prefix, s.site.LanguageID)
 
 	err = s.db.QueryRow(query, productUID).Scan(&name, &zohoId)
 	if err != nil {
@@ -573,27 +562,27 @@ func (s *MySql) GetOrderProductsSummary(orderId int64) ([]OrderProductSummary, e
 func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*entity.CheckoutParams, error) {
 	var err error
 	// get sub total
-	_, order.SubTotal, err = s.OrderTotal(orderId, subTotalCode)
+	_, order.SubTotal, err = s.OrderTotal(orderId, s.site.TotalCode(config.TotalKeySubTotal))
 	if err != nil {
 		return nil, fmt.Errorf("get order sub total: %w", err)
 	}
 	// get order tax
-	order.TaxTitle, order.TaxValue, err = s.OrderTotal(orderId, totalCodeTax)
+	order.TaxTitle, order.TaxValue, err = s.OrderTotal(orderId, s.site.TotalCode(config.TotalKeyTax))
 	if err != nil {
 		return nil, fmt.Errorf("get order tax: %w", err)
 	}
 	//get discount
-	order.DiscountTitle, order.Discount, err = s.OrderTotal(orderId, discountCode)
+	order.DiscountTitle, order.Discount, err = s.OrderTotal(orderId, s.site.TotalCode(config.TotalKeyDiscount))
 	if err != nil {
 		return nil, fmt.Errorf("get order discount: %w", err)
 	}
 	// get shipping
-	order.ShippingTitle, order.Shipping, err = s.OrderTotal(orderId, totalCodeShipping)
+	order.ShippingTitle, order.Shipping, err = s.OrderTotal(orderId, s.site.TotalCode(config.TotalKeyShipping))
 	if err != nil {
 		return nil, fmt.Errorf("get order shipping: %w", err)
 	}
 	// get coupon
-	order.CouponTitle, order.Coupon, err = s.OrderTotal(orderId, totalCodeCoupon)
+	order.CouponTitle, order.Coupon, err = s.OrderTotal(orderId, s.site.TotalCode(config.TotalKeyCoupon))
 	if err != nil {
 		return nil, fmt.Errorf("get coupon: %w", err)
 	}
@@ -611,7 +600,8 @@ func (s *MySql) addOrderData(orderId int64, order *entity.CheckoutParams) (*enti
 	return order, nil
 }
 
-// OrderPostTerminal fetches the post terminal number (field29) from oc_order_simple_fields.
+// OrderPostTerminal fetches the post terminal number from oc_order_simple_fields, reading the
+// column named by site.post_terminal_field.
 func (s *MySql) OrderPostTerminal(orderId int64) (string, error) {
 	stmt, err := s.stmtSelectOrderSimpleFields()
 	if err != nil {
@@ -629,18 +619,16 @@ func (s *MySql) OrderPostTerminal(orderId int64) (string, error) {
 }
 
 // scanOrderFromRows scans a single row into CheckoutParams and returns the zoho_id.
-// The rows must have columns in this exact order:
-// order_id, order_status_id, date_added, firstname, lastname, email, telephone,
-// customer_group_id, custom_field, shipping_country, shipping_postcode, shipping_city,
-// shipping_address_1, shipping_zone, shipping_zone_id, currency_code, currency_value, total, comment, zoho_id,
-// wf_payment_status, wf_payment_id, wf_payment_amount, wf_payment_session, shipping_code, shipping_method
+// The rows must carry exactly the columns orderColumns() selects, in that order — including its
+// omission of the wf_payment_* group on a site without the payments feature, where the Payment*
+// fields are simply left at their zero values.
 func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, string, error) {
 	var order entity.CheckoutParams
 	var client entity.ClientDetails
 	var customField string
 	var zohoId string
 
-	if err := rows.Scan(
+	dest := []any{
 		&order.OrderId,
 		&order.StatusId,
 		&order.Created,
@@ -661,17 +649,22 @@ func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, strin
 		&order.Total,
 		&order.Comment,
 		&zohoId,
-		&order.PaymentStatus,
-		&order.PaymentId,
-		&order.PaymentAmount,
-		&order.PaymentSessionId,
-		&order.ShippingCode,
-		&order.ShippingMethod,
-	); err != nil {
+	}
+	if s.site.Payments {
+		dest = append(dest,
+			&order.PaymentStatus,
+			&order.PaymentId,
+			&order.PaymentAmount,
+			&order.PaymentSessionId,
+		)
+	}
+	dest = append(dest, &order.ShippingCode, &order.ShippingMethod)
+
+	if err := rows.Scan(dest...); err != nil {
 		return nil, "", err
 	}
 
-	_ = client.ParseTaxId(customFieldNip, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
+	_ = client.ParseTaxId(s.site.NipCustomFieldID, strings.TrimPrefix(strings.TrimSuffix(customField, " "), " "))
 	order.ClientDetails = &client
 	order.ClientDetails.TrimSpaces()
 	order.Source = entity.SourceOpenCart
@@ -918,9 +911,9 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		SELECT ?, p.product_id, pd.name, p.model, ?, ?, ?, ?, 0, p.sku, p.upc, p.ean, p.jan, p.isbn, p.mpn, p.location, p.weight, '', 0
 		FROM %sproduct p
 		JOIN %sproduct_description pd ON p.product_id = pd.product_id
-		WHERE p.zoho_id = ? AND pd.language_id = 2
+		WHERE p.zoho_id = ? AND pd.language_id = %d
 		LIMIT 1
-	`, s.prefix, s.prefix, s.prefix)
+	`, s.prefix, s.prefix, s.prefix, s.site.LanguageID)
 
 	for _, item := range data.Items {
 		// Empty zoho_id would match every product whose zoho_id is the default '' string.
@@ -981,12 +974,12 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 		code  string
 		value int64
 	}{
-		{subTotalCode, data.Totals.SubTotal},
-		{totalCodeTax, data.Totals.Tax},
-		{discountCode, data.Totals.Discount},
-		{totalCodeShipping, data.Totals.Shipping},
-		{totalCodeCoupon, data.Totals.Coupon},
-		{totalCodeTotal, data.Totals.Total},
+		{s.site.TotalCode(config.TotalKeySubTotal), data.Totals.SubTotal},
+		{s.site.TotalCode(config.TotalKeyTax), data.Totals.Tax},
+		{s.site.TotalCode(config.TotalKeyDiscount), data.Totals.Discount},
+		{s.site.TotalCode(config.TotalKeyShipping), data.Totals.Shipping},
+		{s.site.TotalCode(config.TotalKeyCoupon), data.Totals.Coupon},
+		{s.site.TotalCode(config.TotalKeyTotal), data.Totals.Total},
 	}
 
 	for _, t := range totalsToUpdate {

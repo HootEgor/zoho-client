@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 	"zohoclient/entity"
+	"zohoclient/internal/config"
 )
 
 func TestRoundFloat(t *testing.T) {
@@ -142,7 +143,7 @@ func TestHasEmptyUid(t *testing.T) {
 func TestBuildZohoOrder_Chunking(t *testing.T) {
 	// Create a minimal Core for testing
 	core := &Core{
-		statuses: map[int]string{1: "Confirmed"},
+		site: config.DefaultSiteSettings(),
 	}
 
 	tests := []struct {

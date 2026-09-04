@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 	"zohoclient/entity"
+	"zohoclient/internal/config"
 )
 
 // fakeRepo / fakeZoho embed their interfaces, so any method the push path is not supposed to
@@ -77,7 +78,7 @@ func pushTestCore(repo *fakeRepo, zoho *fakeZoho) *Core {
 		log:                slog.New(slog.NewTextHandler(io.Discard, nil)),
 		repo:               repo,
 		zoho:               zoho,
-		statuses:           map[int]string{1: "Нове"},
+		site:               config.DefaultSiteSettings(),
 		shippingItemZohoId: "SHIP",
 	}
 }

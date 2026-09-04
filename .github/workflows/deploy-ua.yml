@@ -1,0 +1,133 @@
+name: Deploy zohoclient-ua to server
+
+# Second OpenCart shop. Same binary, a second process: its own config file at
+# /etc/conf/zohoclient-ua.yml, its own systemd unit (zohoclient-ua.service) and its own listen
+# port. Manual dispatch only, so a push to master does not restart both shops at once.
+#
+# Its GitHub variables/secrets are the UA_-prefixed ones — never the shop-1 names — so the two
+# deployments cannot cross-wire a database or a Zoho token.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Deploy zohoclient-ua
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare configuration file
+        run: |
+          sed -i 's|${LOG_ENV}|'"$LOG_ENV"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SITE_NAME}|'"$SITE_NAME"'|g' zohoclient-config-ua.yml
+          sed -i 's|${LISTEN_PORT}|'"$LISTEN_PORT"'|g' zohoclient-config-ua.yml
+          sed -i 's|${API_KEY}|'"$API_KEY"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SQL_DRIVER}|'"$SQL_DRIVER"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SQL_HOSTNAME}|'"$SQL_HOSTNAME"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SQL_USERNAME}|'"$SQL_USERNAME"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SQL_PASSWORD}|'"$SQL_PASSWORD"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SQL_DATABASE}|'"$SQL_DATABASE"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SQL_PORT}|'"$SQL_PORT"'|g' zohoclient-config-ua.yml
+          sed -i 's|${SQL_PREFIX}|'"$SQL_PREFIX"'|g' zohoclient-config-ua.yml
+          sed -i 's|${MONGO_HOST}|'"$MONGO_HOST"'|g' zohoclient-config-ua.yml
+          sed -i 's|${MONGO_PORT}|'"$MONGO_PORT"'|g' zohoclient-config-ua.yml
+          sed -i 's|${MONGO_USER}|'"$MONGO_USER"'|g' zohoclient-config-ua.yml
+          sed -i 's|${MONGO_PASSWORD}|'"$MONGO_PASSWORD"'|g' zohoclient-config-ua.yml
+          sed -i 's|${MONGO_DATABASE}|'"$MONGO_DATABASE"'|g' zohoclient-config-ua.yml
+          sed -i 's|${TELEGRAM_API_KEY}|'"$TELEGRAM_API_KEY"'|g' zohoclient-config-ua.yml
+          sed -i 's|${TELEGRAM_ADMIN_ID}|'"$TELEGRAM_ADMIN_ID"'|g' zohoclient-config-ua.yml
+          sed -i 's|${ZOHO_CLIENT_ID}|'"$ZOHO_CLIENT_ID"'|g' zohoclient-config-ua.yml
+          sed -i 's|${ZOHO_CLIENT_SECRET}|'"$ZOHO_CLIENT_SECRET"'|g' zohoclient-config-ua.yml
+          sed -i 's|${ZOHO_REFRESH_TOKEN}|'"$ZOHO_REFRESH_TOKEN"'|g' zohoclient-config-ua.yml
+          sed -i 's|${ZOHO_REFRESH_URL}|'"$ZOHO_REFRESH_URL"'|g' zohoclient-config-ua.yml
+          sed -i 's|${ZOHO_CRM_URL}|'"$ZOHO_CRM_URL"'|g' zohoclient-config-ua.yml
+          sed -i 's|${ZOHO_LOCATION}|'"$ZOHO_LOCATION"'|g' zohoclient-config-ua.yml
+          sed -i 's|${ZOHO_ORDER_SOURCE}|'"$ZOHO_ORDER_SOURCE"'|g' zohoclient-config-ua.yml
+          sed -i 's|${REPO_LOGIN}|'"$REPO_LOGIN"'|g' zohoclient-config-ua.yml
+          sed -i 's|${REPO_PASSWORD}|'"$REPO_PASSWORD"'|g' zohoclient-config-ua.yml
+          sed -i 's|${REPO_PROD_URL}|'"$REPO_PROD_URL"'|g' zohoclient-config-ua.yml
+          # Fail loudly rather than shipping a config with an unsubstituted placeholder.
+          if grep -n '\${' zohoclient-config-ua.yml; then
+            echo "unsubstituted placeholders remain in zohoclient-config-ua.yml" >&2
+            exit 1
+          fi
+        env:
+          LOG_ENV: ${{ vars.UA_LOG_ENV }}
+          SITE_NAME: ${{ vars.UA_NAME }}
+          SQL_DRIVER: ${{ vars.UA_SQL_DRIVER }}
+          SQL_HOSTNAME: ${{ vars.UA_SQL_HOSTNAME }}
+          SQL_USERNAME: ${{ vars.UA_SQL_USERNAME }}
+          SQL_PASSWORD: ${{ secrets.UA_SQL_PASSWORD }}
+          SQL_DATABASE: ${{ vars.UA_SQL_DATABASE }}
+          SQL_PORT: ${{ vars.UA_SQL_PORT }}
+          SQL_PREFIX: ${{ vars.UA_SQL_PREFIX }}
+          # Same Mongo server as shop 1, but its OWN database — see the note in the config file.
+          MONGO_HOST: ${{ secrets.MONGO_HOST }}
+          MONGO_PORT: ${{ secrets.MONGO_PORT }}
+          MONGO_USER: ${{ secrets.MONGO_USER }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          MONGO_DATABASE: ${{ vars.UA_MONGO_DATABASE }}
+          # Its own bot, not shop 1's. Telegram allows only one getUpdates long-poll per token, so
+          # two instances sharing a token would keep terminating each other's poll (409 Conflict)
+          # and the /level command would land on whichever one last won the race.
+          TELEGRAM_API_KEY: ${{ secrets.UA_TELEGRAM_API_KEY }}
+          TELEGRAM_ADMIN_ID: ${{ secrets.UA_TELEGRAM_ADMIN_ID }}
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_REFRESH_URL: ${{ vars.ZOHO_REFRESH_URL }}
+          ZOHO_CRM_URL: ${{ vars.ZOHO_CRM_URL }}
+          ZOHO_LOCATION: ${{ vars.UA_ZOHO_LOCATION }}
+          ZOHO_ORDER_SOURCE: ${{ vars.UA_ZOHO_ORDER_SOURCE }}
+          REPO_LOGIN: ${{ secrets.REPO_LOGIN }}
+          REPO_PASSWORD: ${{ secrets.REPO_PASSWORD }}
+          REPO_PROD_URL: ${{ vars.REPO_PROD_URL }}
+          LISTEN_PORT: ${{ vars.UA_LISTEN_PORT }}
+          API_KEY: ${{ secrets.UA_API_KEY }}
+
+      - name: Rename configuration for the zohoclient-ua unit
+        run: mv zohoclient-config-ua.yml zohoclient-ua.yml
+
+      - name: Copy Configuration to Server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "zohoclient-ua.yml"
+          target: "/etc/conf"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      # Both shops run the same binary from /usr/local/bin/zohoclient, so this overwrites the one
+      # shop 1 is running. That is intentional — same code, same commit — but only the zohoclient-ua
+      # unit is restarted here; shop 1 picks the new binary up on its own next deploy or restart.
+      - name: Build Go application
+        run: |
+          go build -v -o zohoclient ./cmd/zoho
+
+      - name: Deploy to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          source: "zohoclient"
+          target: "/usr/local/bin/"
+
+      - name: Restart Application
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            systemctl restart zohoclient-ua.service
