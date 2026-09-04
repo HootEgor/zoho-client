@@ -25,7 +25,8 @@ func main() {
 	configPath := flag.String("conf", "config.yml", "path to config file")
 	logPath := flag.String("log", "/var/log/", "path to log file directory")
 	backfillDay := flag.String("backfill", "", "repair the per-line discount of orders placed on this day (YYYY-MM-DD) and exit; reports only unless -apply is given")
-	backfillApply := flag.Bool("apply", false, "with -backfill: actually write the corrected rows to Zoho")
+	backfillApply := flag.Bool("apply", false, "with -backfill or -mark-synced: actually write the changes")
+	markSynced := flag.Bool("mark-synced", false, "stamp every order that has no zoho_id with the [SKIP] sentinel so a freshly seeded shop does not push its history to Zoho, then exit; reports only unless -apply is given")
 	flag.Parse()
 
 	conf := config.MustLoad(*configPath)
@@ -144,6 +145,30 @@ func main() {
 		}
 
 		handler.SetSmartSenderPollInterval(time.Duration(conf.SmartSender.PollInterval) * time.Second)
+	}
+
+	// One-shot maintenance mode: mark the history a freshly seeded shop starts with as already
+	// handled, then exit. Run with the service stopped so the poller cannot pick orders up while
+	// they are being stamped.
+	if *markSynced {
+		count, err := handler.MarkExistingOrdersSynced(*backfillApply)
+		if err != nil {
+			lg.With(sl.Err(err)).Error("mark synced failed")
+			if db != nil {
+				db.Close()
+			}
+			os.Exit(1)
+		}
+		if *backfillApply {
+			lg.Info("orders marked as skipped", slog.Int64("count", count))
+		} else {
+			lg.Info("dry run: no rows written, re-run with -apply to mark them",
+				slog.Int64("would_mark", count))
+		}
+		if db != nil {
+			db.Close()
+		}
+		return
 	}
 
 	// One-shot maintenance mode: repair a day's orders and exit without starting the service,

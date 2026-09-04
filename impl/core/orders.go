@@ -21,6 +21,12 @@ const (
 	// b2bZohoId is a sentinel written into oc_order.zoho_id for B2B orders, which are excluded
 	// from the Sales_Orders sync. It is not a real Zoho record id.
 	b2bZohoId = "[B2B]"
+
+	// skippedZohoId is a sentinel written into oc_order.zoho_id for orders that predate the sync
+	// on this shop — history carried over when the database was seeded. They are deliberately
+	// never pushed to Zoho. Written once by the -mark-synced maintenance run. Not a real Zoho
+	// record id, so zohoOrderExists rejects it and no push tries to update a record by that name.
+	skippedZohoId = "[SKIP]"
 )
 
 type Currency struct {
@@ -55,9 +61,25 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 }
 
 // zohoOrderExists reports whether a stored zoho_id points at a real Zoho Sales Order rather than
-// a sentinel the sync writes in place of one ("[B2B]" marks an order deliberately not synced).
+// a sentinel the sync writes in place of one. "[B2B]" marks an order routed away from
+// Sales_Orders; "[SKIP]" marks pre-existing history that must never be pushed.
 func zohoOrderExists(zohoId string) bool {
-	return zohoId != "" && zohoId != b2bZohoId
+	return zohoId != "" && zohoId != b2bZohoId && zohoId != skippedZohoId
+}
+
+// MarkExistingOrdersSynced stamps every order that has no zoho_id yet with the "[SKIP]" sentinel,
+// so the poller ignores the history a freshly seeded shop starts with instead of pushing years of
+// old orders into Zoho. Reports the count without writing unless apply is set. Run once, with the
+// service stopped, before the shop goes live.
+func (c *Core) MarkExistingOrdersSynced(apply bool) (int64, error) {
+	count, err := c.repo.CountUnsyncedOrders()
+	if err != nil {
+		return 0, fmt.Errorf("count unsynced orders: %w", err)
+	}
+	if !apply || count == 0 {
+		return count, nil
+	}
+	return c.repo.MarkUnsyncedOrders(skippedZohoId)
 }
 
 // processOrder handles the core order-to-Zoho flow: creates contact, validates products, builds

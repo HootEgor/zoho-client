@@ -121,15 +121,15 @@ func (s *MySql) stmtUpdateProductZohoId() (*sql.Stmt, error) {
 }
 
 // stmtSelectOrdersSynced selects orders placed in a date window that already carry a real Zoho
-// Sales Order id, so an already-synced record can be audited or repaired. The "[B2B]" sentinel is
-// excluded — it names no Zoho record.
+// Sales Order id, so an already-synced record can be audited or repaired. The "[B2B]" and "[SKIP]"
+// sentinels are excluded — neither names a Zoho record.
 func (s *MySql) stmtSelectOrdersSynced() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
 		`SELECT
 			%s
 		 FROM %sorder
 		 WHERE date_added >= ? AND date_added < ?
-			AND zoho_id IS NOT NULL AND zoho_id <> '' AND zoho_id <> '[B2B]'
+			AND zoho_id IS NOT NULL AND zoho_id <> '' AND zoho_id <> '[B2B]' AND zoho_id <> '[SKIP]'
 		 ORDER BY order_id`,
 		s.orderColumns(),
 		s.prefix,

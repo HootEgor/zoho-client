@@ -224,6 +224,14 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Also handles `MULTIPLE_OR_MULTI_ERRORS` with embedded duplicate info
 - Token refresh happens automatically before each API call with 3 retry attempts
 
+**Seeding a new shop**
+- A shop whose database is copied from an existing one starts with years of orders the poller
+  would push to Zoho. `./zohoclient -conf=… -mark-synced -apply` stamps every order with no
+  `zoho_id` with the "[SKIP]" sentinel and exits; run it with the service stopped, before going
+  live. Without `-apply` it only reports the count.
+- `MarkUnsyncedOrders` deliberately does not touch `date_modified` — the poller filters on it, so
+  touching it would make the whole history look freshly modified.
+
 **B2B Orders**
 - Identified by `customer_group_id` via `SiteSettings.IsB2B()` (config `site.b2b_group_ids`)
 - Skipped from Zoho sync but marked with `zoho_id = "[B2B]"`
@@ -323,4 +331,4 @@ See `docs/apiv1.md` for detailed API documentation.
 - Telegram markdown escaping is incomplete (see `Sanitize()` function)
 - Legacy telegram implementation in `impl/telegram/` is commented out but not removed
 - No retry logic for failed Zoho order creation (orders stay in queue)
-- `zoho_id` check uses placeholder string "[B2B]" instead of boolean flag
+- `zoho_id` check uses placeholder strings ("[B2B]", "[SKIP]") instead of a boolean flag

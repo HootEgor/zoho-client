@@ -353,3 +353,19 @@ func TestCalculateDiscountPercent_ZeroFullTotal(t *testing.T) {
 		t.Errorf("calculateDiscountPercent() with zero prices = %v, want 0", result)
 	}
 }
+
+// TestZohoOrderExists_Sentinels: neither sentinel names a Zoho record, so a re-push must treat
+// both as "not in Zoho" rather than trying to update a Sales Order called "[B2B]" or "[SKIP]".
+func TestZohoOrderExists_Sentinels(t *testing.T) {
+	tests := map[string]bool{
+		"":              false,
+		b2bZohoId:       false,
+		skippedZohoId:   false,
+		"5891234000001": true,
+	}
+	for zohoId, want := range tests {
+		if got := zohoOrderExists(zohoId); got != want {
+			t.Errorf("zohoOrderExists(%q) = %v, want %v", zohoId, got, want)
+		}
+	}
+}

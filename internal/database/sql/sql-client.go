@@ -272,6 +272,37 @@ func (s *MySql) SetOrderZohoModifiedTime(orderId int64, t time.Time) error {
 	return nil
 }
 
+// CountUnsyncedOrders counts orders that carry no zoho_id yet — the ones the poller would push.
+func (s *MySql) CountUnsyncedOrders() (int64, error) {
+	query := fmt.Sprintf(
+		`SELECT COUNT(*) FROM %sorder WHERE zoho_id = '' OR zoho_id IS NULL`,
+		s.prefix,
+	)
+	var count int64
+	if err := s.db.QueryRow(query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count unsynced orders: %w", err)
+	}
+	return count, nil
+}
+
+// MarkUnsyncedOrders stamps every order with no zoho_id with the given sentinel, so a shop seeded
+// with historical orders does not push them all to Zoho on first run. Returns the number of rows
+// changed.
+//
+// date_modified is deliberately left alone: the poller filters on it, so touching it would make
+// the entire history look freshly modified — the opposite of what this is for.
+func (s *MySql) MarkUnsyncedOrders(zohoId string) (int64, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET zoho_id = ? WHERE zoho_id = '' OR zoho_id IS NULL`,
+		s.prefix,
+	)
+	res, err := s.db.Exec(query, zohoId)
+	if err != nil {
+		return 0, fmt.Errorf("mark unsynced orders: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 func (s *MySql) UpdateProductZohoId(productUID, zohoId string) error {
 	stmt, err := s.stmtUpdateProductZohoId()
 	if err != nil {

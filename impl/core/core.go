@@ -18,6 +18,8 @@ type Repository interface {
 	OrdersSyncedBetween(from, to time.Time) ([]sql.SyncedOrder, error)
 	ChangeOrderStatus(orderId, orderStatusId int64, comment string) error
 	ChangeOrderZohoId(orderId int64, zohoId string) error
+	CountUnsyncedOrders() (int64, error)
+	MarkUnsyncedOrders(zohoId string) (int64, error)
 	OrderTotal(orderId int64, code string) (string, float64, error)
 
 	// UpdateOrderWithTransaction Transaction-based order update
