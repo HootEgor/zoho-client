@@ -31,9 +31,6 @@ type Repository interface {
 	GetProductZohoIdByUid(productUID string) (string, error)
 	GetProductByUid(productUID string) (name string, zohoId string, err error)
 
-	UpdateOrderTracking(orderId int64, tracking string) error
-	GetOrderTracking(orderId int64) (string, error)
-
 	GetOrderZohoModifiedTime(orderId int64) (time.Time, error)
 	SetOrderZohoModifiedTime(orderId int64, t time.Time) error
 
@@ -60,7 +57,6 @@ type Zoho interface {
 	UpsertContact(contactData *entity.ClientDetails) (string, error)
 	CreateOrder(orderData entity.ZohoOrder) (id string, modifiedTime string, err error)
 	CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error)
-	AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error)
 	AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error)
 	UpdateOrder(orderData entity.ZohoOrder, id string) (modifiedTime string, err error)
 	GetOrder(orderID string) (*entity.ZohoOrderRecord, error)

@@ -187,23 +187,9 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 				return "", fmt.Errorf("create Zoho order: %w", err)
 			}
 		}
-
-		//// Add remaining items in chunks
-		//if err := addChunkedItems(chunkedItems, func(chunk []*entity.OrderedItem) (string, error) {
-		//	return c.zoho.AddItemsToOrder(zohoId, chunk)
-		//}); err != nil {
-		//	log.With(sl.Err(err)).Error("add items to order")
-		//	return "", err
-		//}
-	} else {
-		//zohoOrder, chunkedItems := c.buildZohoOrderB2B(order, contactID)
-		//zohoId, err = c.createB2BDealWithItems(zohoOrder, chunkedItems)
-		//if err != nil {
-		//	log.With(sl.Err(err)).Error("create B2B deal")
-		//	return "", err
-		//}
-		//infoTag = "B2B order created"
 	}
+	// A B2B order gets no Sales Order: ProcessOrders marks it "[B2B]" and never reaches here,
+	// and a manual push leaves zohoId empty so nothing is written back.
 
 	// Create payment record in Zoho if payment data is available. Only on a create: the payment
 	// is a separate Zoho record linked to this order, so doing it again on a re-push would add a
@@ -685,62 +671,6 @@ func recipientCityId(client *entity.ClientDetails) string {
 		return fmt.Sprintf("%d", client.CityId)
 	}
 	return client.ZipCode
-}
-
-func (c *Core) buildZohoOrderB2B(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrderB2B, [][]*entity.Good) {
-	_, discountP := oc.GetDiscount()
-	discountP = round0(discountP)
-
-	lineItems := oc.LineItems
-
-	orderCurrency := Currency{
-		Code: oc.Currency,
-		Rate: oc.CurrencyValue,
-	}
-
-	// Build all ordered items
-	allItems := make([]entity.Good, 0, len(lineItems))
-	for _, d := range lineItems {
-		allItems = append(allItems, buildGood(d, orderCurrency, discountP))
-	}
-	// Add shipping as item without discount
-	if oc.Shipping > 0 {
-		shippingItem := &entity.LineItem{
-			ZohoId: c.shippingItemZohoId,
-			Qty:    1,
-			Price:  oc.Shipping,
-		}
-		allItems = append(allItems, buildGood(shippingItem, orderCurrency, 0))
-	}
-
-	// Split into chunks
-	chunkedItems := chunkSlice(allItems, c.site.ChunkSize)
-
-	order := entity.ZohoOrderB2B{
-		ContactName: entity.ContactName{ID: contactID},
-		//Goods:       orderedItems,
-		//Discount:           round2(discount),
-		DiscountP:   round0(discountP),
-		Description: oc.Comment,
-		//CustomerNo:         "",
-		VAT:            round0(oc.TaxRate()),
-		Currency:       oc.Currency,
-		BillingCountry: oc.ClientDetails.Country,
-		Status:         c.site.OrderStatusB2BName(oc.StatusId),
-		Pipeline:       c.site.B2BPipeline,
-		BillingStreet:  oc.ClientDetails.Street,
-		Subject:        fmt.Sprintf("Order #%d", oc.OrderId),
-		NIP:            oc.ClientDetails.TaxId,
-		Location:       c.site.ZohoLocation,
-		OrderSource:    c.site.ZohoOrderSource,
-	}
-
-	setCurrencyTotals(&order, orderCurrency.Code,
-		oc.Total*orderCurrency.Rate,
-		(oc.Total-oc.TaxValue)*orderCurrency.Rate,
-	)
-
-	return order, chunkedItems
 }
 
 // createB2BDealWithItems creates a B2B deal in Zoho and adds all items.

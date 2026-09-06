@@ -136,40 +136,7 @@ func (s *ZohoService) requestToken() error {
 // instead of failing with DUPLICATE_DATA.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/upsert-records.html
 func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, error) {
-
-	log := s.log.With(
-		slog.String("email", contact.Email),
-		slog.String("phone", contact.Phone),
-		slog.String("name", fmt.Sprintf("%s : %s", contact.FirstName, contact.LastName)),
-	)
-
-	if err := util.ValidateEmail(contact.Email); err != nil {
-		log.Debug("invalid email")
-		contact.Email = ""
-	}
-
-	if contact.Email == "" && contact.Phone == "" {
-		return "", fmt.Errorf("email and phone are empty")
-	}
-
-	if contact.FirstName == "" {
-		contact.FirstName = "?"
-	}
-	if contact.LastName == "" {
-		contact.LastName = "?"
-	}
-
-	payload := entity.Contact{
-		Email:            contact.Email,
-		Phone:            contact.Phone,
-		FirstName:        contact.FirstName,
-		LastName:         contact.LastName,
-		City:             contact.City,
-		Country:          contact.Country,
-		CustomerCategory: s.site.CustomerCategory(contact.GroupId),
-	}
-
-	return s.upsertContact(payload, contactDuplicateCheckFields(payload), log)
+	return s.upsertClient(contact, true)
 }
 
 // UpsertContact pushes an OpenCart customer into the Zoho Contacts module without
@@ -177,6 +144,16 @@ func (s *ZohoService) CreateContact(contact *entity.ClientDetails) (string, erro
 // (see entity.Contact JSON tags) so that existing non-empty values in Zoho are
 // preserved. Used by the customer sync loop.
 func (s *ZohoService) UpsertContact(contact *entity.ClientDetails) (string, error) {
+	return s.upsertClient(contact, false)
+}
+
+// upsertClient is the body shared by CreateContact and UpsertContact. The two differ only in
+// namePlaceholders: an order needs a name on the Contact, so a missing one becomes "?", whereas
+// the customer sync leaves it empty and lets omitempty preserve whatever Zoho already holds.
+//
+// The logger is built before the placeholders are applied, so the log reports the name OpenCart
+// actually gave us.
+func (s *ZohoService) upsertClient(contact *entity.ClientDetails, namePlaceholders bool) (string, error) {
 	log := s.log.With(
 		slog.String("email", contact.Email),
 		slog.String("phone", contact.Phone),
@@ -190,6 +167,15 @@ func (s *ZohoService) UpsertContact(contact *entity.ClientDetails) (string, erro
 
 	if contact.Email == "" && contact.Phone == "" {
 		return "", fmt.Errorf("email and phone are empty")
+	}
+
+	if namePlaceholders {
+		if contact.FirstName == "" {
+			contact.FirstName = "?"
+		}
+		if contact.LastName == "" {
+			contact.LastName = "?"
+		}
 	}
 
 	payload := entity.Contact{
@@ -223,21 +209,13 @@ func contactDuplicateCheckFields(contact entity.Contact) []string {
 // record ID, transparently extracting an existing ID from DUPLICATE_DATA and
 // MULTIPLE_OR_MULTI_ERRORS responses.
 func (s *ZohoService) upsertContact(contact entity.Contact, dupFields []string, log *slog.Logger) (string, error) {
-	payload := map[string]interface{}{
-		"data":                   []entity.Contact{contact},
-		"duplicate_check_fields": dupFields,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
+	payload := records(contact)
+	payload["duplicate_check_fields"] = dupFields
 
-	apiResp, err := s.doRequest(http.MethodPost, body, "Contacts", "upsert")
+	item, err := s.writeRecord(http.MethodPost, payload, "Contacts", "upsert")
 	if err != nil {
 		return "", err
 	}
-
-	item := apiResp.Data[0]
 
 	if item.Status == "error" {
 		if item.Code == "DUPLICATE_DATA" {
@@ -306,20 +284,10 @@ func (s *ZohoService) CreateOrder(orderData entity.ZohoOrder) (string, string, e
 		}
 	}()
 
-	payload := map[string]interface{}{
-		"data": []entity.ZohoOrder{orderData},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	apiResp, err := s.doRequest(http.MethodPost, body, "Sales_Orders")
+	item, err := s.writeRecord(http.MethodPost, records(orderData), "Sales_Orders")
 	if err != nil {
 		return "", "", err
 	}
-
-	item := apiResp.Data[0]
 
 	if item.Status != "success" {
 		err = formatZohoError("order not created", item)
@@ -380,22 +348,10 @@ func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, err
 		}
 	}()
 
-	payload := map[string]interface{}{
-		"data": []entity.ZohoOrderB2B{orderData},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	//s.log.With(slog.String("body", fmt.Sprintf("%s", body))).Debug("deal payload")
-
-	apiResp, err := s.doRequest(http.MethodPost, body, "Deals")
+	item, err := s.writeRecord(http.MethodPost, records(orderData), "Deals")
 	if err != nil {
 		return "", err
 	}
-
-	item := apiResp.Data[0]
 
 	if item.Status != "success" {
 		err = formatZohoError("B2B order not created", item)
@@ -417,20 +373,10 @@ func (s *ZohoService) CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, err
 // The payment is linked to a Sales Order via the "Sells" lookup field.
 // Stripe payment data (PaymentIntent ID, Checkout Session ID) is stored for reconciliation.
 func (s *ZohoService) CreatePayment(payment entity.ZohoPayment) (string, error) {
-	payload := map[string]interface{}{
-		"data": []entity.ZohoPayment{payment},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	apiResp, err := s.doRequest(http.MethodPost, body, "Payments")
+	item, err := s.writeRecord(http.MethodPost, records(payment), "Payments")
 	if err != nil {
 		return "", err
 	}
-
-	item := apiResp.Data[0]
 
 	if item.Status != "success" {
 		err := formatZohoError("payment not created", item)
@@ -448,21 +394,10 @@ func (s *ZohoService) CreatePayment(payment entity.ZohoPayment) (string, error) 
 // (e.g. held -> paid) when wfsync reports a new Stripe payment status.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-specific-record.html
 func (s *ZohoService) UpdatePaymentStatus(id, status string) error {
-	updateData := map[string]interface{}{"Status": status}
-	payload := map[string]interface{}{
-		"data": []interface{}{updateData},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
-	}
-
-	apiResp, err := s.doRequest(http.MethodPut, body, "Payments", id)
+	item, err := s.writeRecord(http.MethodPut, records(map[string]any{"Status": status}), "Payments", id)
 	if err != nil {
 		return err
 	}
-
-	item := apiResp.Data[0]
 
 	if item.Status != "success" {
 		return formatZohoError("payment status not updated", item)
@@ -471,64 +406,13 @@ func (s *ZohoService) UpdatePaymentStatus(id, status string) error {
 	return nil
 }
 
-// AddItemsToOrder appends line items to an existing Sales Order via bulk update.
-// Used when an order has >200 items and must be split across multiple API calls.
-// Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-records.html
-func (s *ZohoService) AddItemsToOrder(orderID string, items []*entity.OrderedItem) (string, error) {
-	// This is based on the user's sample input for updating a subform.
-	// We create a payload for a bulk/mass update, but only for a single record.
-	updateData := map[string]interface{}{
-		"id":            orderID,
-		"Ordered_Items": items,
-	}
-
-	payload := map[string]interface{}{
-		"data": []interface{}{updateData},
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders")
-	if err != nil {
-		return "", err
-	}
-
-	item := apiResp.Data[0]
-
-	if item.Status != "success" {
-		return "", formatZohoError("items not added", item)
-	}
-
-	return extractRecordID(item)
-}
-
 // AddItemsToOrderB2B creates records in the custom "Goods" module linked to a B2B Deal.
 // Each Good references a Product and a Deal via lookup fields.
 func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string, error) {
-	payload := map[string]interface{}{
-		"data": items,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	//s.log.With(slog.String("body", fmt.Sprintf("%s", body))).Debug("Goods payload")
-
-	apiResp, err := s.doRequest(http.MethodPost, body, "Goods")
+	item, err := s.writeRecord(http.MethodPost, records(items...), "Goods")
 	if err != nil {
 		return "", err
 	}
-
-	//s.log.With(
-	//	slog.String("body", fmt.Sprintf("%s", apiResp)),
-	//).Debug("goods response")
-
-	item := apiResp.Data[0]
 
 	if item.Status != "success" {
 		return "", formatZohoError("items not added", item)
@@ -550,20 +434,10 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) (string
 		slog.Float64("total", orderData.GrandTotal),
 	)
 
-	payload := map[string]interface{}{
-		"data": []entity.ZohoOrder{orderData},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders", id)
+	item, err := s.writeRecord(http.MethodPut, records(orderData), "Sales_Orders", id)
 	if err != nil {
 		return "", err
 	}
-
-	item := apiResp.Data[0]
 
 	if item.Status != "success" {
 		err = formatZohoError("order not updated", item)
@@ -617,22 +491,11 @@ func (s *ZohoService) UpdateOrderItemRows(orderID string, rows []entity.OrderedI
 		}
 	}
 
-	payload := map[string]interface{}{
-		"data": []map[string]interface{}{
-			{"Ordered_Items": rows},
-		},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	apiResp, err := s.doRequest(http.MethodPut, body, "Sales_Orders", orderID)
+	item, err := s.writeRecord(http.MethodPut, records(map[string]any{"Ordered_Items": rows}), "Sales_Orders", orderID)
 	if err != nil {
 		return "", err
 	}
 
-	item := apiResp.Data[0]
 	if item.Status != "success" {
 		return "", formatZohoError("order items not updated", item)
 	}
@@ -650,85 +513,95 @@ func (s *ZohoService) UpdateOrderItemRows(orderID string, rows []entity.OrderedI
 	return details.ModifiedTime, nil
 }
 
-// doRawRequest is doRequest for endpoints whose response is a record rather than the standard
-// per-record status envelope.
-func (s *ZohoService) doRawRequest(method string, body []byte, pathSegments ...string) ([]byte, error) {
-	segments := append([]string{s.scope, s.apiVersion}, pathSegments...)
-	fullURL, err := buildURL(s.crmUrl, segments...)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.RefreshToken(); err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(method, fullURL, bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Zoho-oauthtoken "+s.refreshToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-	defer httputil.CloseBody(resp.Body, s.log)
-
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("rate limited by Zoho API, retry after: %s", resp.Header.Get("Retry-After"))
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("zoho api: %s: %s", resp.Status, string(bodyBytes))
-	}
-
-	return bodyBytes, nil
+// records wraps values as the {"data": [...]} envelope every Zoho write takes.
+func records[T any](items ...T) map[string]any {
+	return map[string]any{"data": items}
 }
 
-// doRequest executes an authenticated request against the Zoho CRM v8 REST API.
-// It automatically refreshes the OAuth token, constructs the full URL from path segments
-// (e.g., "Sales_Orders", "upsert"), and handles rate-limit (429) responses.
+// writeRecord marshals payload, sends it, and returns the single per-record result Zoho answers
+// a write with. It deliberately stops there: which failures are meaningful differs by module
+// (INVALID_DATA on Payments, DUPLICATE_DATA on Contacts), so each caller reads item.Status and
+// phrases its own error.
+func (s *ZohoService) writeRecord(method string, payload any, pathSegments ...string) (entity.ZohoResponseItem, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return entity.ZohoResponseItem{}, fmt.Errorf("marshal payload: %w", err)
+	}
+
+	apiResp, err := s.doRequest(method, body, pathSegments...)
+	if err != nil {
+		return entity.ZohoResponseItem{}, err
+	}
+
+	return apiResp.Data[0], nil
+}
+
+// send executes an authenticated request against the Zoho CRM v8 REST API: it refreshes the
+// OAuth token, builds the full URL from path segments (e.g. "Sales_Orders", "upsert"), and
+// returns the response body with its status code. Interpreting the status is left to the
+// caller — a Zoho write reports a per-record failure in the body under a non-2xx status, and
+// that body is the only place the error code lives.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/api-limits.html
-func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...string) (*entity.ZohoAPIResponse, error) {
+func (s *ZohoService) send(method string, body []byte, pathSegments ...string) ([]byte, int, error) {
 	segments := append([]string{s.scope, s.apiVersion}, pathSegments...)
 	fullURL, err := buildURL(s.crmUrl, segments...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err = s.RefreshToken(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	req, err := http.NewRequest(method, fullURL, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, 0, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Zoho-oauthtoken "+s.refreshToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
+		return nil, 0, fmt.Errorf("send request: %w", err)
 	}
 	defer httputil.CloseBody(resp.Body, s.log)
 
 	// Check for rate limiting (v8 API has stricter limits)
 	if resp.StatusCode == http.StatusTooManyRequests {
-		retryAfter := resp.Header.Get("Retry-After")
-		return nil, fmt.Errorf("rate limited by Zoho API, retry after: %s", retryAfter)
+		return nil, resp.StatusCode, fmt.Errorf("rate limited by Zoho API, retry after: %s", resp.Header.Get("Retry-After"))
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return bodyBytes, resp.StatusCode, nil
+}
+
+// doRawRequest is doRequest for endpoints whose response is a record rather than the standard
+// per-record status envelope. With no envelope to carry the reason, a non-2xx status is the
+// error itself.
+func (s *ZohoService) doRawRequest(method string, body []byte, pathSegments ...string) ([]byte, error) {
+	bodyBytes, status, err := s.send(method, body, pathSegments...)
+	if err != nil {
+		return nil, err
+	}
+
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("zoho api: %d %s: %s", status, http.StatusText(status), string(bodyBytes))
+	}
+
+	return bodyBytes, nil
+}
+
+// doRequest sends a request and decodes the standard per-record status envelope. The HTTP status
+// is not checked: Zoho answers a rejected write with 400 and puts the reason in the envelope, so
+// failing on the status would discard the error code callers act on (see ErrPaymentInvalidData).
+func (s *ZohoService) doRequest(method string, body []byte, pathSegments ...string) (*entity.ZohoAPIResponse, error) {
+	bodyBytes, _, err := s.send(method, body, pathSegments...)
+	if err != nil {
+		return nil, err
 	}
 
 	var apiResp entity.ZohoAPIResponse

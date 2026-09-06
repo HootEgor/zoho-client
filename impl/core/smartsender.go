@@ -66,6 +66,23 @@ func (c *Core) loadSSStateFromMongo() {
 	c.log.Debug("loaded SmartSender state from MongoDB", slog.Int("chats", len(states)))
 }
 
+// ssRateLimit reports whether a SmartSender call failed because of rate limiting, and how long
+// to hold off for. The wait is the API's own Retry-After where it sent one.
+func ssRateLimit(err error) (time.Duration, bool) {
+	var apiErr *services.APIError
+	if errors.As(err, &apiErr) && apiErr.IsRateLimit() {
+		return apiErr.RetryDelay(), true
+	}
+	return 0, false
+}
+
+// pauseSmartSender stops all SmartSender polling until the reported rate limit has expired.
+func (c *Core) pauseSmartSender(d time.Duration) {
+	c.ssRateLimitMu.Lock()
+	c.ssRateLimitUntil = time.Now().Add(d)
+	c.ssRateLimitMu.Unlock()
+}
+
 // processSmartSenderChats fetches all chats and processes new messages
 func (c *Core) processSmartSenderChats() {
 	log := c.log.With(sl.Module("smartsender"))
@@ -82,25 +99,10 @@ func (c *Core) processSmartSenderChats() {
 
 	chats, err := c.smartSender.GetAllChats()
 	if err != nil {
-		// Check if it's a services.APIError and honor RetryAfter for rate limits
-		var apiErr *services.APIError
-		if errors.As(err, &apiErr) {
-			if apiErr.Status == 423 || apiErr.Status == 429 {
-				retryAfter := apiErr.RetryAfter
-				if retryAfter == 0 {
-					if apiErr.Status == 423 {
-						retryAfter = 720 * time.Second
-					} else {
-						retryAfter = 5 * time.Second
-					}
-				}
-				log.With(sl.Err(err)).Warn("SmartSender rate limit received; pausing processing", slog.Duration("retry_after", retryAfter))
-				// Set global pause until time
-				c.ssRateLimitMu.Lock()
-				c.ssRateLimitUntil = time.Now().Add(retryAfter)
-				c.ssRateLimitMu.Unlock()
-				return
-			}
+		if retryAfter, ok := ssRateLimit(err); ok {
+			log.With(sl.Err(err)).Warn("SmartSender rate limit received; pausing processing", slog.Duration("retry_after", retryAfter))
+			c.pauseSmartSender(retryAfter)
+			return
 		}
 
 		log.With(sl.Err(err)).Error("failed to fetch chats")
@@ -168,29 +170,15 @@ func (c *Core) processSmartSenderChats() {
 		processedChats++
 
 		if err != nil {
-			// if this is a rate-limit API error, set global pause, save resume position and stop processing
-			var apiErr *services.APIError
-			if errors.As(err, &apiErr) {
-				if apiErr.Status == 423 || apiErr.Status == 429 {
-					retryAfter := apiErr.RetryAfter
-					if retryAfter == 0 {
-						if apiErr.Status == 423 {
-							retryAfter = 720 * time.Second
-						} else {
-							retryAfter = 5 * time.Second
-						}
-					}
-					log.With(sl.Err(err)).Warn("SmartSender rate limit received while processing chat; pausing processing", slog.Duration("retry_after", retryAfter), slog.String("chat_id", string(chat.ID)))
-					// set global pause until time
-					c.ssRateLimitMu.Lock()
-					c.ssRateLimitUntil = time.Now().Add(retryAfter)
-					c.ssRateLimitMu.Unlock()
-					// save resume position (start from this chat next time)
-					c.ssResumeMu.Lock()
-					c.ssResumeFromChatID = string(chat.ID)
-					c.ssResumeMu.Unlock()
-					break
-				}
+			// A rate limit pauses everything and remembers where to pick up; any other failure
+			// is this chat's alone, so the loop moves on to the next one.
+			if retryAfter, ok := ssRateLimit(err); ok {
+				log.With(sl.Err(err)).Warn("SmartSender rate limit received while processing chat; pausing processing", slog.Duration("retry_after", retryAfter), slog.String("chat_id", string(chat.ID)))
+				c.pauseSmartSender(retryAfter)
+				c.ssResumeMu.Lock()
+				c.ssResumeFromChatID = string(chat.ID)
+				c.ssResumeMu.Unlock()
+				break
 			}
 
 			log.With(

@@ -50,6 +50,15 @@ func NewSmartSenderService(conf *config.Config, log *slog.Logger) (*SmartSenderS
 	return service, nil
 }
 
+// Rate-limit statuses SmartSender answers with, and how long to wait when it sends no
+// Retry-After of its own.
+const (
+	statusLocked         = 423
+	statusTooManyReqs    = 429
+	lockedRetryDefault   = 720 * time.Second
+	tooManyReqsRetryWait = 5 * time.Second
+)
+
 // APIError represents a non-200 response from SmartSender API and optional RetryAfter
 type APIError struct {
 	Status     int
@@ -59,6 +68,28 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("API error (status %d): %s", e.Status, e.Body)
+}
+
+// IsRateLimit reports whether SmartSender refused the call for rate limiting rather than for
+// something wrong with the request. Such a call is worth repeating after RetryDelay; any other
+// failure is not.
+func (e *APIError) IsRateLimit() bool {
+	return e.Status == statusLocked || e.Status == statusTooManyReqs
+}
+
+// RetryDelay is how long to wait before calling SmartSender again: the Retry-After it sent, or
+// the default for the status when it sent none. Zero for anything that is not a rate limit.
+func (e *APIError) RetryDelay() time.Duration {
+	if e.RetryAfter > 0 {
+		return e.RetryAfter
+	}
+	switch e.Status {
+	case statusLocked:
+		return lockedRetryDefault
+	case statusTooManyReqs:
+		return tooManyReqsRetryWait
+	}
+	return 0
 }
 
 // parseRetryAfter tries to parse Retry-After header; supports seconds or HTTP-date
@@ -233,19 +264,10 @@ func (s *SmartSenderService) doRequest(method, url string) ([]byte, error) {
 			}
 		}
 
-		// set sensible defaults when header is missing for specific codes
-		if apiErr.RetryAfter == 0 {
-			if resp.StatusCode == 423 {
-				// SmartSender sometimes returns 423 with a message indicating seconds; default to 12 minutes
-				apiErr.RetryAfter = 720 * time.Second
-			} else if resp.StatusCode == 429 {
-				// default short backoff for 429 when Retry-After is absent
-				apiErr.RetryAfter = 5 * time.Second
-			}
-		}
-
-		// If it's a rate-limit error (423 or 429), return immediately so caller can pause
-		if resp.StatusCode == 423 || resp.StatusCode == 429 {
+		// If it's a rate-limit error, return immediately so caller can pause. The wait comes
+		// from apiErr.RetryDelay(), which falls back to the per-status default when SmartSender
+		// sent no Retry-After.
+		if apiErr.IsRateLimit() {
 			return nil, apiErr
 		}
 

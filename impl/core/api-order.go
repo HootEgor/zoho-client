@@ -393,29 +393,6 @@ func cents(v float64) int64 {
 	return int64(math.Round(v * 100))
 }
 
-// calculateTaxRate calculates the tax rate from existing order_total data.
-// Returns tax rate as a decimal (e.g., 0.23 for 23% VAT), rounded to 4 decimal places.
-func (c *Core) calculateTaxRate(orderId int64) (float64, error) {
-	// Get sub_total and tax from order_total table
-	_, subTotal, err := c.repo.OrderTotal(orderId, "sub_total")
-	if err != nil {
-		return 0, fmt.Errorf("failed to get sub_total: %w", err)
-	}
-
-	_, tax, err := c.repo.OrderTotal(orderId, "tax")
-	if err != nil {
-		return 0, fmt.Errorf("failed to get tax: %w", err)
-	}
-
-	if subTotal == 0 {
-		return 0, fmt.Errorf("sub_total is zero")
-	}
-
-	// Calculate rate and round to 4 decimals
-	rate := tax / subTotal
-	return math.Round(rate*10000) / 10000, nil
-}
-
 // parseZohoTime parses a Zoho CRM datetime string. Zoho returns RFC3339 timestamps
 // (e.g. "2024-01-15T10:30:00+02:00"); a few legacy callers also emit the variant
 // without seconds. Returns the parsed time in UTC and a bool indicating success.
@@ -458,28 +435,6 @@ func mergeItemsByZohoID(items []entity.ApiOrderedItem) []entity.ApiOrderedItem {
 	}
 
 	return merged
-}
-
-// calculateDiscountPercent calculates the discount percentage from API items.
-// Compares API totals (discounted) vs full totals (price × quantity).
-// Returns discount as a decimal (e.g., 0.15 for 15% discount).
-func (c *Core) calculateDiscountPercent(items []entity.ApiOrderedItem) float64 {
-	var sumApiTotals float64 = 0
-	var sumFullTotals float64 = 0
-
-	for _, item := range items {
-		if c.shippingItemZohoId != "" && item.ZohoID == c.shippingItemZohoId {
-			continue
-		}
-		sumApiTotals += item.Total                           // Discounted total from API
-		sumFullTotals += item.Price * float64(item.Quantity) // Full price
-	}
-
-	if sumFullTotals == 0 {
-		return 0
-	}
-
-	return 1.0 - (sumApiTotals / sumFullTotals)
 }
 
 // itemDiffEntry is one aggregated line used for before/after comparison.

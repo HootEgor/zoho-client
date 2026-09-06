@@ -207,33 +207,6 @@ func (s *MySql) ChangeOrderZohoId(orderId int64, zohoId string) error {
 	return nil
 }
 
-func (s *MySql) UpdateOrderTracking(orderId int64, tracking string) error {
-	stmt, err := s.stmtUpdateOrderTracking()
-	if err != nil {
-		return err
-	}
-
-	_, err = stmt.Exec(tracking, orderId)
-	if err != nil {
-		return fmt.Errorf("update tracking: %w", err)
-	}
-	return nil
-}
-
-func (s *MySql) GetOrderTracking(orderId int64) (string, error) {
-	stmt, err := s.stmtSelectOrderTracking()
-	if err != nil {
-		return "", err
-	}
-
-	var tracking string
-	err = stmt.QueryRow(orderId).Scan(&tracking)
-	if err != nil {
-		return "", fmt.Errorf("query tracking: %w", err)
-	}
-	return tracking, nil
-}
-
 // GetOrderZohoModifiedTime returns the stored Zoho Modified_Time for the order,
 // or the zero time if it has never been set (column is NULL).
 func (s *MySql) GetOrderZohoModifiedTime(orderId int64) (time.Time, error) {
@@ -351,40 +324,64 @@ func (s *MySql) GetProductByUid(productUID string) (name string, zohoId string, 
 }
 
 func (s *MySql) OrderSearchStatus(statusId int, from time.Time) ([]*entity.CheckoutParams, error) {
-	stmt, err := s.stmtSelectOrderStatus()
+	orders, _, err := s.queryOrders(s.stmtSelectOrderStatus, statusId, from)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := stmt.Query(statusId, from)
+
+	// add line items and shipping costs to each order
+	if err = s.addOrderDataAll(orders); err != nil {
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+// queryOrders runs one of the oc_order SELECTs that share orderColumns() and scans every row
+// into CheckoutParams, returning each row's zoho_id in a parallel slice. The orders come back
+// with only the columns of oc_order itself — line items, totals and the post terminal are a
+// separate query per order, added by addOrderDataAll.
+func (s *MySql) queryOrders(stmtFn func() (*sql.Stmt, error), args ...any) ([]*entity.CheckoutParams, []string, error) {
+	stmt, err := stmtFn()
 	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
+		return nil, nil, err
+	}
+	rows, err := stmt.Query(args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query: %w", err)
 	}
 	defer func(rows *sql.Rows) {
 		_ = rows.Close()
 	}(rows)
 
-	var orders []*entity.CheckoutParams
+	var (
+		orders  []*entity.CheckoutParams
+		zohoIds []string
+	)
 	for rows.Next() {
-		order, _, err := s.scanOrderFromRows(rows)
+		order, zohoId, err := s.scanOrderFromRows(rows)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		orders = append(orders, order)
+		zohoIds = append(zohoIds, zohoId)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// add line items and shipping costs to each order
+	return orders, zohoIds, nil
+}
+
+// addOrderDataAll fills in line items, totals, coupon and post terminal for every order.
+func (s *MySql) addOrderDataAll(orders []*entity.CheckoutParams) error {
 	for _, order := range orders {
-		_, err = s.addOrderData(order.OrderId, order)
-		if err != nil {
-			return nil, fmt.Errorf("add order data: %w", err)
+		if _, err := s.addOrderData(order.OrderId, order); err != nil {
+			return fmt.Errorf("add order data for %d: %w", order.OrderId, err)
 		}
 	}
-
-	return orders, nil
+	return nil
 }
 
 // SyncedOrder pairs an OpenCart order with the Zoho Sales Order id it was synced to.
@@ -396,69 +393,35 @@ type SyncedOrder struct {
 // OrdersSyncedBetween returns every order placed in [from, to) that already carries a real Zoho
 // Sales Order id, fully populated with line items and totals.
 func (s *MySql) OrdersSyncedBetween(from, to time.Time) ([]SyncedOrder, error) {
-	stmt, err := s.stmtSelectOrdersSynced()
+	orders, zohoIds, err := s.queryOrders(s.stmtSelectOrdersSynced, from, to)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := stmt.Query(from, to)
-	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close()
-	}(rows)
 
-	var found []SyncedOrder
-	for rows.Next() {
-		order, zohoId, err := s.scanOrderFromRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		found = append(found, SyncedOrder{ZohoID: zohoId, Order: order})
-	}
-
-	if err = rows.Err(); err != nil {
+	if err = s.addOrderDataAll(orders); err != nil {
 		return nil, err
 	}
 
-	for _, f := range found {
-		if _, err = s.addOrderData(f.Order.OrderId, f.Order); err != nil {
-			return nil, fmt.Errorf("add order data for %d: %w", f.Order.OrderId, err)
-		}
+	found := make([]SyncedOrder, 0, len(orders))
+	for i, order := range orders {
+		found = append(found, SyncedOrder{ZohoID: zohoIds[i], Order: order})
 	}
 
 	return found, nil
 }
 
 func (s *MySql) OrderSearchId(orderId int64) (string, *entity.CheckoutParams, error) {
-	stmt, err := s.stmtSelectOrderId()
+	orders, zohoIds, err := s.queryOrders(s.stmtSelectOrderId, orderId)
 	if err != nil {
 		return "", nil, err
 	}
-	rows, err := stmt.Query(orderId)
-	if err != nil {
-		return "", nil, fmt.Errorf("query: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close()
-	}(rows)
-
-	if !rows.Next() {
+	if len(orders) == 0 {
 		return "", nil, fmt.Errorf("order with id %d not found", orderId)
 	}
 
-	order, zohoId, err := s.scanOrderFromRows(rows)
-	if err != nil {
-		return "", nil, err
-	}
+	params, err := s.addOrderData(orderId, orders[0])
 
-	if err = rows.Err(); err != nil {
-		return "", nil, err
-	}
-
-	params, err := s.addOrderData(orderId, order)
-
-	return zohoId, params, err
+	return zohoIds[0], params, err
 }
 
 func (s *MySql) orderProducts(orderId int64) ([]*entity.LineItem, error) {
@@ -705,31 +668,15 @@ func (s *MySql) scanOrderFromRows(rows *sql.Rows) (*entity.CheckoutParams, strin
 
 // OrderSearchByZohoId searches for an order by its Zoho ID and returns the order_id and order data.
 func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParams, error) {
-	stmt, err := s.stmtSelectOrderByZohoId()
+	orders, _, err := s.queryOrders(s.stmtSelectOrderByZohoId, zohoId)
 	if err != nil {
 		return 0, nil, err
 	}
-	rows, err := stmt.Query(zohoId)
-	if err != nil {
-		return 0, nil, fmt.Errorf("query: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close()
-	}(rows)
-
-	if !rows.Next() {
+	if len(orders) == 0 {
 		return 0, nil, fmt.Errorf("order with zoho_id '%s' not found", zohoId)
 	}
 
-	order, _, err := s.scanOrderFromRows(rows)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	if err = rows.Err(); err != nil {
-		return 0, nil, err
-	}
-
+	order := orders[0]
 	params, err := s.addOrderData(order.OrderId, order)
 	if err != nil {
 		return 0, nil, fmt.Errorf("add order data: %w", err)
@@ -792,64 +739,16 @@ func (s *MySql) GetOrderZohoPaymentId(orderId int64) (string, error) {
 // GetOrdersPendingPayment returns orders that have been synced to Zoho (zoho_id set)
 // and have payment data from wfsync (wf_payment_status set) but no Zoho payment record yet.
 func (s *MySql) GetOrdersPendingPayment() ([]*entity.CheckoutParams, error) {
-	stmt, err := s.stmtSelectOrdersPendingPayment()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := stmt.Query()
-	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close()
-	}(rows)
-
-	var orders []*entity.CheckoutParams
-	for rows.Next() {
-		order, _, err := s.scanOrderFromRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		orders = append(orders, order)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return orders, nil
+	orders, _, err := s.queryOrders(s.stmtSelectOrdersPendingPayment)
+	return orders, err
 }
 
 // GetOrdersPendingPaymentUpdate returns orders that already have a Zoho Payments record
 // (real zoho_payment_id, not the "[ERR]" sentinel) whose wf_payment_status has since
 // advanced (e.g. held -> paid) beyond what was last synced to Zoho (zoho_payment_status).
 func (s *MySql) GetOrdersPendingPaymentUpdate() ([]*entity.CheckoutParams, error) {
-	stmt, err := s.stmtSelectOrdersPendingPaymentUpdate()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := stmt.Query()
-	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close()
-	}(rows)
-
-	var orders []*entity.CheckoutParams
-	for rows.Next() {
-		order, _, err := s.scanOrderFromRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		orders = append(orders, order)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return orders, nil
+	orders, _, err := s.queryOrders(s.stmtSelectOrdersPendingPaymentUpdate)
+	return orders, err
 }
 
 // GetOrderZohoId returns the zoho_id for a given order.
