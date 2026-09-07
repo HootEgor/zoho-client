@@ -45,8 +45,14 @@ func DecodeWithBody(r *http.Request) (*Request, []byte, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, body, ErrEmptyBody
 	}
+	// UseNumber keeps every number in Data as its literal text instead of a float64. Data is an
+	// interface{} that DecodeArrayData re-marshals into the target struct, and a Zoho record id
+	// sent as a bare JSON number (739178000064455061) is 18 digits - float64 carries 15 and would
+	// hand the round-trip a different id (739178000064455000), which resolves to no order at all.
 	var req Request
-	if err := json.Unmarshal(body, &req); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if err := dec.Decode(&req); err != nil {
 		return nil, body, err
 	}
 	return &req, body, nil

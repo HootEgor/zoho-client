@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
@@ -14,7 +15,13 @@ import (
 // reach is nil and panics loudly rather than silently succeeding.
 type routerHandler struct {
 	Handler
-	token string
+	token   string
+	updated []entity.ApiOrder
+}
+
+func (h *routerHandler) UpdateOrder(order *entity.ApiOrder) error {
+	h.updated = append(h.updated, *order)
+	return nil
 }
 
 func (h *routerHandler) AuthenticateByToken(token string) (*entity.UserAuth, error) {
@@ -183,5 +190,43 @@ func TestNew_RejectsAnUnusableBasePath(t *testing.T) {
 		slog.New(slog.NewTextHandler(io.Discard, nil)), &routerHandler{})
 	if err == nil {
 		t.Fatal("New() with an unusable base path should fail")
+	}
+}
+
+// The UA regression, end to end: its Zoho function posts the Sales Order id as a bare JSON number.
+// The id has to reach Core.UpdateOrder with all 18 digits intact - the envelope's Data is an
+// interface{}, and decoding that number as a float64 anywhere along the way would deliver
+// 739178000064455000 and silently update nothing.
+func TestRouter_NumericZohoIdSurvivesTheEnvelope(t *testing.T) {
+	handler := &routerHandler{token: "secret"}
+	conf := &config.Config{}
+	conf.Listen.BasePath = ""
+	server, err := New(conf, config.DefaultSiteSettings(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)), handler)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	body := `{"method":"order.status.update","data":{"zoho_id":739178000064455061,` +
+		`"status":"Відправлено","grand_total":2722.51,"coupon":"CHILLAX10","ordered_items":[` +
+		`{"zoho_id":"739178000063933582","price":195,"total":175.5,"quantity":1}]}}`
+
+	req := httptest.NewRequest(http.MethodPost, "/zoho/webhook/order", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.httpServer.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if len(handler.updated) != 1 {
+		t.Fatalf("UpdateOrder called %d time(s), want 1", len(handler.updated))
+	}
+	if got := handler.updated[0].ZohoID; got != "739178000064455061" {
+		t.Errorf("zoho_id = %q, want 739178000064455061", got)
+	}
+	if got := handler.updated[0].OrderedItems[0].ZohoID; got != "739178000063933582" {
+		t.Errorf("item zoho_id = %q, want 739178000063933582", got)
 	}
 }

@@ -274,6 +274,19 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Uses prepared statements stored in `statements` map for performance
 - Connection pooling: 50 max open, 10 max idle, 1-hour lifetime
 
+**Inbound payload quirks (`POST /zoho/webhook/order`)**
+- `zoho_id` arrives as a JSON *string* from one shop and as a bare JSON *number* from another (the
+  UA site's Deluge function does not quote the Sales Order id, though it quotes the subform ids).
+  `ApiOrder`/`ApiOrderedItem` have custom `UnmarshalJSON` that accept both.
+- A Zoho id is 18 digits and float64 carries 15, so it must never be decoded as a number:
+  `739178000064455061` comes back as `739178000064455000` and matches no order. Two things keep
+  that from happening and both are load-bearing — `request.DecodeWithBody` decodes the envelope
+  with `UseNumber()` (`Request.Data` is an `interface{}` that gets re-marshalled into the struct),
+  and `entity.zohoID` takes the digits from the literal. `TestRouter_NumericZohoIdSurvivesTheEnvelope`
+  fails with the corrupted id if either is removed.
+- A decode or validation failure logs the raw body as `payload` (`request.Snippet`, first 4 KB), so
+  a shop sending an unexpected shape can be diagnosed from the log alone.
+
 **API Order Updates (Reverse Sync)**
 - `OrderSearchByZohoId()` - finds OpenCart order_id by Zoho ID
 - `UpdateOrderItems()` - replaces all order items and recalculates:
