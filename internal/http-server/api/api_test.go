@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -228,5 +229,55 @@ func TestRouter_NumericZohoIdSurvivesTheEnvelope(t *testing.T) {
 	}
 	if got := handler.updated[0].OrderedItems[0].ZohoID; got != "739178000063933582" {
 		t.Errorf("item zoho_id = %q, want 739178000063933582", got)
+	}
+}
+
+// Every error body carries a machine-readable code, the fallback handlers included: a caller that
+// switches on response.error.code must not have to special-case a 404 or a 405 that arrived with
+// nothing but prose.
+func TestRouter_FallbackErrorsCarryACode(t *testing.T) {
+	server := testServer(t, "")
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		status int
+		code   string
+	}{
+		{"unrouted path", http.MethodGet, "/nope", http.StatusNotFound, "NOT_FOUND"},
+		{"wrong method", http.MethodDelete, "/zoho/health", http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, server, tt.method, tt.path, "secret")
+			if rec.Code != tt.status {
+				t.Fatalf("status = %d, want %d\nbody: %s", rec.Code, tt.status, rec.Body.String())
+			}
+
+			var body struct {
+				Success bool `json:"success"`
+				Error   *struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("body is not JSON: %v (%s)", err, rec.Body.String())
+			}
+			if body.Success {
+				t.Error("success = true on an error response")
+			}
+			if body.Error == nil {
+				t.Fatalf("no error object in body: %s", rec.Body.String())
+			}
+			if body.Error.Code != tt.code {
+				t.Errorf("error.code = %q, want %q", body.Error.Code, tt.code)
+			}
+			if body.Error.Message == "" {
+				t.Error("error.message is empty")
+			}
+		})
 	}
 }

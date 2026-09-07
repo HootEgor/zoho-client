@@ -17,6 +17,7 @@ const (
 	ErrCodeDuplicateKey    ErrorCode = "DUPLICATE_KEY"
 	ErrCodeConflict        ErrorCode = "CONFLICT"
 	ErrCodeBadRequest      ErrorCode = "BAD_REQUEST"
+	ErrCodeMethodNotAllow  ErrorCode = "METHOD_NOT_ALLOWED"
 	ErrCodeInvalidInput    ErrorCode = "INVALID_INPUT"
 	ErrCodeEntityTooLarge  ErrorCode = "ENTITY_TOO_LARGE"
 	ErrCodeRateLimitExceed ErrorCode = "RATE_LIMIT_EXCEEDED"

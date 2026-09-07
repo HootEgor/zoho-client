@@ -9,6 +9,7 @@ import (
 	"zohoclient/entity"
 	"zohoclient/internal/lib/api/cont"
 	"zohoclient/internal/lib/api/response"
+	apierrors "zohoclient/internal/lib/errors"
 	"zohoclient/internal/lib/sl"
 	"zohoclient/internal/lib/util"
 
@@ -50,7 +51,7 @@ func New(log *slog.Logger, auth Authenticate) func(next http.Handler) http.Handl
 					slog.Int("status", ww.Status()),
 					slog.Int("size", ww.BytesWritten()),
 					slog.Float64("duration", time.Since(t1).Seconds()),
-				).Info("incoming request")
+				).Debug("incoming request")
 			}()
 
 			header := r.Header.Get("Authorization")
@@ -98,5 +99,5 @@ func New(log *slog.Logger, auth Authenticate) func(next http.Handler) http.Handl
 
 func authFailed(w http.ResponseWriter, r *http.Request, message string) {
 	render.Status(r, http.StatusUnauthorized)
-	render.JSON(w, r, response.Error(message))
+	render.JSON(w, r, response.ErrorWithCode(string(apierrors.ErrCodeUnauthorized), message))
 }
