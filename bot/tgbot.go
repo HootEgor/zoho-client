@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"zohoclient/entity"
 	"zohoclient/internal/lib/sl"
 
 	tgbotapi "github.com/PaulSonOfLars/gotgbot/v2"
@@ -22,6 +23,14 @@ type TgBot struct {
 	adminIds    []int64
 	minLogLevel slog.Level
 	adminLevels map[int64]slog.Level
+	versions    VersionRepository
+}
+
+// VersionRepository is read access to the stored order version history. It stays nil when the
+// internal database is disabled, and the version commands then say so instead of failing.
+type VersionRepository interface {
+	ListOrderVersions(orderID int64) ([]entity.Version, error)
+	GetOrderVersion(orderID int64, versionID string) (*entity.Version, error)
 }
 
 func NewTgBot(botName, apiKey string, adminIdsStr string, log *slog.Logger) (*TgBot, error) {
@@ -79,6 +88,8 @@ func (t *TgBot) Start() error {
 	t.updater = ext.NewUpdater(dispatcher, nil)
 
 	dispatcher.AddHandler(handlers.NewCommand("level", t.level))
+	dispatcher.AddHandler(handlers.NewCommand("versions", t.versionList))
+	dispatcher.AddHandler(handlers.NewCommand("version", t.versionDetails))
 
 	err := t.updater.StartPolling(t.api, &ext.PollingOpts{
 		DropPendingUpdates: true,
@@ -117,6 +128,22 @@ func (t *TgBot) SetMinLogLevel(level slog.Level) {
 	}
 }
 
+// SetVersionRepository gives the bot read access to the stored order version history. Call it
+// before Start, so no command handler can observe the field being assigned.
+func (t *TgBot) SetVersionRepository(repo VersionRepository) {
+	t.versions = repo
+}
+
+// isAdmin reports whether the user is allowed to run the bot's commands.
+func (t *TgBot) isAdmin(userId int64) bool {
+	for _, adminId := range t.adminIds {
+		if userId == adminId {
+			return true
+		}
+	}
+	return false
+}
+
 // SetAdminLogLevel sets the minimum log level for a specific admin
 func (t *TgBot) SetAdminLogLevel(adminId int64, level slog.Level) {
 	t.adminLevels[adminId] = level
@@ -127,16 +154,7 @@ func (t *TgBot) level(b *tgbotapi.Bot, ctx *ext.Context) error {
 	// Get the user ID
 	userId := ctx.EffectiveUser.Id
 
-	// Check if the user is an admin
-	isAdmin := false
-	for _, adminId := range t.adminIds {
-		if userId == adminId {
-			isAdmin = true
-			break
-		}
-	}
-
-	if !isAdmin {
+	if !t.isAdmin(userId) {
 		_, err := ctx.EffectiveMessage.Reply(b, "You are not authorized to use this command.", nil)
 		return err
 	}

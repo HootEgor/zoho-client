@@ -230,3 +230,59 @@ func (m *MongoDB) GetAllSSLastProcessedTimes() (map[string]time.Time, error) {
 
 	return result, nil
 }
+
+// ListOrderVersions returns the versions stored for an order in the order they were written,
+// without their payloads — the list is a directory, the payload is only read for one version at a
+// time by GetOrderVersion. An order that was never stored yields no versions and no error.
+func (m *MongoDB) ListOrderVersions(orderID int64) ([]entity.Version, error) {
+	connection, err := m.connect()
+	if err != nil {
+		return nil, err
+	}
+	defer m.disconnect(connection)
+
+	collection := connection.Database(m.database).Collection(ordersCollection)
+
+	opts := options.FindOne().SetProjection(bson.M{"versions.payload": 0})
+	var order entity.MongoOrder
+	err = collection.FindOne(m.ctx, bson.M{"order_id": orderID}, opts).Decode(&order)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("mongodb find error: %w", err)
+	}
+
+	return order.Versions, nil
+}
+
+// GetOrderVersion returns a single stored version of an order, or nil when the order or that
+// version does not exist.
+func (m *MongoDB) GetOrderVersion(orderID int64, versionID string) (*entity.Version, error) {
+	connection, err := m.connect()
+	if err != nil {
+		return nil, err
+	}
+	defer m.disconnect(connection)
+
+	collection := connection.Database(m.database).Collection(ordersCollection)
+
+	// $elemMatch keeps the requested version alone in the result, so a long history is not
+	// transferred to serve one version.
+	opts := options.FindOne().SetProjection(bson.M{
+		"versions": bson.M{"$elemMatch": bson.M{"id": versionID}},
+	})
+	var order entity.MongoOrder
+	err = collection.FindOne(m.ctx, bson.M{"order_id": orderID}, opts).Decode(&order)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("mongodb find error: %w", err)
+	}
+	if len(order.Versions) == 0 {
+		return nil, nil
+	}
+
+	return &order.Versions[0], nil
+}

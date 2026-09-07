@@ -160,6 +160,11 @@ docs/                       # API documentation (apiv1.md, config.md)
 **bot/TgBot**
 - Telegram bot for admin notifications (uses PaulSonOfLars/gotgbot library)
 - Supports per-admin log level filtering via `/level` command
+- Order version history (admins only, both commands are no-ops when `mongo.enabled` is false):
+  `/versions <order_id>` lists the stored versions of an order (id + timestamp, last 30),
+  `/version <order_id> <version_id>` shows one version's status, total and product count
+- `bot.VersionRepository` is satisfied by the Mongo client; `main.go` hands it over *before*
+  `tgBot.Start()`, so polling begins only once the command handlers have something to read
 - Logger handler sends formatted messages to admins based on log levels
 
 **internal/http-server/api/Server**

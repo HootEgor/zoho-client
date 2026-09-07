@@ -44,12 +44,6 @@ func main() {
 			lg.With(
 				slog.String("bot", conf.Telegram.BotName),
 			).Info("telegram bot initialized")
-
-			go func() {
-				if err := tgBot.Start(); err != nil {
-					lg.Error("telegram bot error", slog.String("error", err.Error()))
-				}
-			}()
 		}
 	}
 
@@ -124,6 +118,20 @@ func main() {
 	}
 	if mongoClient != nil {
 		handler.SetMongoRepository(mongoClient)
+	}
+
+	// Polling starts only here: the bot's version commands read the internal database, so it must
+	// be handed over before any command handler can run. Notifications do not need the updater,
+	// so everything logged above still reached the admins.
+	if tgBot != nil {
+		if mongoClient != nil {
+			tgBot.SetVersionRepository(mongoClient)
+		}
+		go func() {
+			if err := tgBot.Start(); err != nil {
+				lg.Error("telegram bot error", slog.String("error", err.Error()))
+			}
+		}()
 	}
 
 	// Initialize SmartSender integration if enabled
