@@ -70,6 +70,28 @@ func (m *MongoDB) findError(err error) error {
 	return fmt.Errorf("mongodb find error: %w", err)
 }
 
+// pingTimeout bounds a health check so an unreachable MongoDB cannot hold the /health request
+// open until the router's own timeout fires.
+const pingTimeout = 2 * time.Second
+
+// Ping reports whether MongoDB is reachable. The client connects per operation, so this covers the
+// dial as well as the server's response.
+func (m *MongoDB) Ping() error {
+	ctx, cancel := context.WithTimeout(m.ctx, pingTimeout)
+	defer cancel()
+
+	connection, err := mongo.Connect(ctx, m.clientOptions)
+	if err != nil {
+		return fmt.Errorf("mongodb connect error: %w", err)
+	}
+	defer func() { _ = connection.Disconnect(ctx) }()
+
+	if err := connection.Ping(ctx, nil); err != nil {
+		return fmt.Errorf("mongodb ping error: %w", err)
+	}
+	return nil
+}
+
 // SaveOrderVersion saves or updates an order with a new version in MongoDB.
 // If the order exists, appends the new version. If not, creates a new order document.
 // Version ID is auto-generated as sequential number (0, 1, 2, ...).

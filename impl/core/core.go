@@ -42,6 +42,10 @@ type Repository interface {
 	GetOrdersPendingPaymentUpdate() ([]*entity.CheckoutParams, error)
 	GetOrderZohoId(orderId int64) (string, error)
 
+	// Ping reports whether the OpenCart database is reachable, for the status report.
+	Ping() error
+	PoolStats() string
+
 	GetNewCustomers() ([]*sql.CustomerRow, error)
 	ChangeCustomerZohoId(customerId int64, zohoId string) error
 	CountCustomers() (total int64, synced int64, err error)
@@ -63,6 +67,10 @@ type Zoho interface {
 	UpdateOrderItemRows(orderID string, rows []entity.OrderedItemPatch) (modifiedTime string, err error)
 	CreatePayment(payment entity.ZohoPayment) (string, error)
 	UpdatePaymentStatus(id, status string) error
+
+	// TokenStatus reports the cached OAuth token's expiry without forcing a refresh, so a status
+	// report never spends a Zoho API call.
+	TokenStatus() (expiry time.Time, valid bool)
 }
 
 type MessageService interface {
@@ -70,6 +78,9 @@ type MessageService interface {
 }
 
 type MongoRepository interface {
+	// Ping reports whether MongoDB is reachable, for the status report.
+	Ping() error
+
 	SaveOrderVersion(orderID int64, payload string) error
 	DeleteExpired() (int64, error)
 	GetSSLastProcessedTime(chatID string) (time.Time, error)
@@ -93,6 +104,8 @@ type Core struct {
 	zoho               Zoho
 	ms                 MessageService
 	site               *config.SiteSettings
+	env                string
+	startedAt          time.Time
 	dryRun             bool
 	shippingItemZohoId string
 	authKey            string
@@ -100,6 +113,11 @@ type Core struct {
 	keysMu             sync.RWMutex
 	log                *slog.Logger
 	stopCh             chan struct{}
+
+	// orderSync records what the last completed pass of the poller did. Written by the poll
+	// goroutine, read by the status report from an HTTP or Telegram goroutine.
+	orderSync   orderSyncStats
+	orderSyncMu sync.RWMutex
 
 	// SmartSender integration
 	smartSender       SmartSenderService
@@ -119,6 +137,8 @@ func New(log *slog.Logger, conf config.Config, site *config.SiteSettings) *Core 
 	return &Core{
 		log:             log.With(sl.Module("core")),
 		site:            site,
+		env:             conf.Env,
+		startedAt:       time.Now(),
 		dryRun:          conf.DryRun,
 		authKey:         conf.Listen.ApiKey,
 		keys:            make(map[string]string),

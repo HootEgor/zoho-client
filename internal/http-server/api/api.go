@@ -10,6 +10,7 @@ import (
 	"zohoclient/internal/config"
 	"zohoclient/internal/http-server/handlers/b2b"
 	"zohoclient/internal/http-server/handlers/errors"
+	"zohoclient/internal/http-server/handlers/health"
 	"zohoclient/internal/http-server/handlers/order"
 	"zohoclient/internal/http-server/middleware/authenticate"
 	"zohoclient/internal/http-server/middleware/timeout"
@@ -31,6 +32,7 @@ type Handler interface {
 	authenticate.Authenticate
 	order.Core
 	b2b.Core
+	health.Core
 }
 
 func New(conf *config.Config, site *config.SiteSettings, log *slog.Logger, handler Handler) (*Server, error) {
@@ -45,28 +47,40 @@ func New(conf *config.Config, site *config.SiteSettings, log *slog.Logger, handl
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Use(render.SetContentType(render.ContentTypeJSON))
-	router.Use(authenticate.New(log, handler))
 
 	router.NotFound(errors.NotFound(log))
 	router.MethodNotAllowed(errors.NotAllowed(log))
 
-	router.Route("/zoho", func(v1 chi.Router) {
-		v1.Route("/webhook", func(webhook chi.Router) {
-			webhook.Route("/order", func(r chi.Router) {
-				r.Post("/", order.UpdateOrder(log, handler))
-			})
-			// The B2B portal webhook feeds the Deals pipeline; a site that does not run the
-			// B2B flow has no route for it at all, so a stray call 404s rather than creating
-			// a Deal nobody will look at.
-			if site.B2B {
-				webhook.Route("/b2b", func(r chi.Router) {
-					r.Post("/", b2b.Webhook(log, handler))
+	// The liveness probe is the one route outside authentication: a load balancer or a systemd
+	// watchdog has no token to present. It answers with a state and an uptime and nothing else —
+	// everything that identifies this shop or its traffic is behind the token, on /zoho/status.
+	router.Get("/health", health.Check(log, handler))
+
+	// Everything else requires the Bearer token. The group scopes the middleware so adding a
+	// route below cannot accidentally publish it unauthenticated.
+	router.Group(func(v1 chi.Router) {
+		v1.Use(authenticate.New(log, handler))
+
+		v1.Route("/zoho", func(v1 chi.Router) {
+			v1.Get("/status", health.Status(log, handler))
+
+			v1.Route("/webhook", func(webhook chi.Router) {
+				webhook.Route("/order", func(r chi.Router) {
+					r.Post("/", order.UpdateOrder(log, handler))
 				})
-			}
-		})
-		v1.Route("/push", func(push chi.Router) {
-			push.Route("/order", func(r chi.Router) {
-				r.Get("/{id}", order.PushOrder(log, handler))
+				// The B2B portal webhook feeds the Deals pipeline; a site that does not run the
+				// B2B flow has no route for it at all, so a stray call 404s rather than creating
+				// a Deal nobody will look at.
+				if site.B2B {
+					webhook.Route("/b2b", func(r chi.Router) {
+						r.Post("/", b2b.Webhook(log, handler))
+					})
+				}
+			})
+			v1.Route("/push", func(push chi.Router) {
+				push.Route("/order", func(r chi.Router) {
+					r.Get("/{id}", order.PushOrder(log, handler))
+				})
 			})
 		})
 	})

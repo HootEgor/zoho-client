@@ -24,6 +24,8 @@ type TgBot struct {
 	minLogLevel slog.Level
 	adminLevels map[int64]slog.Level
 	versions    VersionRepository
+
+	statusProvider StatusProvider
 }
 
 // VersionRepository is read access to the stored order version history. It stays nil when the
@@ -88,6 +90,7 @@ func (t *TgBot) Start() error {
 	t.updater = ext.NewUpdater(dispatcher, nil)
 
 	dispatcher.AddHandler(handlers.NewCommand("level", t.level))
+	dispatcher.AddHandler(handlers.NewCommand("status", t.status))
 	dispatcher.AddHandler(handlers.NewCommand("versions", t.versionList))
 	dispatcher.AddHandler(handlers.NewCommand("version", t.versionDetails))
 
@@ -132,6 +135,12 @@ func (t *TgBot) SetMinLogLevel(level slog.Level) {
 // before Start, so no command handler can observe the field being assigned.
 func (t *TgBot) SetVersionRepository(repo VersionRepository) {
 	t.versions = repo
+}
+
+// SetStatusProvider gives the bot the service snapshot the /status command renders. Call it
+// before Start, so no command handler can observe the field being assigned.
+func (t *TgBot) SetStatusProvider(provider StatusProvider) {
+	t.statusProvider = provider
 }
 
 // isAdmin reports whether the user is allowed to run the bot's commands.

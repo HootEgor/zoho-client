@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sync"
 	"time"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
@@ -34,6 +35,10 @@ var ErrPaymentInvalidData = errors.New("payment invalid data")
 type ZohoService struct {
 	clientID     string
 	clientSecret string
+	// tokenMu guards the three fields the OAuth refresh rewrites — the cached access token, its
+	// expiry, and the API domain Zoho hands back with it. The poller, the HTTP push endpoint and
+	// the status report all read them from different goroutines.
+	tokenMu      sync.RWMutex
 	refreshToken string
 	initialToken string
 	refreshUrl   string
@@ -69,7 +74,7 @@ func NewZohoService(conf *config.Config, site *config.SiteSettings, log *slog.Lo
 // Retries up to 3 times with 30s delays on failure.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/refresh.html
 func (s *ZohoService) RefreshToken() error {
-	if s.refreshToken != "" && time.Now().Before(s.tokenExpiry) {
+	if _, valid := s.TokenStatus(); valid {
 		return nil
 	}
 	var err error
@@ -115,20 +120,41 @@ func (s *ZohoService) requestToken() error {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	s.refreshToken = response.AccessToken
-
+	// Validate before publishing: a response without a token must leave the cached one alone
+	// rather than replace it with an empty string the next request would send as a credential.
 	if response.AccessToken == "" {
 		s.log.With(slog.Any("response", response)).Debug("refresh token failed")
 		return fmt.Errorf("empty access token")
 	}
+
+	s.tokenMu.Lock()
+	s.refreshToken = response.AccessToken
 	if response.ApiDomain != "" {
 		s.crmUrl = response.ApiDomain
 	}
 	if response.ExpiresIn != 0 {
 		s.tokenExpiry = time.Now().Add(time.Duration(response.ExpiresIn) * time.Second)
 	}
+	s.tokenMu.Unlock()
 
 	return nil
+}
+
+// TokenStatus reports when the cached access token expires and whether it is usable right now.
+// A status report reads this instead of forcing a refresh, so asking for health never spends a
+// Zoho API call.
+func (s *ZohoService) TokenStatus() (expiry time.Time, valid bool) {
+	s.tokenMu.RLock()
+	defer s.tokenMu.RUnlock()
+	return s.tokenExpiry, s.refreshToken != "" && time.Now().Before(s.tokenExpiry)
+}
+
+// token returns the cached access token and the API domain to send it to, read together so a
+// concurrent refresh cannot pair one request's token with another's domain.
+func (s *ZohoService) token() (accessToken, crmUrl string) {
+	s.tokenMu.RLock()
+	defer s.tokenMu.RUnlock()
+	return s.refreshToken, s.crmUrl
 }
 
 // CreateContact creates or updates (upserts) a contact in the Zoho CRM Contacts module.
@@ -543,13 +569,17 @@ func (s *ZohoService) writeRecord(method string, payload any, pathSegments ...st
 // that body is the only place the error code lives.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/api-limits.html
 func (s *ZohoService) send(method string, body []byte, pathSegments ...string) ([]byte, int, error) {
-	segments := append([]string{s.scope, s.apiVersion}, pathSegments...)
-	fullURL, err := buildURL(s.crmUrl, segments...)
-	if err != nil {
+	if err := s.RefreshToken(); err != nil {
 		return nil, 0, err
 	}
 
-	if err = s.RefreshToken(); err != nil {
+	// Read the token and the API domain after the refresh: a refresh can move the domain, and the
+	// URL must be built from the same snapshot the Authorization header comes from.
+	accessToken, crmUrl := s.token()
+
+	segments := append([]string{s.scope, s.apiVersion}, pathSegments...)
+	fullURL, err := buildURL(crmUrl, segments...)
+	if err != nil {
 		return nil, 0, err
 	}
 
@@ -557,7 +587,7 @@ func (s *ZohoService) send(method string, body []byte, pathSegments ...string) (
 	if err != nil {
 		return nil, 0, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Zoho-oauthtoken "+s.refreshToken)
+	req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(req)

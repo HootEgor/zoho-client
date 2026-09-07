@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -126,6 +127,26 @@ func NewSQLClient(conf *config.Config, site *config.SiteSettings, log *slog.Logg
 func (s *MySql) Close() {
 	s.closeStmt()
 	_ = s.db.Close()
+}
+
+// pingTimeout bounds a health check so a wedged database cannot hold the /health request open
+// until the router's own timeout fires.
+const pingTimeout = 2 * time.Second
+
+// Ping reports whether the OpenCart database is reachable. It is a health check, not a retry:
+// unlike the startup ping it fails immediately so the caller can report the state.
+func (s *MySql) Ping() error {
+	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
+	defer cancel()
+	return s.db.PingContext(ctx)
+}
+
+// PoolStats describes the connection pool regardless of whether anything is in flight, which is
+// what a status report wants — Stats deliberately says nothing when the pool is idle.
+func (s *MySql) PoolStats() string {
+	stats := s.db.Stats()
+	return fmt.Sprintf("open: %d, inuse: %d, idle: %d",
+		stats.OpenConnections, stats.InUse, stats.Idle)
 }
 
 // Stats returns database info only if there are connections inUse

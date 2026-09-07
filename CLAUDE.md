@@ -163,8 +163,11 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Order version history (admins only, both commands are no-ops when `mongo.enabled` is false):
   `/versions <order_id>` lists the stored versions of an order (id + timestamp, last 30),
   `/version <order_id> <version_id>` shows one version's status, total and product count
-- `bot.VersionRepository` is satisfied by the Mongo client; `main.go` hands it over *before*
-  `tgBot.Start()`, so polling begins only once the command handlers have something to read
+- `/status` renders the same snapshot as `GET /zoho/status` — component states, features and what
+  the order poller last did
+- `bot.VersionRepository` (Mongo client) and `bot.StatusProvider` (`Core`) are handed over in
+  `main.go` *before* `tgBot.Start()`, so polling begins only once the command handlers have
+  something to read
 - Logger handler sends formatted messages to admins based on log levels
 
 **internal/http-server/api/Server**
@@ -327,6 +330,11 @@ The application includes an HTTP REST API server for external integrations. The 
 - Request/response utilities in `internal/lib/api/` with validation support
 
 **Current Endpoints:**
+- `GET /health` - liveness probe. **The only unauthenticated route**, so it returns nothing but
+  `status` and `uptime`; `503` once a component is down. The auth middleware is scoped to a
+  `router.Group` around everything else, so a route added there cannot accidentally be published
+  unauthenticated.
+- `GET /zoho/status` - full service status (authenticated), same snapshot as the bot's `/status`
 - `POST /api/v1/order` - Order update endpoint (updates OpenCart database from external systems)
 
 **Authentication Flow:**
@@ -340,6 +348,19 @@ The application includes an HTTP REST API server for external integrations. The 
 5. On failure, returns 401 Unauthorized
 
 See `docs/apiv1.md` for detailed API documentation.
+
+**Service status (`impl/core/status.go`)**
+- `Core.Status()` is the single source for the `/health` endpoint, `GET /zoho/status` and the bot's
+  `/status`. It pings MySQL and Mongo in parallel (2s each, inside the router's 5s timeout) but
+  **never calls Zoho** — `ZohoService.TokenStatus()` reads the cached token's expiry instead, so
+  asking for status cannot spend a Zoho API call.
+- Component state `unknown` exists so a freshly started service (no token yet, no poll completed)
+  does not report health it cannot vouch for, and is not counted as degraded. Only `down` is.
+- `ProcessOrders` calls `recordOrderRun` on every pass; the stats live behind `Core.orderSyncMu`
+  because the poll goroutine writes them and the HTTP/Telegram goroutines read them.
+- `ZohoService.tokenMu` guards the access token, its expiry and the API domain. `send()` reads the
+  token and the domain together, so a concurrent refresh cannot pair one request's token with
+  another's domain.
 
 ## Known Issues and Quirks
 

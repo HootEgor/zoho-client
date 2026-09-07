@@ -242,11 +242,17 @@ func (c *Core) reportDryRunOrder(log *slog.Logger, order entity.ZohoOrder) {
 // B2B orders are skipped and marked with "[B2B]" zoho_id. Orders with missing product
 // UIDs or Zoho IDs are skipped until the missing data is available.
 func (c *Core) ProcessOrders() {
+	startedAt := time.Now()
+
 	orders, err := c.repo.GetNewOrders()
 	if err != nil {
 		c.log.With(sl.Err(err)).Error("failed to get new orders")
+		c.recordOrderRun(startedAt, 0, 0, 0, fmt.Errorf("get new orders: %w", err))
 		return
 	}
+
+	var synced, failed int
+	defer func() { c.recordOrderRun(startedAt, len(orders), synced, failed, nil) }()
 
 	for _, order := range orders {
 		log := c.log.With(
@@ -265,6 +271,7 @@ func (c *Core) ProcessOrders() {
 		zohoId, err := c.processOrder(order, "", c.site.IsB2B(order.ClientDetails.GroupId))
 		if err != nil {
 			log.With(sl.Err(err)).Error("process order failed")
+			failed++
 			continue
 		}
 
@@ -278,6 +285,7 @@ func (c *Core) ProcessOrders() {
 		if err != nil {
 			log.With(sl.Err(err)).Error("update order zoho_id")
 		}
+		synced++
 	}
 }
 

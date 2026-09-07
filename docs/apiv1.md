@@ -10,6 +10,92 @@ listen:
   key: api-key        # API key for the ZOHOAPI service
 ```
 
+### Health and Status
+
+#### Health Check
+
+- **Endpoint:** `GET /health`
+- **Authentication:** none — a load balancer or a systemd watchdog has no token to present. This is
+  the only unauthenticated route, and it deliberately discloses nothing beyond the two fields below:
+  the shop name, the traffic counters and the failure reasons all live behind the token, on
+  `/zoho/status`.
+- **Response:** `200` while every component is up or switched off, `503` once one is down.
+  ```json
+  {
+    "status": "ok",
+    "uptime": "3d 4h"
+  }
+  ```
+  `status` is `ok` or `degraded`.
+
+#### Service Status
+
+- **Endpoint:** `GET /zoho/status`
+- **Authentication:** Bearer token, as every other endpoint.
+- **Response:** always `200` — the caller asked for the report, and a degraded service is the
+  answer rather than a failure to produce one.
+  ```json
+  {
+    "success": true,
+    "status_message": "Success",
+    "timestamp": "2026-09-07T12:04:00Z",
+    "data": {
+      "status": "ok",
+      "site": "dark",
+      "env": "production",
+      "dry_run": false,
+      "started_at": "2026-09-04T08:00:00+02:00",
+      "uptime": "3d 4h",
+      "uptime_seconds": 273840,
+      "features": {
+        "payments": true,
+        "customer_sync": true,
+        "b2b": false,
+        "smartsender": false
+      },
+      "components": [
+        {"name": "database", "state": "up", "detail": "open: 2, inuse: 0, idle: 2"},
+        {"name": "mongo", "state": "up"},
+        {"name": "zoho", "state": "up", "detail": "token valid for 42m 10s"},
+        {"name": "order-sync", "state": "up", "detail": "last poll 41s ago"}
+      ],
+      "orders": {
+        "last_run_at": "2026-09-07T12:03:44+02:00",
+        "last_run_ms": 120,
+        "last_queued": 3,
+        "last_synced": 3,
+        "last_failed": 0,
+        "total_synced": 128,
+        "total_failed": 2,
+        "poll_interval": "2m0s"
+      }
+    }
+  }
+  ```
+
+**Component states.** Only `down` makes the service `degraded`.
+
+| State | Meaning |
+| --- | --- |
+| `up` | Reachable / working. `detail` carries a fact worth reading. |
+| `down` | Failed. `detail` carries the error. |
+| `disabled` | Switched off in the configuration — working as intended. |
+| `unknown` | Not established yet, and not claimed as health. A freshly started service holds no Zoho token and has completed no poll. |
+
+**Components.**
+
+- `database` — pings the OpenCart MySQL database (2s timeout); `detail` is the connection pool.
+- `mongo` — pings the internal database, or reports `disabled` when `mongo.enabled` is false.
+- `zoho` — reports the *cached* OAuth token's expiry. Zoho is never called: asking for status must
+  not spend an API call. A service holding no valid token is `unknown`, not `down` — the next sync
+  fetches one.
+- `order-sync` — `down` when the last poller pass ended in an error, which is the earliest sign the
+  sync has stopped working and the one failure a database ping cannot see. `orders.last_error` is
+  kept after recovery, so the reason a past pass failed is still readable.
+
+`orders.total_synced` counts orders that reached Zoho since the process started; `last_queued`
+includes B2B orders, which are marked and skipped rather than synced.
+
 ### Product Management
 
 #### Update or Create Product
