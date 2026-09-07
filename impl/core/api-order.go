@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -24,9 +25,14 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		return fmt.Errorf("zoho_id is required")
 	}
 
-	// Retry logic to handle race condition: webhook may arrive before zoho_id is saved to database
-	const maxRetries = 5
+	// Retry logic to handle race condition: webhook may arrive before zoho_id is saved to database.
+	// Under dry-run there is no such race - the zoho_id is never written at all - so retrying only
+	// spends the request's timeout budget on a lookup that cannot start succeeding.
+	maxRetries := 5
 	const retryDelay = 200 * time.Millisecond
+	if c.dryRun {
+		maxRetries = 1
+	}
 
 	var orderId int64
 	var orderParams *entity.CheckoutParams
@@ -43,6 +49,13 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 	}
 	if err != nil {
+		// A dry-run instance records no zoho_id, so every webhook for an order it "synced" finds
+		// nothing - that is the mode working as intended, not a fault. Report it and answer the
+		// caller normally; a real lookup failure (the database itself) still errors.
+		if c.dryRun && errors.Is(err, sql.ErrOrderNotFound) {
+			log.Warn("DRY RUN: no order carries this zoho_id, nothing to update")
+			return nil
+		}
 		log.With(slog.Int("attempts", maxRetries), sl.Err(err)).
 			Warn("order not found, dropping update")
 		return fmt.Errorf("order not found after %d attempts: %w", maxRetries, err)

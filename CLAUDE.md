@@ -255,6 +255,12 @@ docs/                       # API documentation (apiv1.md, config.md)
   have done. It must also skip `SetOrderZohoModifiedTime`: storing that timestamp would make the
   same webhook look like an echo and be dropped once dry-run is off. `ProcessB2BWebhook` likewise
   builds the Deal and returns an empty id without creating it.
+- Because no `zoho_id` is ever recorded, a webhook for an order the mode "synced" finds nothing.
+  That is expected, so under dry-run a `sql.ErrOrderNotFound` is warned and the update returns
+  `nil` (a `200`) instead of a `DATABASE_ERROR` and a `500`. Only that sentinel is forgiven — a
+  database that cannot answer still fails, or an outage would read as a quiet run. The lookup also
+  runs once instead of five times: the retry exists for the race with the `zoho_id` write, and
+  dry-run performs no such write.
 
 **Seeding a new shop**
 - A shop whose database is copied from an existing one starts with years of orders the poller

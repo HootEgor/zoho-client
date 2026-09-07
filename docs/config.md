@@ -73,6 +73,11 @@ instead, as `DRY RUN: order update not applied` with the same diff and totals th
 logs. `/webhook/b2b` answers `200` with an empty `zoho_id`, which is the truthful answer: no Deal
 exists.
 
+Since no order ever gets a `zoho_id` in this mode, most inbound webhooks will match no order at
+all. That is expected here, so it is logged as `DRY RUN: no order carries this zoho_id, nothing to
+update` and answered `200` rather than raising a `DATABASE_ERROR`. A database that cannot answer at
+all still fails loudly.
+
 It is deliberately not a deploy variable. Flip it in `/etc/conf/<instance>.yml` and restart the
 service; a deploy resets it to `false`, which is the fail-safe direction. Startup logs a `DRY RUN`
 warning so an instance left in this mode is obvious.

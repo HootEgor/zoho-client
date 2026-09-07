@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 	"time"
 	"zohoclient/entity"
@@ -94,9 +95,12 @@ func TestTotalsDiverged(t *testing.T) {
 // performs and counts every write it attempts, so a dry-run test can assert the count is zero.
 type webhookRepo struct {
 	Repository
-	orderId int64
-	order   *entity.CheckoutParams
-	items   []sql.OrderProductSummary
+	orderId   int64
+	order     *entity.CheckoutParams
+	items     []sql.OrderProductSummary
+	searchErr error
+
+	searchCalls int
 
 	statusCalls   int
 	txCalls       int
@@ -104,6 +108,10 @@ type webhookRepo struct {
 }
 
 func (r *webhookRepo) OrderSearchByZohoId(string) (int64, *entity.CheckoutParams, error) {
+	r.searchCalls++
+	if r.searchErr != nil {
+		return 0, nil, r.searchErr
+	}
 	return r.orderId, r.order, nil
 }
 
@@ -228,5 +236,51 @@ func TestUpdateOrder_AppliesWhenNotDryRun(t *testing.T) {
 	}
 	if repo.txCalls != 1 {
 		t.Errorf("UpdateOrderWithTransaction calls = %d, want 1", repo.txCalls)
+	}
+}
+
+// A dry-run instance never writes a zoho_id, so every webhook Zoho sends for an order it thinks we
+// synced finds nothing. That is the mode working, not a fault: warn and answer the caller normally
+// instead of raising a DATABASE_ERROR and a 500 for each one.
+func TestUpdateOrder_DryRunOrderNotFound(t *testing.T) {
+	repo := webhookTestRepo()
+	repo.searchErr = fmt.Errorf("order with zoho_id '739178000064567111': %w", sql.ErrOrderNotFound)
+	core := webhookTestCore(repo, true)
+
+	err := core.UpdateOrder(&entity.ApiOrder{ZohoID: "739178000064567111", Status: "Відправлено"})
+	if err != nil {
+		t.Errorf("UpdateOrder() error = %v, want nil so the webhook is not reported as a failure", err)
+	}
+	// The race the retries exist for needs a zoho_id write, which dry-run never performs.
+	if repo.searchCalls != 1 {
+		t.Errorf("OrderSearchByZohoId called %d time(s), want 1 — retrying cannot help in dry run",
+			repo.searchCalls)
+	}
+}
+
+// The leniency is scoped to "no such order". A database that cannot answer is still an error, in
+// dry run as anywhere else — otherwise an outage would look like a quiet run.
+func TestUpdateOrder_DryRunDatabaseErrorStillFails(t *testing.T) {
+	repo := webhookTestRepo()
+	repo.searchErr = fmt.Errorf("dial tcp 127.0.0.1:3306: connect: connection refused")
+	core := webhookTestCore(repo, true)
+
+	if err := core.UpdateOrder(&entity.ApiOrder{ZohoID: "739178000064567111"}); err == nil {
+		t.Error("UpdateOrder() error = nil, want the database failure reported")
+	}
+}
+
+// Outside dry run a missing order is still an error the caller can retry against.
+func TestUpdateOrder_NotFoundStillFailsWhenLive(t *testing.T) {
+	repo := webhookTestRepo()
+	repo.searchErr = fmt.Errorf("order with zoho_id '739178000064567111': %w", sql.ErrOrderNotFound)
+	core := webhookTestCore(repo, false)
+
+	if err := core.UpdateOrder(&entity.ApiOrder{ZohoID: "739178000064567111"}); err == nil {
+		t.Error("UpdateOrder() error = nil, want the missing order reported")
+	}
+	if repo.searchCalls != 5 {
+		t.Errorf("OrderSearchByZohoId called %d time(s), want 5 — the write race is real when "+
+			"zoho_id is being recorded", repo.searchCalls)
 	}
 }

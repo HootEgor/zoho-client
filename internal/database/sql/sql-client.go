@@ -17,6 +17,11 @@ import (
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
+// ErrOrderNotFound is returned when a lookup found no such order, as opposed to failing to ask.
+// Callers that treat a missing order differently from a broken database - the inbound webhook
+// under dry-run, where no order ever carries a zoho_id - test for it with errors.Is.
+var ErrOrderNotFound = errors.New("order not found")
+
 type MySql struct {
 	db  *sql.DB
 	loc *time.Location
@@ -437,7 +442,7 @@ func (s *MySql) OrderSearchId(orderId int64) (string, *entity.CheckoutParams, er
 		return "", nil, err
 	}
 	if len(orders) == 0 {
-		return "", nil, fmt.Errorf("order with id %d not found", orderId)
+		return "", nil, fmt.Errorf("order with id %d: %w", orderId, ErrOrderNotFound)
 	}
 
 	params, err := s.addOrderData(orderId, orders[0])
@@ -694,7 +699,7 @@ func (s *MySql) OrderSearchByZohoId(zohoId string) (int64, *entity.CheckoutParam
 		return 0, nil, err
 	}
 	if len(orders) == 0 {
-		return 0, nil, fmt.Errorf("order with zoho_id '%s' not found", zohoId)
+		return 0, nil, fmt.Errorf("order with zoho_id '%s': %w", zohoId, ErrOrderNotFound)
 	}
 
 	order := orders[0]
