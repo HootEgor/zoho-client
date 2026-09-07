@@ -25,7 +25,7 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 			slog.String("op", op),
 		)
 
-		req, err := request.Decode(r)
+		req, body, err := request.DecodeWithBody(r)
 		if err != nil {
 			if errors.Is(err, request.ErrEmptyBody) {
 				apiErr := apierrors.NewBadRequestError("Empty request body")
@@ -37,6 +37,7 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 			apiErr := apierrors.NewBadRequestError("Invalid request format")
 			log.Warn("failed to decode request",
 				slog.String("error", err.Error()),
+				slog.String("payload", request.Snippet(body)),
 				slog.String("error_code", string(apiErr.Code)),
 			)
 			w.WriteHeader(apiErr.HTTPStatus)
@@ -51,6 +52,7 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 			apiErr := apierrors.NewValidationError("Invalid order updates data")
 			log.Warn("failed to decode order updates data",
 				slog.String("error", err.Error()),
+				slog.String("payload", request.Snippet(body)),
 				slog.String("error_code", string(apiErr.Code)),
 			)
 			w.WriteHeader(apiErr.HTTPStatus)

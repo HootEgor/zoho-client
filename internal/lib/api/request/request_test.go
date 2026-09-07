@@ -196,3 +196,60 @@ func TestRequest_UnmarshalData(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeWithBody(t *testing.T) {
+	t.Run("returns raw body on malformed json", func(t *testing.T) {
+		body := `{"data":[{"zoho_id":123456789}]`
+		r, _ := http.NewRequest("POST", "/test", bytes.NewBufferString(body))
+
+		req, raw, err := DecodeWithBody(r)
+		if err == nil {
+			t.Fatal("DecodeWithBody() error = nil, want a decode error")
+		}
+		if req != nil {
+			t.Errorf("DecodeWithBody() request = %v, want nil", req)
+		}
+		if string(raw) != body {
+			t.Errorf("DecodeWithBody() raw = %q, want %q", raw, body)
+		}
+	})
+
+	t.Run("empty body", func(t *testing.T) {
+		r, _ := http.NewRequest("POST", "/test", bytes.NewBufferString("  \n"))
+
+		_, _, err := DecodeWithBody(r)
+		if err != ErrEmptyBody {
+			t.Errorf("DecodeWithBody() error = %v, want %v", err, ErrEmptyBody)
+		}
+	})
+
+	t.Run("valid body is returned alongside the request", func(t *testing.T) {
+		body := `{"method":"update","data":[{"zoho_id":"1"}]}`
+		r, _ := http.NewRequest("POST", "/test", bytes.NewBufferString(body))
+
+		req, raw, err := DecodeWithBody(r)
+		if err != nil {
+			t.Fatalf("DecodeWithBody() unexpected error = %v", err)
+		}
+		if req.Method != "update" {
+			t.Errorf("DecodeWithBody() Method = %v, want update", req.Method)
+		}
+		if string(raw) != body {
+			t.Errorf("DecodeWithBody() raw = %q, want %q", raw, body)
+		}
+	})
+}
+
+func TestSnippet(t *testing.T) {
+	if got := Snippet([]byte("  \n\t")); got != "" {
+		t.Errorf("Snippet() = %q, want empty", got)
+	}
+	if got := Snippet([]byte(` {"a":1} `)); got != `{"a":1}` {
+		t.Errorf("Snippet() = %q, want trimmed json", got)
+	}
+	long := bytes.Repeat([]byte("x"), MaxLoggedBody+10)
+	got := Snippet(long)
+	if len(got) != MaxLoggedBody+len("...[truncated]") {
+		t.Errorf("Snippet() len = %d, want %d", len(got), MaxLoggedBody+len("...[truncated]"))
+	}
+}

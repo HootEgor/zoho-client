@@ -1,6 +1,7 @@
 package request
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,17 +22,47 @@ var (
 	ErrEmptyBody = errors.New("request body is empty")
 )
 
+// MaxBodySize caps how much of a request body is read into memory.
+const MaxBodySize = 1 << 20 // 1 MiB
+
+// MaxLoggedBody caps how much of a raw payload Snippet returns.
+const MaxLoggedBody = 4096
+
 // Decode decodes request body into Request struct
 func Decode(r *http.Request) (*Request, error) {
-	var req Request
-	err := json.NewDecoder(r.Body).Decode(&req)
+	req, _, err := DecodeWithBody(r)
+	return req, err
+}
+
+// DecodeWithBody decodes the request body into Request and also returns the raw
+// bytes it read, so a handler can log the payload that failed to decode. The raw
+// bytes are returned even on error - that is the point of it.
+func DecodeWithBody(r *http.Request) (*Request, []byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, MaxBodySize))
 	if err != nil {
-		if err == io.EOF {
-			return nil, ErrEmptyBody
-		}
-		return nil, err
+		return nil, body, err
 	}
-	return &req, nil
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, body, ErrEmptyBody
+	}
+	var req Request
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, body, err
+	}
+	return &req, body, nil
+}
+
+// Snippet renders a raw body for logging, trimmed and truncated to
+// MaxLoggedBody bytes.
+func Snippet(body []byte) string {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	if len(trimmed) > MaxLoggedBody {
+		return string(trimmed[:MaxLoggedBody]) + "...[truncated]"
+	}
+	return string(trimmed)
 }
 
 // UnmarshalData unmarshals the Data field into a typed value
