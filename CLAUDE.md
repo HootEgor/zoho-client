@@ -61,7 +61,7 @@ variable placeholders for CI/CD.
 file, systemd unit (`zohoclient-ua.service`) and listen port. Nothing in the code is
 multi-tenant.
 
-Three things must never be shared between instances:
+Four things must never be shared between instances:
 - **The log file.** `site.log_file` names it inside the `-log` directory (default `zohoclient.log`);
   it is read straight off `Config` rather than through `SiteSettings`, because the logger is built
   before the settings are resolved.
@@ -71,6 +71,10 @@ Three things must never be shared between instances:
 - **The Mongo database.** Order versions are keyed by `order_id` alone (the `orders` collection in
   `internal/database/mongo/mongo.go`) and OpenCart order ids restart from 1 per shop, so a shared
   database would mix unrelated orders into one document. The Mongo *server* can be shared.
+- **`listen.base_path`**, but only when both instances are published on one domain. Every endpoint
+  lives under that one namespace, so two instances keeping the default both answer at `/zoho/...`
+  and a reverse proxy cannot route between them. Changing it moves the webhook URLs registered in
+  Zoho too.
 
 **Key configuration sections:**
 - `env`: Environment name for logging (local, production, etc.)
@@ -80,6 +84,7 @@ Three things must never be shared between instances:
   field ids, poll windows, shipping code map, and the feature flags for the optional subsystems
 - `zoho`: Zoho CRM API credentials (OAuth refresh token flow) plus the picklist values written onto
   records (field API *names* stay fixed in `entity/` — all shops share one Zoho org)
+- `listen.base_path`: the single path namespace every endpoint is served under (default `zoho`)
 - `prod_repo`: External product repository API for fetching Zoho product IDs
 - `listen`: HTTP API server settings (bind IP, port, authentication key)
 
@@ -329,13 +334,20 @@ The application includes an HTTP REST API server for external integrations. The 
 - Middleware stack: timeout (5s), request ID, recovery, JSON content-type, authentication
 - Request/response utilities in `internal/lib/api/` with validation support
 
+**Base path.** Every route is mounted under `listen.base_path` (default `zoho`) — the health check
+included, so nothing this process serves sits at the domain root. `api.NormalizeBasePath` rejects an
+unmountable value at startup rather than on the first request. Two instances published on one domain
+need different values here; the paths below assume the default.
+
 **Current Endpoints:**
-- `GET /health` - liveness probe. **The only unauthenticated route**, so it returns nothing but
+- `GET /zoho/health` - liveness probe. **The only unauthenticated route**, so it returns nothing but
   `status` and `uptime`; `503` once a component is down. The auth middleware is scoped to a
   `router.Group` around everything else, so a route added there cannot accidentally be published
   unauthenticated.
 - `GET /zoho/status` - full service status (authenticated), same snapshot as the bot's `/status`
-- `POST /api/v1/order` - Order update endpoint (updates OpenCart database from external systems)
+- `POST /zoho/webhook/order` - Order update endpoint (updates OpenCart database from external systems)
+- `POST /zoho/webhook/b2b` - B2B portal webhook; the route exists only when `site.features.b2b` is on
+- `GET /zoho/push/order/{id}` - push one order to Zoho on demand
 
 **Authentication Flow:**
 1. Client sends request with `Authorization: Bearer <token>` header

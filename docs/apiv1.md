@@ -1,5 +1,36 @@
 ## API v1 Description
 
+### Base path
+
+Every endpoint lives under one path namespace — the health check included, so nothing this process
+serves sits at the domain root. The namespace is `listen.base_path`, `zoho` by default:
+
+```yaml
+listen:
+  base_path: zoho     # -> /zoho/health, /zoho/status, /zoho/webhook/order, ...
+```
+
+**Publishing two instances on one domain.** One process serves one OpenCart shop, so two shops are
+two processes on two ports. Give each its own `base_path` and a reverse proxy can route both by
+path alone, with no rewriting:
+
+```yaml
+# shop 1                      # shop 2
+listen:                       listen:
+  base_path: zoho               base_path: zoho-ua
+  port: 9800                    port: 9801
+```
+
+```nginx
+location /zoho/    { proxy_pass http://127.0.0.1:9800; }
+location /zoho-ua/ { proxy_pass http://127.0.0.1:9801; }
+```
+
+Changing `base_path` moves every URL this instance serves, including the webhook URLs registered in
+Zoho — update those at the same time. An unusable value (a doubled slash, a space, chi's `{param}`
+syntax) fails at startup rather than on the first request. Paths below are written with the default
+namespace; read `/zoho` as whatever `base_path` is set to.
+
 ### Authentication
 To make requests to the API, you need to provide Bearer token in the `Authorization` header.
 zohoclient supports two ways of token storage: in the configuration file, `listen` section, and in the OpenCart API section inside the admin panel.
@@ -14,7 +45,7 @@ listen:
 
 #### Health Check
 
-- **Endpoint:** `GET /health`
+- **Endpoint:** `GET /zoho/health`
 - **Authentication:** none — a load balancer or a systemd watchdog has no token to present. This is
   the only unauthenticated route, and it deliberately discloses nothing beyond the two fields below:
   the shop name, the traffic counters and the failure reasons all live behind the token, on

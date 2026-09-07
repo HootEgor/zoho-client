@@ -20,7 +20,7 @@ files, whose `${PLACEHOLDER}` values the deploy workflows substitute.
 | `site` | **Everything that differs between shops** — see below |
 | `zoho` | Zoho OAuth credentials plus the picklist vocabulary written onto records |
 | `prod_repo` | External product repository used to fill in missing product Zoho IDs; `site_code` scopes lookups per shop |
-| `listen` | HTTP API bind address, port and bearer key |
+| `listen` | HTTP API bind address, port, base path and bearer key |
 | `smartsender` | Optional SmartSender ↔ Zoho Functions chat sync |
 
 Two instances must not share a `site.log_file` either — they open it `O_APPEND` and would interleave
@@ -30,6 +30,19 @@ Two instances must not share a `mongo.database`. Order versions are keyed by `or
 alone (`internal/database/mongo/mongo.go`, the `orders` collection), and OpenCart order ids restart
 from 1 per shop, so a shared database would append versions of unrelated orders to one document.
 Sharing the Mongo *server* is fine; give each shop its own database name.
+
+Two instances published on one domain must not share a `listen.base_path`. Every endpoint lives
+under that one namespace (`zoho` by default), so two instances that keep the default both answer at
+`/zoho/...` and a reverse proxy cannot tell them apart. Give the second shop its own — `zoho-ua`,
+say — and route by path with no rewriting:
+
+```nginx
+location /zoho/    { proxy_pass http://127.0.0.1:9800; }
+location /zoho-ua/ { proxy_pass http://127.0.0.1:9801; }
+```
+
+Changing it moves every URL that instance serves, the webhook URLs registered in Zoho included.
+An unusable value fails at startup rather than on the first request.
 
 Two instances must not share a `telegram.api_key`. Notifications (`sendMessage`) would work from
 both, but the bot also long-polls `getUpdates` for the `/level` command, and Telegram allows only

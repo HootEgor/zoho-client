@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 	"zohoclient/internal/config"
 	"zohoclient/internal/http-server/handlers/b2b"
@@ -25,7 +27,42 @@ type Server struct {
 	conf       *config.Config
 	site       *config.SiteSettings
 	httpServer *http.Server
+	basePath   string
 	log        *slog.Logger
+}
+
+// DefaultBasePath is the namespace every endpoint lives under when listen.base_path is not set,
+// which keeps an existing config file serving the exact paths it served before.
+const DefaultBasePath = "zoho"
+
+// basePathSegment accepts one path segment: letters, digits, dash, underscore and dot. It rejects
+// chi's own "{param}" syntax and anything that would need escaping in a URL.
+var basePathSegment = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// NormalizeBasePath turns a configured base path into the rooted, slash-free form chi wants, and
+// rejects one that cannot be mounted. An empty value means the default rather than the domain
+// root: this service must never own "/", or two instances on one domain would collide there.
+func NormalizeBasePath(configured string) (string, error) {
+	trimmed := strings.Trim(strings.TrimSpace(configured), "/")
+	if trimmed == "" {
+		trimmed = DefaultBasePath
+	}
+
+	// Nesting is allowed ("shop/zoho"), so validate segment by segment. An empty segment means a
+	// doubled slash, which would mount a route no client could address.
+	for _, segment := range strings.Split(trimmed, "/") {
+		if !basePathSegment.MatchString(segment) {
+			return "", fmt.Errorf("invalid listen.base_path %q: %q is not a usable path segment",
+				configured, segment)
+		}
+	}
+
+	return "/" + trimmed, nil
+}
+
+// BasePath is the namespace every route is mounted under, rooted and without a trailing slash.
+func (s *Server) BasePath() string {
+	return s.basePath
 }
 
 type Handler interface {
@@ -42,6 +79,12 @@ func New(conf *config.Config, site *config.SiteSettings, log *slog.Logger, handl
 		log:  log.With(sl.Module("api.server")),
 	}
 
+	basePath, err := NormalizeBasePath(conf.Listen.BasePath)
+	if err != nil {
+		return nil, err
+	}
+	server.basePath = basePath
+
 	router := chi.NewRouter()
 	router.Use(timeout.Timeout(5))
 	router.Use(middleware.RequestID)
@@ -51,17 +94,22 @@ func New(conf *config.Config, site *config.SiteSettings, log *slog.Logger, handl
 	router.NotFound(errors.NotFound(log))
 	router.MethodNotAllowed(errors.NotAllowed(log))
 
-	// The liveness probe is the one route outside authentication: a load balancer or a systemd
-	// watchdog has no token to present. It answers with a state and an uptime and nothing else —
-	// everything that identifies this shop or its traffic is behind the token, on /zoho/status.
-	router.Get("/health", health.Check(log, handler))
+	// Every route lives under the one configured namespace, health check included, so nothing this
+	// process serves sits at the domain root. Two instances published on one domain set different
+	// listen.base_path values and a reverse proxy tells them apart by path alone.
+	router.Route(basePath, func(root chi.Router) {
 
-	// Everything else requires the Bearer token. The group scopes the middleware so adding a
-	// route below cannot accidentally publish it unauthenticated.
-	router.Group(func(v1 chi.Router) {
-		v1.Use(authenticate.New(log, handler))
+		// The liveness probe is the one route outside authentication: a load balancer or a systemd
+		// watchdog has no token to present. It answers with a state and an uptime and nothing
+		// else — everything that identifies this shop or its traffic is behind the token, on
+		// <base>/status.
+		root.Get("/health", health.Check(log, handler))
 
-		v1.Route("/zoho", func(v1 chi.Router) {
+		// Everything else requires the Bearer token. The group scopes the middleware so adding a
+		// route below cannot accidentally publish it unauthenticated.
+		root.Group(func(v1 chi.Router) {
+			v1.Use(authenticate.New(log, handler))
+
 			v1.Get("/status", health.Status(log, handler))
 
 			v1.Route("/webhook", func(webhook chi.Router) {
@@ -101,7 +149,9 @@ func (s *Server) Start() error {
 		return err
 	}
 
-	s.log.Info("starting api server", slog.String("address", serverAddress))
+	s.log.Info("starting api server",
+		slog.String("address", serverAddress),
+		slog.String("base_path", s.basePath))
 
 	return s.httpServer.Serve(listener)
 }

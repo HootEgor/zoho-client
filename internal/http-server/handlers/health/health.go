@@ -15,6 +15,9 @@ import (
 // this is, how many orders are queued, or what the last error said. Status serves that, behind
 // the same authentication as every other endpoint.
 //
+// It is mounted under the configured listen.base_path like every other route, so nothing this
+// process serves sits at the domain root where a second instance would collide with it.
+//
 // 200 while every component is up or merely switched off, 503 once one is down.
 func Check(logger *slog.Logger, core Core) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

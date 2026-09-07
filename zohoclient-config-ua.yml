@@ -122,6 +122,9 @@ prod_repo:
   site_code: "${REPO_SITE_CODE}"
 listen:
   bind_ip: 127.0.0.1
+  # Every endpoint lives under this one path segment, health check included. Two instances
+  # published on one domain need different values here so a proxy can route them by path.
+  base_path: zoho
   port: ${LISTEN_PORT}
   key: ${API_KEY}
 smartsender:

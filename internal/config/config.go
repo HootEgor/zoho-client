@@ -129,6 +129,10 @@ type Config struct {
 		BindIP string `yaml:"bind_ip" env-default:"127.0.0.1"`
 		Port   string `yaml:"port" env:"PORT" env-default:"8080"`
 		ApiKey string `yaml:"key" env-default:""`
+		// BasePath is the single path namespace every endpoint lives under, health check
+		// included. Two instances published on one domain need different values here so a
+		// reverse proxy can tell them apart by path alone.
+		BasePath string `yaml:"base_path" env:"BASE_PATH" env-default:"zoho"`
 	} `yaml:"listen"`
 	SmartSender struct {
 		Enabled      bool   `yaml:"enabled" env-default:"false"`
