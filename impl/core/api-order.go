@@ -137,6 +137,16 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 				slog.String("currency", orderParams.Currency),
 			).Warn("Zoho grand total diverges from OpenCart while items are unchanged; totals left untouched")
 		}
+		// Dry run stops here: the webhook was received, the order resolved and the payload
+		// compared against what OpenCart holds, but nothing is written back to the shop.
+		if c.dryRun {
+			log.With(
+				slog.Int("status_from", previousStatusId),
+				slog.Int("status_to", newStatusId),
+			).Warn("DRY RUN: order update not applied (status only, items and totals untouched)")
+			return nil
+		}
+
 		if newStatusId != previousStatusId {
 			if err := c.repo.ChangeOrderStatus(orderId, int64(newStatusId), "Updated via API"); err != nil {
 				log.With(sl.Err(err)).Error("failed to update order status")
@@ -177,6 +187,15 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		StatusComment: "Updated via API",
 	}
 
+	// Dry run stops here: the reverse totals are computed and reported so the arithmetic can be
+	// checked against a live shop, but the transaction is never executed - no status change, no
+	// item replacement, no total rewrite, and no zoho_modified_time to hide the next webhook.
+	if c.dryRun {
+		c.reportDryRunUpdate(log, previousItems, mergedItems, previousStatusId, newStatusId,
+			previousTotal, currencyValue, orderParams.Currency, totals)
+		return nil
+	}
+
 	err = c.repo.UpdateOrderWithTransaction(txData)
 	if err != nil {
 		log.With(sl.Err(err)).Error("failed to update order")
@@ -196,7 +215,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	newTotalDisplay := (float64(totals.Total) / 100) / currencyValue
 	logOrderDiff(log, previousItems, mergedItems, c.shippingItemZohoId,
 		previousStatusId, newStatusId,
-		previousTotal, newTotalDisplay, orderParams.Currency)
+		previousTotal, newTotalDisplay, orderParams.Currency, false)
 
 	// Save order version to MongoDB
 	c.saveOrderVersionToMongo(orderId, orderDetails)
@@ -213,6 +232,34 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	).Debug("order updated")
 
 	return nil
+}
+
+// reportDryRunUpdate logs what an inbound webhook would have written to OpenCart. It mirrors the
+// applied path exactly - the same diff at info level, the same order_total breakdown at debug -
+// so a dry-run log can be read against a live one.
+func (c *Core) reportDryRunUpdate(
+	log *slog.Logger,
+	previousItems []sql.OrderProductSummary,
+	incoming []entity.ApiOrderedItem,
+	previousStatusId, newStatusId int,
+	previousTotal, currencyValue float64,
+	currency string,
+	totals reverseTotals,
+) {
+	newTotalDisplay := (float64(totals.Total) / 100) / currencyValue
+	logOrderDiff(log, previousItems, incoming, c.shippingItemZohoId,
+		previousStatusId, newStatusId,
+		previousTotal, newTotalDisplay, currency, true)
+
+	log.With(
+		slog.String("sub_total", fmtCents(totals.ItemsTotal)),
+		slog.String("shipping", fmtCents(totals.Shipping)),
+		slog.String("discount", fmtCents(totals.Discount)),
+		slog.String("coupon", fmtCents(totals.Coupon)),
+		slog.String("tax_total", fmtCents(totals.Tax)),
+		slog.String("total", fmtCents(totals.Total)),
+		slog.Int("items", len(totals.Products)),
+	).Debug("DRY RUN: order_total rows that would have been written")
 }
 
 // reverseTotals is the OpenCart order_total breakdown (in cents) plus the per-line
@@ -454,7 +501,14 @@ func logOrderDiff(
 	previousStatusId, newStatusId int,
 	previousTotal, newTotal float64,
 	currency string,
+	dryRun bool,
 ) {
+	// Same diff either way; only the verdict differs.
+	outcome := "order update applied"
+	if dryRun {
+		outcome = "DRY RUN: order update not applied"
+	}
+
 	prevMap := make(map[string]itemDiffEntry, len(previous))
 	for _, it := range previous {
 		if shippingZohoID != "" && it.ZohoID == shippingZohoID {
@@ -517,7 +571,7 @@ func logOrderDiff(
 	statusChanged := previousStatusId != newStatusId
 
 	if !totalChanged && !statusChanged && len(added) == 0 && len(removed) == 0 && len(changed) == 0 {
-		log.Info("order update applied (no observable changes)")
+		log.Info(outcome + " (no observable changes)")
 		return
 	}
 
@@ -545,5 +599,5 @@ func logOrderDiff(
 		attrs = append(attrs, slog.String("products_changed", strings.Join(changed, ", ")))
 	}
 
-	log.With(attrs...).Info("order update applied")
+	log.With(attrs...).Info(outcome)
 }

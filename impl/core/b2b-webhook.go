@@ -41,6 +41,18 @@ func (c *Core) ProcessB2BWebhook(payload *entity.B2BWebhookPayload) (string, err
 	// Step 3: Build Zoho B2B order
 	zohoOrder, chunkedItems := c.buildZohoOrderFromWebhook(&payload.Data, contactID, lineItems)
 
+	// Dry run stops here: the webhook was received, its products resolved and the Deal payload
+	// built, but nothing is created in Zoho. The caller gets an empty zoho_id, which is the
+	// truthful answer - no Deal exists.
+	if c.dryRun {
+		log.With(
+			slog.String("subject", zohoOrder.Subject),
+			slog.Int("items", len(lineItems)),
+			slog.Int("chunks", len(chunkedItems)),
+		).Warn("DRY RUN: B2B Deal not created")
+		return "", nil
+	}
+
 	// Step 4: Create Deal in Zoho with items
 	zohoId, err := c.createB2BDealWithItems(zohoOrder, chunkedItems)
 	if err != nil {
@@ -132,6 +144,12 @@ func (c *Core) resolveB2BWebhookContact(order *entity.B2BWebhookOrder) (string, 
 	// If no email and no phone, use placeholder email
 	if clientDetails.Email == "" && clientDetails.Phone == "" {
 		clientDetails.Email = fmt.Sprintf("%s@b2b.placeholder.local", order.ClientUID)
+	}
+
+	// Under dry-run no Contact is created either; the placeholder keeps the Deal payload
+	// well-formed so the rest of the build still runs.
+	if c.dryRun {
+		return dryRunContactId, nil
 	}
 
 	contactID, err := c.zoho.CreateContact(clientDetails)

@@ -10,10 +10,11 @@ import (
 
 type Config struct {
 	Env string `yaml:"env" env-default:"local" env-required:"true"`
-	// DryRun stops the service writing anything to Zoho. Orders are still polled, validated and
-	// built, and missing product Zoho ids are still resolved and stored, so the read side can be
-	// exercised against a live shop without creating records. Nothing is marked synced, so once it
-	// is switched off the queued orders sync normally.
+	// DryRun stops the service writing anything to Zoho or to OpenCart. Orders are still polled,
+	// validated and built, and inbound webhooks are still received, validated and diffed, so both
+	// sides can be exercised against a live shop without changing a record. Missing product Zoho
+	// ids are the one exception: they are still resolved and stored. Nothing is marked synced, so
+	// once it is switched off the queued orders sync normally.
 	DryRun bool `yaml:"dry_run" env-default:"false"`
 	SQL    struct {
 		Enabled  bool   `yaml:"enabled" env-default:"false"`

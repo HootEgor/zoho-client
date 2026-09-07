@@ -211,8 +211,9 @@ func (c *Core) GetStatusIdByName(statusName string) int {
 
 func (c *Core) Start() {
 	if c.dryRun {
-		c.log.Warn("DRY RUN: no records will be created or updated in Zoho, and no order will be " +
-			"marked synced; product Zoho ids are still resolved and stored")
+		c.log.Warn("DRY RUN: no records will be created or updated in Zoho, no inbound webhook " +
+			"will be applied to OpenCart, and no order will be marked synced; product Zoho ids " +
+			"are still resolved and stored")
 	}
 
 	if c.zoho == nil {

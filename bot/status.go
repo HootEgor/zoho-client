@@ -42,8 +42,9 @@ func formatStatus(s entity.ServiceStatus) string {
 	sb.WriteString("\nEnv: " + Sanitize(orDash(s.Env)))
 	sb.WriteString("\nUptime: " + Sanitize(s.Uptime))
 	if s.DryRun {
-		// Worth shouting: in this mode nothing reaches Zoho and no order is marked synced.
-		sb.WriteString("\n⚠️ DRY RUN — nothing is written to Zoho")
+		// Worth shouting: in this mode nothing reaches Zoho, inbound webhooks are not applied
+		// to OpenCart, and no order is marked synced.
+		sb.WriteString("\n⚠️ DRY RUN — nothing is written to Zoho or OpenCart")
 	}
 
 	sb.WriteString("\n\n*Components*")

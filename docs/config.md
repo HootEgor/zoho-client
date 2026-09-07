@@ -13,7 +13,7 @@ files, whose `${PLACEHOLDER}` values the deploy workflows substitute.
 | Section | Purpose |
 |---|---|
 | `env` | Environment name used by the logger (`local`, `production`, …) |
-| `dry_run` | Stops all writes to Zoho while leaving the read side running — see below |
+| `dry_run` | Stops all writes to Zoho *and* to OpenCart while leaving the read side running — see below |
 | `sql` | OpenCart MySQL connection; `enabled: false` runs the service without a database |
 | `mongo` | Optional order-version archive — **one database per instance**, see below |
 | `telegram` | Optional admin notification bot — **one bot token per instance**, see below |
@@ -51,22 +51,27 @@ one such connection per token — the instances would keep terminating each othe
 
 ## `dry_run`
 
-`dry_run: true` lets an instance run against a live shop without creating anything in Zoho. Useful
-for a new site: you can watch order monitoring and product resolution work before letting records
-through.
+`dry_run: true` lets an instance run against a live shop without changing anything — in Zoho or in
+OpenCart. Useful for a new site: you can watch order monitoring, product resolution and the inbound
+webhooks work before letting either side write.
 
 **Still runs:** order polling, validation, currency and status resolution, the product Zoho id
 lookup through `prod_repo` (including writing the resolved id to `oc_product.zoho_id`), the money
 arithmetic, and the built Sales Order payload — logged in full at debug level, with a summary line
-at info.
+at info. Inbound webhooks are still received, authenticated, decoded, validated and diffed against
+the order OpenCart holds; the reverse totals are computed and logged.
 
 **Suppressed:** Contact creation, Sales Order create/update, Payments create/update, the customer
-sync goroutine, the `[B2B]` marking, and — the important one — writing `zoho_id` back to
-`oc_order`. Nothing is marked synced, so switching `dry_run` back off lets every queued order sync
-normally.
+sync goroutine, the B2B Deal a `/webhook/b2b` call would create, the `[B2B]` marking, and — the
+important one — writing `zoho_id` back to `oc_order`. Nothing is marked synced, so switching
+`dry_run` back off lets every queued order sync normally.
 
-**Not affected:** the inbound HTTP API. A Zoho webhook still updates the OpenCart database, because
-that is not a push to Zoho.
+On the inbound side `/webhook/order` writes nothing: no status change, no item replacement, no
+total rewrite, and no `zoho_modified_time`. That last one matters — storing it would suppress the
+same webhook as an echo once `dry_run` is switched off. What the update *would* have done is logged
+instead, as `DRY RUN: order update not applied` with the same diff and totals the applied path
+logs. `/webhook/b2b` answers `200` with an empty `zoho_id`, which is the truthful answer: no Deal
+exists.
 
 It is deliberately not a deploy variable. Flip it in `/etc/conf/<instance>.yml` and restart the
 service; a deploy resets it to `false`, which is the fail-safe direction. Startup logs a `DRY RUN`

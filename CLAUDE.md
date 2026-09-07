@@ -243,12 +243,18 @@ docs/                       # API documentation (apiv1.md, config.md)
 - Token refresh happens automatically before each API call with 3 retry attempts
 
 **Dry run**
-- `dry_run: true` (top level, not under `site:`) stops every write to Zoho while leaving polling,
-  validation and product resolution running; the built Sales Order is logged instead of sent.
+- `dry_run: true` (top level, not under `site:`) stops every write — to Zoho *and* to OpenCart —
+  while leaving polling, validation and product resolution running; the built Sales Order is logged
+  instead of sent.
 - Crucially it does not record `zoho_id`, so nothing is marked synced and the queued orders sync
   normally once it is switched off. `processOrder` returns an empty id in this mode, and both
   callers treat that as "nothing to record" — `PushOrderToZoho` must not write it back or it would
   wipe an existing id.
+- Inbound webhooks are received, decoded, validated and diffed as usual, but `Core.UpdateOrder`
+  returns before both write paths (status-only and the full transaction) and logs what it would
+  have done. It must also skip `SetOrderZohoModifiedTime`: storing that timestamp would make the
+  same webhook look like an echo and be dropped once dry-run is off. `ProcessB2BWebhook` likewise
+  builds the Deal and returns an empty id without creating it.
 
 **Seeding a new shop**
 - A shop whose database is copied from an existing one starts with years of orders the poller

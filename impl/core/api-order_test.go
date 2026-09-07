@@ -1,6 +1,11 @@
 package core
 
-import "testing"
+import (
+	"testing"
+	"time"
+	"zohoclient/entity"
+	"zohoclient/internal/database/sql"
+)
 
 // TestTotalsDiverged pins the tolerance against the case that motivated it: order 17134, where
 // Zoho's subform was repriced from the 8.40% discount we sent to a flat 10% while every product
@@ -82,5 +87,146 @@ func TestTotalsDiverged(t *testing.T) {
 				t.Errorf("diff = %.2f, want %.2f", diff, tt.wantDiff)
 			}
 		})
+	}
+}
+
+// webhookRepo is the reverse-sync counterpart of fakeRepo: it answers the reads UpdateOrder
+// performs and counts every write it attempts, so a dry-run test can assert the count is zero.
+type webhookRepo struct {
+	Repository
+	orderId int64
+	order   *entity.CheckoutParams
+	items   []sql.OrderProductSummary
+
+	statusCalls   int
+	txCalls       int
+	modifiedCalls int
+}
+
+func (r *webhookRepo) OrderSearchByZohoId(string) (int64, *entity.CheckoutParams, error) {
+	return r.orderId, r.order, nil
+}
+
+func (r *webhookRepo) GetOrderZohoModifiedTime(int64) (time.Time, error) {
+	return time.Time{}, nil
+}
+
+func (r *webhookRepo) GetOrderProductsSummary(int64) ([]sql.OrderProductSummary, error) {
+	return r.items, nil
+}
+
+func (r *webhookRepo) ChangeOrderStatus(int64, int64, string) error {
+	r.statusCalls++
+	return nil
+}
+
+func (r *webhookRepo) UpdateOrderWithTransaction(sql.OrderUpdateTransaction) error {
+	r.txCalls++
+	return nil
+}
+
+func (r *webhookRepo) SetOrderZohoModifiedTime(int64, time.Time) error {
+	r.modifiedCalls++
+	return nil
+}
+
+func webhookTestRepo() *webhookRepo {
+	order := pushableOrder()
+	order.CurrencyValue = 1.0
+	return &webhookRepo{
+		orderId: order.OrderId,
+		order:   order,
+		items: []sql.OrderProductSummary{
+			{ZohoID: "Z1", Name: "P", Quantity: 8, TotalInCents: 42276},
+		},
+	}
+}
+
+func webhookTestCore(repo *webhookRepo, dryRun bool) *Core {
+	core := pushTestCore(&fakeRepo{}, &fakeZoho{})
+	core.repo = repo
+	core.dryRun = dryRun
+	return core
+}
+
+// A webhook whose subform still matches OpenCart only moves the status. Under dry-run even that
+// single write must not happen.
+func TestUpdateOrder_DryRunStatusOnly(t *testing.T) {
+	repo := webhookTestRepo()
+	core := webhookTestCore(repo, true)
+
+	update := &entity.ApiOrder{
+		ZohoID:       "739178000059413569",
+		Status:       "Перевірка та збір", // status id 5 in the default map
+		GrandTotal:   468.00,
+		ModifiedTime: "2026-09-07T12:00:00+02:00",
+		OrderedItems: []entity.ApiOrderedItem{
+			{ZohoID: "Z1", Price: 52.8455, Total: 422.764, Quantity: 8},
+		},
+	}
+
+	if err := core.UpdateOrder(update); err != nil {
+		t.Fatalf("UpdateOrder() error = %v", err)
+	}
+	if repo.statusCalls != 0 {
+		t.Errorf("ChangeOrderStatus called %d time(s) in dry run, want 0", repo.statusCalls)
+	}
+	if repo.modifiedCalls != 0 {
+		t.Errorf("SetOrderZohoModifiedTime called %d time(s) in dry run, want 0 — storing it "+
+			"would suppress the same webhook once dry-run is switched off", repo.modifiedCalls)
+	}
+	if repo.txCalls != 0 {
+		t.Errorf("UpdateOrderWithTransaction called %d time(s) in dry run, want 0", repo.txCalls)
+	}
+}
+
+// A webhook that changes the subform goes through the transaction path. Dry-run computes the
+// reverse totals and reports them, but writes nothing.
+func TestUpdateOrder_DryRunItemsChanged(t *testing.T) {
+	repo := webhookTestRepo()
+	core := webhookTestCore(repo, true)
+
+	update := &entity.ApiOrder{
+		ZohoID:     "739178000059413569",
+		Status:     "Перевірка та збір",
+		GrandTotal: 520.00,
+		OrderedItems: []entity.ApiOrderedItem{
+			{ZohoID: "Z1", Price: 52.8455, Total: 475.61, Quantity: 9},
+		},
+	}
+
+	if err := core.UpdateOrder(update); err != nil {
+		t.Fatalf("UpdateOrder() error = %v", err)
+	}
+	if repo.txCalls != 0 {
+		t.Errorf("UpdateOrderWithTransaction called %d time(s) in dry run, want 0", repo.txCalls)
+	}
+	if repo.statusCalls != 0 {
+		t.Errorf("ChangeOrderStatus called %d time(s) in dry run, want 0", repo.statusCalls)
+	}
+	if repo.modifiedCalls != 0 {
+		t.Errorf("SetOrderZohoModifiedTime called %d time(s) in dry run, want 0", repo.modifiedCalls)
+	}
+}
+
+// The control: with dry-run off the same webhook is applied as before.
+func TestUpdateOrder_AppliesWhenNotDryRun(t *testing.T) {
+	repo := webhookTestRepo()
+	core := webhookTestCore(repo, false)
+
+	update := &entity.ApiOrder{
+		ZohoID:     "739178000059413569",
+		Status:     "Перевірка та збір",
+		GrandTotal: 520.00,
+		OrderedItems: []entity.ApiOrderedItem{
+			{ZohoID: "Z1", Price: 52.8455, Total: 475.61, Quantity: 9},
+		},
+	}
+
+	if err := core.UpdateOrder(update); err != nil {
+		t.Fatalf("UpdateOrder() error = %v", err)
+	}
+	if repo.txCalls != 1 {
+		t.Errorf("UpdateOrderWithTransaction calls = %d, want 1", repo.txCalls)
 	}
 }
