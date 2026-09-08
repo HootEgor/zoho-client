@@ -338,4 +338,65 @@ includes B2B orders, which are marked and skipped rather than synced.
   }
   ```
 
+#### Payments Webhook
+
+- **Endpoint:** `/zoho/webhook/payment`
+- **Method:** `POST`
+- **Feature flag:** the route exists only when `site.features.payments` is on. A shop that runs
+  without the payments subsystem holds no `zoho_payment_*` columns to read the payload against, so
+  a call there 404s rather than recording payloads nothing will read.
+- **Description:** Zoho reports the whole Payments list of one Sales Order whenever a record in it
+  changes. **Recording only** — nothing from this payload reaches OpenCart yet. Each payload is
+  resolved to an OpenCart order, logged against what OpenCart already holds (the wfsync
+  `wf_payment_status` and the `zoho_payment_id` this service created), and stored in MongoDB under
+  that order id in the `payments` collection. Which fields are worth transferring is decided from
+  the payloads real shops send.
+- **Request Body:** the envelope is the usual one; `data` may be a single object or an array of
+  them. `data.zoho_id` is the **Sales Order** id — it is what the order is found by — and each
+  entry of `data.payments` is a Zoho Payments record as the module holds it. Ids arrive quoted or
+  as bare JSON numbers depending on the shop and both are accepted; the whole record is kept, the
+  `$`-prefixed system fields included, so the fields below are the ones read, not the ones allowed.
+  ```json
+  {
+    "method": "payments.update",
+    "data": {
+      "zoho_id": 739178000065138138,
+      "payments": [
+        {
+          "zoho_id": "739178000065068174",
+          "order_id": 739178000065138138,
+          "Name": "Payments #order-739178000065138138",
+          "Status": "Створено",
+          "Sum": 2500.35,
+          "Currency": "UAH",
+          "Exchange_Rate": 1,
+          "payment_datetime": "2026-09-08T13:29:04+02:00",
+          "Created_Time": "2026-09-08T11:29:04+02:00",
+          "Modified_Time": "2026-09-08T11:29:04+02:00",
+          "Stripe_PaymentIntent_ID": null,
+          "Stripe_Checkout_Session_ID": null,
+          "payment_error": null,
+          "paymentLink": null,
+          "rrn": null
+        }
+      ]
+    }
+  }
+  ```
+  Note `payment_datetime` here against the `Payment_time` this service writes when it *creates* a
+  Payments record — the inbound and outbound field names are not the same.
+- **Response (Success):** the count is of payment records, across every `data` entry.
+  ```json
+  {
+    "success": true,
+    "status_message": "1 payment(s) recorded",
+    "timestamp": "2026-09-08T11:29:05Z"
+  }
+  ```
+- **Unknown Sales Order:** answered `200`. A payload whose `zoho_id` matches no OpenCart order has
+  nothing to be filed under and is logged and dropped; failing it would only have Zoho redeliver it
+  forever. This is also what a dry-run instance sees, since it records no `zoho_id` at all.
+- **Dry run:** recording still happens. MongoDB is this service's own store, not a write to Zoho or
+  to the shop, and skipping it would leave the endpoint doing nothing.
+
 ### Order Retrieval (Coming Soon)

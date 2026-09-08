@@ -17,8 +17,13 @@ import (
 
 const (
 	ordersCollection      = "orders"
+	paymentsCollection    = "payments"
 	smartsenderCollection = "smartsender_state"
 )
+
+// versionedCollections hold one document per OpenCart order with an appended version history, so
+// expiry treats them alike.
+var versionedCollections = []string{ordersCollection, paymentsCollection}
 
 type MongoDB struct {
 	ctx           context.Context
@@ -96,13 +101,26 @@ func (m *MongoDB) Ping() error {
 // If the order exists, appends the new version. If not, creates a new order document.
 // Version ID is auto-generated as sequential number (0, 1, 2, ...).
 func (m *MongoDB) SaveOrderVersion(orderID int64, payload string) error {
+	return m.saveVersion(ordersCollection, orderID, payload)
+}
+
+// SavePaymentUpdate appends the payload of a payments webhook to the order's payment history. It
+// is kept apart from the order versions so /versions still lists what the order itself looked
+// like, uninterrupted by payment traffic.
+func (m *MongoDB) SavePaymentUpdate(orderID int64, payload string) error {
+	return m.saveVersion(paymentsCollection, orderID, payload)
+}
+
+// saveVersion appends a payload to the order's document in the named collection, creating the
+// document with version 0 when this is the first payload for that order.
+func (m *MongoDB) saveVersion(collectionName string, orderID int64, payload string) error {
 	connection, err := m.connect()
 	if err != nil {
 		return err
 	}
 	defer m.disconnect(connection)
 
-	collection := connection.Database(m.database).Collection(ordersCollection)
+	collection := connection.Database(m.database).Collection(collectionName)
 
 	// Try to find existing order
 	filter := bson.M{"order_id": orderID}
@@ -122,7 +140,6 @@ func (m *MongoDB) SaveOrderVersion(orderID int64, payload string) error {
 			if err != nil {
 				return fmt.Errorf("mongodb insert error: %w", err)
 			}
-			//m.log.Debug("created new order in mongodb", slog.Int64("order_id", orderID), slog.String("version_id", "0"))
 			return nil
 		}
 		return m.findError(err)
@@ -139,11 +156,10 @@ func (m *MongoDB) SaveOrderVersion(orderID int64, payload string) error {
 		return fmt.Errorf("mongodb update error: %w", err)
 	}
 
-	//m.log.Debug("added version to order in mongodb", slog.Int64("order_id", orderID), slog.String("version_id", nextID))
 	return nil
 }
 
-// DeleteExpired removes order documents older than expiredDays from MongoDB.
+// DeleteExpired removes documents older than expiredDays from every versioned collection.
 // Returns the number of deleted documents.
 func (m *MongoDB) DeleteExpired() (int64, error) {
 	if m.expiredDays <= 0 {
@@ -156,23 +172,27 @@ func (m *MongoDB) DeleteExpired() (int64, error) {
 	}
 	defer m.disconnect(connection)
 
-	collection := connection.Database(m.database).Collection(ordersCollection)
-
 	cutoffDate := time.Now().AddDate(0, 0, -m.expiredDays)
 	filter := bson.M{"creation_date": bson.M{"$lt": cutoffDate}}
 
-	result, err := collection.DeleteMany(m.ctx, filter)
-	if err != nil {
-		return 0, fmt.Errorf("mongodb delete error: %w", err)
+	var deleted int64
+	for _, collectionName := range versionedCollections {
+		collection := connection.Database(m.database).Collection(collectionName)
+
+		result, err := collection.DeleteMany(m.ctx, filter)
+		if err != nil {
+			return deleted, fmt.Errorf("mongodb delete error: %w", err)
+		}
+		if result.DeletedCount > 0 {
+			m.log.Info("deleted expired documents from mongodb",
+				slog.String("collection", collectionName),
+				slog.Int64("deleted_count", result.DeletedCount),
+				slog.Int("expired_days", m.expiredDays))
+		}
+		deleted += result.DeletedCount
 	}
 
-	if result.DeletedCount > 0 {
-		m.log.Info("deleted expired orders from mongodb",
-			slog.Int64("deleted_count", result.DeletedCount),
-			slog.Int("expired_days", m.expiredDays))
-	}
-
-	return result.DeletedCount, nil
+	return deleted, nil
 }
 
 // SSState represents SmartSender state document in MongoDB

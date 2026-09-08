@@ -82,6 +82,7 @@ type MongoRepository interface {
 	Ping() error
 
 	SaveOrderVersion(orderID int64, payload string) error
+	SavePaymentUpdate(orderID int64, payload string) error
 	DeleteExpired() (int64, error)
 	GetSSLastProcessedTime(chatID string) (time.Time, error)
 	SetSSLastProcessedTime(chatID string, t time.Time) error

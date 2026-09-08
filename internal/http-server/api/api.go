@@ -14,6 +14,7 @@ import (
 	"zohoclient/internal/http-server/handlers/errors"
 	"zohoclient/internal/http-server/handlers/health"
 	"zohoclient/internal/http-server/handlers/order"
+	"zohoclient/internal/http-server/handlers/payment"
 	"zohoclient/internal/http-server/middleware/authenticate"
 	"zohoclient/internal/http-server/middleware/timeout"
 	"zohoclient/internal/lib/sl"
@@ -68,6 +69,7 @@ func (s *Server) BasePath() string {
 type Handler interface {
 	authenticate.Authenticate
 	order.Core
+	payment.Core
 	b2b.Core
 	health.Core
 }
@@ -116,6 +118,15 @@ func New(conf *config.Config, site *config.SiteSettings, log *slog.Logger, handl
 				webhook.Route("/order", func(r chi.Router) {
 					r.Post("/", order.UpdateOrder(log, handler))
 				})
+				// Zoho reports the Payments list of a Sales Order here. The route belongs to the
+				// payments subsystem: a shop with the feature off has no zoho_payment_* columns
+				// to read the payload against and nowhere for it to lead, so it has no route
+				// either.
+				if site.Payments {
+					webhook.Route("/payment", func(r chi.Router) {
+						r.Post("/", payment.Update(log, handler))
+					})
+				}
 				// The B2B portal webhook feeds the Deals pipeline; a site that does not run the
 				// B2B flow has no route for it at all, so a stray call 404s rather than creating
 				// a Deal nobody will look at.

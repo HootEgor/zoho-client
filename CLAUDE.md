@@ -371,6 +371,12 @@ need different values here; the paths below assume the default.
   unauthenticated.
 - `GET /zoho/status` - full service status (authenticated), same snapshot as the bot's `/status`
 - `POST /zoho/webhook/order` - Order update endpoint (updates OpenCart database from external systems)
+- `POST /zoho/webhook/payment` - Payments list of one Sales Order; the route exists only when
+  `site.features.payments` is on. **Recording only** - the payload is resolved to an OpenCart
+  order, logged against `wf_payment_status` / `zoho_payment_id`, and stored in the Mongo `payments`
+  collection. Nothing reaches OpenCart yet; what to transfer is decided from real payloads. An
+  unknown `zoho_id` answers `200` (nothing to file it under), and dry-run still records, because
+  Mongo is this service's own store rather than a write to Zoho or the shop.
 - `POST /zoho/webhook/b2b` - B2B portal webhook; the route exists only when `site.features.b2b` is on
 - `GET /zoho/push/order/{id}` - push one order to Zoho on demand
 

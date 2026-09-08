@@ -16,12 +16,18 @@ import (
 // reach is nil and panics loudly rather than silently succeeding.
 type routerHandler struct {
 	Handler
-	token   string
-	updated []entity.ApiOrder
+	token    string
+	updated  []entity.ApiOrder
+	payments []entity.ApiPaymentUpdate
 }
 
 func (h *routerHandler) UpdateOrder(order *entity.ApiOrder) error {
 	h.updated = append(h.updated, *order)
+	return nil
+}
+
+func (h *routerHandler) UpdatePayments(update *entity.ApiPaymentUpdate) error {
+	h.payments = append(h.payments, *update)
 	return nil
 }
 
@@ -132,6 +138,7 @@ func TestRouter_ExistingRoutesStillRequireToken(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/zoho/webhook/order"},
+		{http.MethodPost, "/zoho/webhook/payment"},
 		{http.MethodPost, "/zoho/webhook/b2b"},
 		{http.MethodGet, "/zoho/push/order/16939"},
 	} {
@@ -279,5 +286,74 @@ func TestRouter_FallbackErrorsCarryACode(t *testing.T) {
 				t.Error("error.message is empty")
 			}
 		})
+	}
+}
+
+// The payments webhook, end to end. Both the Sales Order id and the payment ids have to reach the
+// core with all 18 digits, and the record must survive the envelope's interface{} whole - what is
+// recorded now decides what gets transferred to OpenCart later.
+func TestRouter_PaymentsWebhookRecordsThePayload(t *testing.T) {
+	handler := &routerHandler{token: "secret"}
+	conf := &config.Config{}
+	server, err := New(conf, config.DefaultSiteSettings(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)), handler)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	body := `{"method":"payments.update","data":{"zoho_id":739178000065138138,"payments":[` +
+		`{"zoho_id":"739178000065068174","order_id":739178000065138138,"Status":"Створено",` +
+		`"Sum":2500.35,"Currency":"UAH","payment_datetime":"2026-09-08T13:29:04+02:00",` +
+		`"Stripe_PaymentIntent_ID":null,"rrn":null,"Update_1C":false}]}}`
+
+	req := httptest.NewRequest(http.MethodPost, "/zoho/webhook/payment", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.httpServer.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if len(handler.payments) != 1 {
+		t.Fatalf("UpdatePayments called %d time(s), want 1", len(handler.payments))
+	}
+
+	update := handler.payments[0]
+	if update.ZohoID != "739178000065138138" {
+		t.Errorf("zoho_id = %q, want 739178000065138138", update.ZohoID)
+	}
+	if len(update.Payments) != 1 {
+		t.Fatalf("payments = %d, want 1", len(update.Payments))
+	}
+	if got := update.Payments[0].ZohoID; got != "739178000065068174" {
+		t.Errorf("payment zoho_id = %q, want 739178000065068174", got)
+	}
+	if got := update.Payments[0].OrderID; got != "739178000065138138" {
+		t.Errorf("payment order_id = %q, want 739178000065138138", got)
+	}
+	if got := update.Payments[0].Sum; got != 2500.35 {
+		t.Errorf("Sum = %v, want 2500.35", got)
+	}
+	if !strings.Contains(string(update.Raw), `"Update_1C"`) {
+		t.Errorf("Raw dropped a field the struct does not name: %s", update.Raw)
+	}
+}
+
+// The route belongs to the payments subsystem: a shop running without it has no route at all, so
+// a stray call 404s instead of recording payloads nothing will ever read.
+func TestRouter_PaymentsWebhookFollowsTheFeatureFlag(t *testing.T) {
+	site := config.DefaultSiteSettings()
+	site.Payments = false
+
+	server, err := New(&config.Config{}, site,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), &routerHandler{token: "secret"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := do(t, server, http.MethodPost, "/zoho/webhook/payment", "secret")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
