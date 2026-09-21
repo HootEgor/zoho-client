@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -276,8 +277,15 @@ func TestUpdateOrder_NotFoundStillFailsWhenLive(t *testing.T) {
 	repo.searchErr = fmt.Errorf("order with zoho_id '739178000064567111': %w", sql.ErrOrderNotFound)
 	core := webhookTestCore(repo, false)
 
-	if err := core.UpdateOrder(&entity.ApiOrder{ZohoID: "739178000064567111"}); err == nil {
-		t.Error("UpdateOrder() error = nil, want the missing order reported")
+	err := core.UpdateOrder(&entity.ApiOrder{ZohoID: "739178000064567111"})
+	if err == nil {
+		t.Fatal("UpdateOrder() error = nil, want the missing order reported")
+	}
+	// The sentinel has to survive the wrapping: the handler is the only place this is logged,
+	// and it decides warn-versus-error by testing for it. Break the chain and a routine webhook
+	// for someone else's order reads as a service fault again.
+	if !errors.Is(err, entity.ErrOrderNotFound) {
+		t.Errorf("error %v does not wrap entity.ErrOrderNotFound", err)
 	}
 	if repo.searchCalls != 5 {
 		t.Errorf("OrderSearchByZohoId called %d time(s), want 5 — the write race is real when "+

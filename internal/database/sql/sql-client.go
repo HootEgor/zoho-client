@@ -18,10 +18,10 @@ import (
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
-// ErrOrderNotFound is returned when a lookup found no such order, as opposed to failing to ask.
-// Callers that treat a missing order differently from a broken database - the inbound webhook
-// under dry-run, where no order ever carries a zoho_id - test for it with errors.Is.
-var ErrOrderNotFound = errors.New("order not found")
+// ErrOrderNotFound is entity.ErrOrderNotFound under the name the query layer's callers already
+// use. It is the same value, so errors.Is answers alike for either spelling; the canonical one
+// lives in entity so the HTTP handlers can test for it without importing this package.
+var ErrOrderNotFound = entity.ErrOrderNotFound
 
 type MySql struct {
 	db  *sql.DB

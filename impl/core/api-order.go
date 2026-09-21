@@ -56,9 +56,15 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			log.Warn("DRY RUN: no order carries this zoho_id, nothing to update")
 			return nil
 		}
-		log.With(slog.Int("attempts", maxRetries), sl.Err(err)).
-			Warn("order not found, dropping update")
-		return fmt.Errorf("order not found after %d attempts: %w", maxRetries, err)
+		// Deliberately not logged here. The caller reports every failure of this method, and a
+		// line at each level turns one condition into two entries that have to be read together
+		// to learn nothing more than either says alone. The sentinel is passed through with %w so
+		// the handler can still tell a missing order from a database that cannot answer.
+		if errors.Is(err, sql.ErrOrderNotFound) {
+			return fmt.Errorf("no order carries zoho_id %s after %d attempts: %w",
+				orderDetails.ZohoID, maxRetries, err)
+		}
+		return fmt.Errorf("order lookup failed after %d attempts: %w", maxRetries, err)
 	}
 
 	currencyValue := orderParams.CurrencyValue

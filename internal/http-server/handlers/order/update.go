@@ -69,20 +69,38 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 		// (Zoho webhook function) can retry the batch; earlier successful updates are
 		// idempotent thanks to Modified_Time echo suppression in core.UpdateOrder.
 		for i := range updates {
-			if err := order.UpdateOrder(&updates[i]); err != nil {
-				apiErr := apierrors.NewDatabaseError("UpdateOrder")
-				log.Error("failed to update order",
-					slog.Int("index", i),
-					slog.String("zoho_id", updates[i].ZohoID),
-					slog.Int("applied", i),
-					slog.Int("total", len(updates)),
-					slog.String("error", err.Error()),
-					slog.String("error_code", string(apiErr.Code)),
-				)
-				w.WriteHeader(apiErr.HTTPStatus)
-				render.JSON(w, r, response.ErrorFromAPIError(apiErr))
-				return
+			err := order.UpdateOrder(&updates[i])
+			if err == nil {
+				continue
 			}
+
+			apiErr := apierrors.NewDatabaseError("UpdateOrder")
+			fields := []any{
+				slog.Int("index", i),
+				slog.String("zoho_id", updates[i].ZohoID),
+				slog.Int("applied", i),
+				slog.Int("total", len(updates)),
+				slog.String("error", err.Error()),
+				slog.String("error_code", string(apiErr.Code)),
+			}
+
+			// This is the only place a failed update is reported - core.UpdateOrder returns
+			// without logging so one condition produces one line.
+			//
+			// A webhook for an order this instance does not carry is an ordinary outcome: Zoho
+			// holds orders from both shops and from before this service synced anything, and no
+			// retry can conjure the row. Warn rather than error, so a log filtered to errors shows
+			// faults and not routine traffic. The response is unchanged either way - the caller
+			// still gets the 500 it retries on.
+			if errors.Is(err, entity.ErrOrderNotFound) {
+				log.Warn("order not found, dropping update", fields...)
+			} else {
+				log.Error("failed to update order", fields...)
+			}
+
+			w.WriteHeader(apiErr.HTTPStatus)
+			render.JSON(w, r, response.ErrorFromAPIError(apiErr))
+			return
 		}
 
 		render.JSON(w, r, response.OkWithMessage(
