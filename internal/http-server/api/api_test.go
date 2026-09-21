@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,14 +18,15 @@ import (
 // reach is nil and panics loudly rather than silently succeeding.
 type routerHandler struct {
 	Handler
-	token    string
-	updated  []entity.ApiOrder
-	payments []entity.ApiPaymentUpdate
+	token     string
+	updated   []entity.ApiOrder
+	payments  []entity.ApiPaymentUpdate
+	updateErr error
 }
 
 func (h *routerHandler) UpdateOrder(order *entity.ApiOrder) error {
 	h.updated = append(h.updated, *order)
-	return nil
+	return h.updateErr
 }
 
 func (h *routerHandler) UpdatePayments(update *entity.ApiPaymentUpdate) error {
@@ -355,5 +358,59 @@ func TestRouter_PaymentsWebhookFollowsTheFeatureFlag(t *testing.T) {
 	rec := do(t, server, http.MethodPost, "/zoho/webhook/payment", "secret")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+// A webhook for an order this instance does not carry answers 404, not 500. Zoho holds orders from
+// both shops and from before this service synced anything, and the row is genuinely absent — the
+// database answered fine. Telling the caller DATABASE_ERROR had it retry something no retry can
+// find, and every attempt cost another log line.
+func TestRouter_UnknownOrderIsNotFoundRatherThanADatabaseError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode int
+		wantBody string
+	}{
+		{
+			name:     "order absent",
+			err:      fmt.Errorf("no order carries zoho_id 1 after 5 attempts: %w", entity.ErrOrderNotFound),
+			wantCode: http.StatusNotFound,
+			wantBody: "NOT_FOUND",
+		},
+		{
+			name:     "database cannot answer",
+			err:      errors.New("dial tcp: connection refused"),
+			wantCode: http.StatusInternalServerError,
+			wantBody: "DATABASE_ERROR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := &routerHandler{token: "secret", updateErr: tt.err}
+			conf := &config.Config{}
+			conf.Listen.BasePath = ""
+			server, err := New(conf, config.DefaultSiteSettings(),
+				slog.New(slog.NewTextHandler(io.Discard, nil)), handler)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			body := `{"method":"order.status.update","data":{"zoho_id":"739178000064455061",` +
+				`"status":"Нове","grand_total":10,"ordered_items":[]}}`
+			req := httptest.NewRequest(http.MethodPost, "/zoho/webhook/order", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer secret")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			server.httpServer.Handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d (body: %s)", rec.Code, tt.wantCode, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Errorf("body = %s, want it to carry %s", rec.Body.String(), tt.wantBody)
+			}
+		})
 	}
 }

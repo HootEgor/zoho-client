@@ -75,8 +75,8 @@ exists.
 
 Since no order ever gets a `zoho_id` in this mode, most inbound webhooks will match no order at
 all. That is expected here, so it is logged as `DRY RUN: no order carries this zoho_id, nothing to
-update` and answered `200` rather than raising a `DATABASE_ERROR`. A database that cannot answer at
-all still fails loudly.
+update` and answered `200` rather than the `404` a live instance returns. A database that cannot
+answer at all still fails loudly.
 
 It is deliberately not a deploy variable. Flip it in `/etc/conf/<instance>.yml` and restart the
 service; a deploy resets it to `false`, which is the fail-safe direction. Startup logs a `DRY RUN`

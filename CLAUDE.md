@@ -328,11 +328,27 @@ docs/                       # API documentation (apiv1.md, config.md)
   same webhook look like an echo and be dropped once dry-run is off. `ProcessB2BWebhook` likewise
   builds the Deal and returns an empty id without creating it.
 - Because no `zoho_id` is ever recorded, a webhook for an order the mode "synced" finds nothing.
-  That is expected, so under dry-run a `sql.ErrOrderNotFound` is warned and the update returns
-  `nil` (a `200`) instead of a `DATABASE_ERROR` and a `500`. Only that sentinel is forgiven — a
+  That is expected, so under dry-run an `entity.ErrOrderNotFound` is warned and the update returns
+  `nil` (a `200`) rather than the `404` a live instance answers. Only that sentinel is forgiven — a
   database that cannot answer still fails, or an outage would read as a quiet run. The lookup also
   runs once instead of five times: the retry exists for the race with the `zoho_id` write, and
   dry-run performs no such write.
+
+**Inbound webhook failures are reported once, by the handler**
+- `Core.UpdateOrder` returns without logging; `handlers/order.UpdateOrder` is the only place a
+  failed update is logged, so one condition yields one line rather than a WARN and an ERROR that
+  have to be read together to learn nothing extra.
+- It splits on `errors.Is(err, entity.ErrOrderNotFound)`: a missing order is a **`404` /
+  `NOT_FOUND` at warn level**, anything else a `500` / `DATABASE_ERROR` at error level. Zoho holds
+  orders from both shops and from before this service synced anything, so a webhook matching no
+  order is ordinary traffic — the row is absent, the database answered fine, and `DATABASE_ERROR`
+  told the caller to retry something no retry can find, each attempt costing another line.
+- The sentinel lives in `entity`, not in `internal/database/sql`, so handlers can classify without
+  importing the query layer; `sql.ErrOrderNotFound` is the same value under the old name. It must
+  survive `%w` wrapping through `Core.UpdateOrder` or the split silently reverts to reporting
+  routine webhooks as faults —
+  `TestUpdateOrder_NotFoundStillFailsWhenLive` and
+  `TestRouter_UnknownOrderIsNotFoundRatherThanADatabaseError` pin both halves.
 
 **Seeding a new shop**
 - A shop whose database is copied from an existing one starts with years of orders the poller

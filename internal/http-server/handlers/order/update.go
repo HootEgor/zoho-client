@@ -74,7 +74,23 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 				continue
 			}
 
+			// This is the only place a failed update is reported - core.UpdateOrder returns
+			// without logging so one condition produces one line.
+			//
+			// A webhook for an order this instance does not carry is an ordinary outcome, not a
+			// fault: Zoho holds orders from both shops and from before this service synced
+			// anything. So it is a 404 and a warning rather than a 500 and an error - the row is
+			// genuinely absent, the database answered perfectly well, and calling it a
+			// DATABASE_ERROR told the caller to retry something no retry can find. Zoho gets a
+			// verdict it can act on, and a log filtered to errors shows faults, not routine
+			// traffic.
+			notFound := errors.Is(err, entity.ErrOrderNotFound)
+
 			apiErr := apierrors.NewDatabaseError("UpdateOrder")
+			if notFound {
+				apiErr = apierrors.NewNotFoundErrorWithID("Order", updates[i].ZohoID)
+			}
+
 			fields := []any{
 				slog.Int("index", i),
 				slog.String("zoho_id", updates[i].ZohoID),
@@ -84,15 +100,7 @@ func UpdateOrder(logger *slog.Logger, order Core) http.HandlerFunc {
 				slog.String("error_code", string(apiErr.Code)),
 			}
 
-			// This is the only place a failed update is reported - core.UpdateOrder returns
-			// without logging so one condition produces one line.
-			//
-			// A webhook for an order this instance does not carry is an ordinary outcome: Zoho
-			// holds orders from both shops and from before this service synced anything, and no
-			// retry can conjure the row. Warn rather than error, so a log filtered to errors shows
-			// faults and not routine traffic. The response is unchanged either way - the caller
-			// still gets the 500 it retries on.
-			if errors.Is(err, entity.ErrOrderNotFound) {
+			if notFound {
 				log.Warn("order not found, dropping update", fields...)
 			} else {
 				log.Error("failed to update order", fields...)
