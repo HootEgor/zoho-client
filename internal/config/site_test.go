@@ -167,6 +167,13 @@ func TestSiteSettings_ValidationErrors(t *testing.T) {
 			wantErr: "zoho.payment_statuses is missing key",
 		},
 		{
+			name: "unknown payment source while payments are on",
+			mutate: func(c *Config) {
+				c.Site.Payments.Source = "stripe"
+			},
+			wantErr: "site.payments.source",
+		},
+		{
 			name: "status map has no entry for the new-order status",
 			mutate: func(c *Config) {
 				c.Zoho.OrderStatusMap = map[int]string{5: "Збір"}
@@ -245,5 +252,137 @@ func TestNewOrderStatusName_IsNotDerivedFromOrderStatus(t *testing.T) {
 		if got := s.OrderStatusIdByName(name); got != want {
 			t.Errorf("OrderStatusIdByName(%q) = %d, want %d", name, got, want)
 		}
+	}
+}
+
+// TestSiteSettings_PaymentSource pins the two-part decision: features.payments says whether
+// payments are synced at all, payments.source says which writer fills wf_payment_status and so
+// which vocabulary reads it. Both sources share the columns, so the database layer still guards on
+// the feature flag; the source is what picks the words.
+func TestSiteSettings_PaymentSource(t *testing.T) {
+	on, off := true, false
+
+	tests := []struct {
+		name       string
+		payments   *bool
+		source     string
+		wantSource string
+		wantWfsync bool
+		wantTzo    bool
+	}{
+		{
+			name:       "omitted source keeps the old behaviour",
+			wantSource: PaymentSourceWfsync,
+			wantWfsync: true,
+		},
+		{
+			name:       "tranzzo reads neither the wf_payment_* columns nor Stripe",
+			payments:   &on,
+			source:     PaymentSourceTranzzo,
+			wantSource: PaymentSourceTranzzo,
+			wantTzo:    true,
+		},
+		{
+			name:       "case and surrounding space are not a typo",
+			payments:   &on,
+			source:     "  Tranzzo ",
+			wantSource: PaymentSourceTranzzo,
+			wantTzo:    true,
+		},
+		{
+			name:       "payments off makes every source inert",
+			payments:   &off,
+			source:     PaymentSourceTranzzo,
+			wantSource: PaymentSourceTranzzo,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Config{}
+			c.Site.Features.Payments = tt.payments
+			c.Site.Payments.Source = tt.source
+
+			s, err := c.SiteSettings()
+			if err != nil {
+				t.Fatalf("SiteSettings() error = %v", err)
+			}
+			if s.PaymentSource != tt.wantSource {
+				t.Errorf("PaymentSource = %q, want %q", s.PaymentSource, tt.wantSource)
+			}
+			if s.WfsyncPayments() != tt.wantWfsync {
+				t.Errorf("WfsyncPayments() = %v, want %v", s.WfsyncPayments(), tt.wantWfsync)
+			}
+			if s.TranzzoPayments() != tt.wantTzo {
+				t.Errorf("TranzzoPayments() = %v, want %v", s.TranzzoPayments(), tt.wantTzo)
+			}
+		})
+	}
+}
+
+// TestSiteSettings_PaymentSourceUncheckedWhenPaymentsOff: a shop that syncs no payments should not
+// be stopped at startup over a key nothing reads.
+func TestSiteSettings_PaymentSourceUncheckedWhenPaymentsOff(t *testing.T) {
+	c := &Config{}
+	off := false
+	c.Site.Features.Payments = &off
+	c.Site.Payments.Source = "whatever"
+
+	if _, err := c.SiteSettings(); err != nil {
+		t.Fatalf("SiteSettings() error = %v, want nil", err)
+	}
+}
+
+// TestSiteSettings_PaymentStatusVocabularyFollowsSource is the regression guard for the failure
+// this whole split exists to prevent: the two writers share oc_order.wf_payment_status, so reading
+// a Tranzzo value ("auth") with the Stripe map, or the reverse, falls through to PaymentKeyError
+// and writes a real payment into Zoho as "Помилка операції".
+func TestSiteSettings_PaymentStatusVocabularyFollowsSource(t *testing.T) {
+	d := DefaultSiteSettings()
+	errValue := d.paymentStatus[entity.PaymentKeyError]
+	held := d.paymentStatus[entity.PaymentKeyHeld]
+	paid := d.paymentStatus[entity.PaymentKeyPaid]
+	canceled := d.paymentStatus[entity.PaymentKeyCanceled]
+	created := d.paymentStatus[entity.PaymentKeyCreated]
+
+	tests := []struct {
+		source string
+		status string
+		want   string
+	}{
+		// Tranzzo's whole vocabulary, on the source that speaks it.
+		{PaymentSourceTranzzo, "init", created},
+		{PaymentSourceTranzzo, "auth", held},
+		{PaymentSourceTranzzo, "capture", paid},
+		{PaymentSourceTranzzo, "void", canceled},
+		// Stripe's, on the source that speaks it.
+		{PaymentSourceWfsync, "requires_capture", held},
+		{PaymentSourceWfsync, "succeeded", paid},
+		{PaymentSourceWfsync, "canceled", canceled},
+		// Crossed over, each vocabulary is nonsense to the other.
+		{PaymentSourceWfsync, "auth", errValue},
+		{PaymentSourceWfsync, "capture", errValue},
+		{PaymentSourceTranzzo, "requires_capture", errValue},
+		{PaymentSourceTranzzo, "succeeded", errValue},
+		// A value neither writer produces still reports an error rather than an empty picklist.
+		{PaymentSourceWfsync, "nonsense", errValue},
+		{PaymentSourceTranzzo, "nonsense", errValue},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source+"/"+tt.status, func(t *testing.T) {
+			on := true
+			c := &Config{}
+			c.Site.Features.Payments = &on
+			c.Site.Payments.Source = tt.source
+
+			s, err := c.SiteSettings()
+			if err != nil {
+				t.Fatalf("SiteSettings() error = %v", err)
+			}
+			if got := s.PaymentStatus(tt.status); got != tt.want {
+				t.Errorf("PaymentStatus(%q) on %s = %q, want %q", tt.status, tt.source, got, tt.want)
+			}
+		})
 	}
 }

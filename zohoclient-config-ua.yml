@@ -72,13 +72,20 @@ site:
     tax: tax
     total: total
     discount: discount
-  # None of the optional subsystems run here: no wfsync/Stripe payments, no B2B pipeline, no
-  # customer sync, no SmartSender (below). With these off the service never creates or reads the
-  # wf_payment_*, zoho_payment_* or oc_customer.zoho_id columns.
+  # None of the optional subsystems run here: no B2B pipeline, no customer sync, no SmartSender
+  # (below), and payments are still off until the tranzzo flow is implemented. With these off the
+  # service never creates or reads the zoho_payment_* or oc_customer.zoho_id columns.
   features:
     payments: false
     customer_sync: false
     b2b: false
+  # wfsync does not run against this shop: its payments are processed inside OpenCart by Tranzzo.
+  # The module writes the SAME wf_payment_* columns, but in its own vocabulary --
+  # init | auth | capture | void -- so the source is what tells this service how to read them.
+  # Reading them with the Stripe map would write every live payment into Zoho as "Помилка операції".
+  # Flip features.payments to true once the oc_tranzzo_queue write-back lands.
+  payments:
+    source: tranzzo
   # Same shipping modules as shop 1 (copied database).
   shipping_code_map:
     filterit1.filterit0: inpost_courier
@@ -102,17 +109,68 @@ zoho:
   terms: Standard terms apply.
   chunk_size: 200
   # Same Zoho org and the same Ukrainian picklist as shop 1.
+  #
+  # Read in BOTH directions and they are not symmetric. Outbound only the order_statuses.new entry
+  # is ever used (buildZohoOrder always stamps it). Inbound, OrderStatusIdByName resolves an
+  # arriving webhook status back to an OpenCart id by EXACT string match -- no trimming, no case
+  # folding -- and answers -1 for anything unlisted, which the handler logs as "unknown status
+  # name from Zoho, keeping current" and then does nothing. So every status a Zoho manager can set
+  # needs an entry here, spelled exactly as the picklist spells it. Do not trim this map.
+  # These two phrases are also the Tranzzo trigger statuses, and the OpenCart module matches them
+  # as TEXT against its own admin setting -- they are NOT read from here. Neither matches the
+  # module's built-in default (DEFAULT_STATUS_CAPTURE "Прийнятий, очікується оплата",
+  # DEFAULT_STATUS_CANCEL "Отмена заказа"), so the module's capture/cancel lists must be set to
+  # these exact values or ZohoStub::classify() returns ACTION_IGNORE and the event is only logged.
+  # The module normalises before comparing (trim, collapse spaces, lowercase), so only the wording
+  # has to agree, not the spacing.
   order_status_map:
     1: Нове
+    # Polled (order_statuses.poll), so orders reach Zoho at this status; without a name here a
+    # webhook carrying it back could not be resolved. Also the module's capture trigger.
+    2: Опрацювання замовлення
     17: Оплачено, формування ТТН
     5: Перевірка та збір
+    # site.order_statuses.canceled. Also the module's cancel trigger -- though an outbound
+    # cancellation carries cancel:true as well, which overrides the text match entirely.
+    7: Відмінено
+    # INCOMPLETE. Any other status a manager can set in Zoho still needs a line here.
   post_types:
     inpost: InPost
     inpost_courier: InPost (кур'єр)
     inpost_terminal: InPost (поштомат)
     dhl_courier: DHL (кур'єр)
     pickup: Самовивіз
-  # payment_statuses is omitted: site.features.payments is off, so no Payments record is ever made.
+  # Same Payments picklist as shop 1 -- all seven values exist in this Zoho org. All seven must be
+  # listed whatever the source: startup validation rejects a partial map, because a missing key
+  # resolves to an empty string and Zoho would take the record with no Status at all.
+  #
+  # Only five are reachable from Tranzzo, whose whole vocabulary is four states
+  # (PAY_STATE_* in catalog/model/extension/payment/tranzzo_multi.php):
+  #
+  #   init     -> created     -> Створено             link issued, no money yet. A FAILED attempt
+  #                                                   files here too, so a failure reads as
+  #                                                   "Створено" and never as "Помилка операції".
+  #   auth     -> held        -> Кошти зарезервовано  funds authorised, awaiting capture.
+  #   capture  -> paid        -> Оплачено             money moved. wf_payment_amount then carries
+  #                                                   the CAPTURED sum, which can be less than the
+  #                                                   sum the link was issued for.
+  #   void     -> canceled    -> Скасовано            money returned. The module folds Tranzzo's
+  #                                                   "void" and "refund" into this one state.
+  #   (unknown)-> error       -> Помилка операції     only a string outside those four.
+  #
+  # Unreachable here, and kept only because validation needs the key:
+  #   in_progress -> В процесі      Tranzzo has no such state; it is a Stripe distinction.
+  #   refunded    -> Відшкодовано   a refund arrives as "void" and cannot be told from a released
+  #                                 authorisation, so it lands on Скасовано. Reaching this value
+  #                                 needs the module to distinguish the two transaction types.
+  payment_statuses:
+    created: Створено
+    in_progress: В процесі
+    held: Кошти зарезервовано
+    paid: Оплачено
+    canceled: Скасовано
+    refunded: Відшкодовано
+    error: Помилка операції
 prod_repo:
   login: ${REPO_LOGIN}
   password: ${REPO_PASSWORD}

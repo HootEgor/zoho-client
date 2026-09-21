@@ -37,10 +37,13 @@ type ServiceStatus struct {
 // FeatureStatus reports which optional subsystems this shop runs. A feature that is off is inert,
 // not idle — the service never touches the columns or APIs it owns.
 type FeatureStatus struct {
-	Payments     bool `json:"payments"`
-	CustomerSync bool `json:"customer_sync"`
-	B2B          bool `json:"b2b"`
-	SmartSender  bool `json:"smartsender"`
+	Payments bool `json:"payments"`
+	// PaymentSource names where payment facts are read from ("wfsync" or "tranzzo"). Empty when
+	// Payments is off, since nothing is read at all.
+	PaymentSource string `json:"payment_source,omitempty"`
+	CustomerSync  bool   `json:"customer_sync"`
+	B2B           bool   `json:"b2b"`
+	SmartSender   bool   `json:"smartsender"`
 }
 
 // ComponentStatus is one dependency's state. Detail carries the reason for a down or unknown

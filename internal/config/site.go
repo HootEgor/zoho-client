@@ -20,6 +20,18 @@ const (
 	PostKeyPickup         = "pickup"
 )
 
+// Payment sources. A shop's payment facts either come from the wfsync service, which writes the
+// wf_payment_* columns onto oc_order while it drives Stripe, or from Tranzzo, whose payments are
+// processed inside OpenCart and recorded in a table of the shop's own database. The choice is per
+// shop and is independent of the Payments feature flag: the flag says whether payments reach Zoho
+// at all, the source says where they are read from. Everything downstream of the read — the
+// logical status vocabulary, the Zoho Payments picklist, zoho_payment_id / zoho_payment_status —
+// is shared, so a source supplies payment facts and nothing else.
+const (
+	PaymentSourceWfsync  = "wfsync"
+	PaymentSourceTranzzo = "tranzzo"
+)
+
 // Logical order-total keys, mapped to a shop's oc_order_total.code values.
 const (
 	TotalKeySubTotal = "sub_total"
@@ -58,9 +70,10 @@ type SiteSettings struct {
 	totalCodes      map[string]string
 	shippingCodeMap map[string]string
 
-	Payments     bool
-	CustomerSync bool
-	B2B          bool
+	Payments      bool
+	PaymentSource string
+	CustomerSync  bool
+	B2B           bool
 
 	ZohoLocation    string
 	ZohoOrderSource string
@@ -126,9 +139,10 @@ func DefaultSiteSettings() *SiteSettings {
 			"pickup.pickup":           PostKeyPickup,
 		},
 
-		Payments:     true,
-		CustomerSync: true,
-		B2B:          true,
+		Payments:      true,
+		PaymentSource: PaymentSourceWfsync,
+		CustomerSync:  true,
+		B2B:           true,
 
 		ZohoLocation:    "Польша",
 		ZohoOrderSource: "OpenCart",
@@ -244,6 +258,9 @@ func (c *Config) SiteSettings() (*SiteSettings, error) {
 	if site.Features.Payments != nil {
 		s.Payments = *site.Features.Payments
 	}
+	if src := strings.ToLower(strings.TrimSpace(site.Payments.Source)); src != "" {
+		s.PaymentSource = src
+	}
 	if site.Features.CustomerSync != nil {
 		s.CustomerSync = *site.Features.CustomerSync
 	}
@@ -334,6 +351,12 @@ func (s *SiteSettings) validate() error {
 		}
 	}
 	if s.Payments {
+		switch s.PaymentSource {
+		case PaymentSourceWfsync, PaymentSourceTranzzo:
+		default:
+			return fmt.Errorf("site.payments.source %q: must be %q or %q",
+				s.PaymentSource, PaymentSourceWfsync, PaymentSourceTranzzo)
+		}
 		for _, key := range entity.PaymentStatusKeys() {
 			if _, ok := s.paymentStatus[key]; !ok {
 				return fmt.Errorf("zoho.payment_statuses is missing key %q", key)
@@ -341,6 +364,20 @@ func (s *SiteSettings) validate() error {
 		}
 	}
 	return nil
+}
+
+// WfsyncPayments reports whether this shop's payment facts live in the wf_payment_* columns on
+// oc_order. It is the guard for everything that touches those columns — creating them, selecting
+// them, and the pollers that read them — so a shop on another source never refers to a column its
+// database does not have.
+func (s *SiteSettings) WfsyncPayments() bool {
+	return s.Payments && s.PaymentSource == PaymentSourceWfsync
+}
+
+// TranzzoPayments reports whether this shop's payment facts come from Tranzzo, recorded by
+// OpenCart in the shop's own database.
+func (s *SiteSettings) TranzzoPayments() bool {
+	return s.Payments && s.PaymentSource == PaymentSourceTranzzo
 }
 
 // IsB2B reports whether an OpenCart customer group is a B2B group on this shop. Always false when
@@ -424,10 +461,35 @@ func (s *SiteSettings) OrderStatusIdByName(statusName string) int {
 	return found
 }
 
-// PaymentStatus maps a Stripe/wfsync payment status string (as wfsync wrote it into
-// oc_order.wf_payment_status) to this Zoho org's Payments status picklist value.
-func (s *SiteSettings) PaymentStatus(stripeStatus string) string {
-	return s.paymentStatus[entity.PaymentStatusKey(stripeStatus)]
+// PaymentStatus maps the payment status string found in oc_order.wf_payment_status to this Zoho
+// org's Payments status picklist value, in two hops: the writer's vocabulary to a logical state,
+// then that state to the picklist.
+//
+// Which vocabulary applies is decided by site.payments.source, not by the value: the two writers
+// share the column, and a value one of them does not know would otherwise fall through to
+// PaymentKeyError and be written to Zoho as the error picklist value — a real payment showing up
+// as a failed one.
+func (s *SiteSettings) PaymentStatus(status string) string {
+	if s.PaymentSource == PaymentSourceTranzzo {
+		return s.paymentStatus[entity.TranzzoPaymentStatusKey(status)]
+	}
+	return s.paymentStatus[entity.PaymentStatusKey(status)]
+}
+
+// PaymentStatusKeyByName is the reverse of PaymentStatus: a Zoho Payments picklist value back to
+// the logical state it stands for. Used when Zoho drives the payment and its status has to be
+// written back into the shop.
+//
+// Returns "" for a value this shop's picklist does not list, which callers must not treat as any
+// particular state — a manager adding a picklist value nobody mapped should leave the shop's
+// column untouched rather than have it reset to something plausible.
+func (s *SiteSettings) PaymentStatusKeyByName(picklistValue string) string {
+	for key, name := range s.paymentStatus {
+		if name == picklistValue {
+			return key
+		}
+	}
+	return ""
 }
 
 // PostType maps an OpenCart shipping method to this Zoho org's Post_type picklist value.
@@ -488,9 +550,9 @@ func (s *SiteSettings) LogValue() string {
 	}
 	return fmt.Sprintf(
 		"name=%s tz=%s lang=%d lookback=%dd limit=%d poll=%s statuses=[%s] currencies=[%s] "+
-			"payments=%t customers=%t b2b=%t location=%s source=%s",
+			"payments=%t payment_source=%s customers=%t b2b=%t location=%s source=%s",
 		s.Name, s.Location, s.LanguageID, s.LookbackDays, s.BatchLimit, s.PollInterval,
 		strings.Join(statuses, ","), strings.Join(s.Currencies, ","),
-		s.Payments, s.CustomerSync, s.B2B, s.ZohoLocation, s.ZohoOrderSource,
+		s.Payments, s.PaymentSource, s.CustomerSync, s.B2B, s.ZohoLocation, s.ZohoOrderSource,
 	)
 }

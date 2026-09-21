@@ -81,9 +81,23 @@ site:
   # Optional subsystems. Each one off means the service never touches the columns or tables that
   # subsystem owns, so a shop that lacks them runs cleanly.
   features:
-    payments: true               # wfsync wf_payment_* columns + the Zoho Payments module
+    payments: true               # sync payments into the Zoho Payments module
     customer_sync: true          # oc_customer -> Zoho Contacts upsert loop
     b2b: true                    # B2B group routing, Deals/Goods modules, /zoho/webhook/b2b route
+  # Where the payment facts come from. Read only when features.payments is on: the flag decides
+  # WHETHER payments are synced, this decides FROM WHERE. Everything downstream is shared -- the
+  # logical status vocabulary (entity/payment-status.go), the zoho.payment_statuses picklist and
+  # the zoho_payment_id / zoho_payment_status columns this service owns.
+  # Both sources read the SAME oc_order.wf_payment_* columns -- the source says who writes them
+  # and in which vocabulary, because an unknown value is written to Zoho as the "error" picklist
+  # value and a live payment then reads as a failed one.
+  #   wfsync   written by the wfsync service driving Stripe: requires_capture, succeeded, ...
+  #   tranzzo  written by the shop's own OpenCart module driving Tranzzo:
+  #            init | auth | capture | void. Reading payments works; the oc_tranzzo_queue
+  #            write-back (Zoho manager -> shop) is NOT IMPLEMENTED YET.
+  # Omitted means wfsync, so an older config file keeps its behaviour.
+  payments:
+    source: wfsync
   # OpenCart shipping module code -> logical post-type key (resolved via zoho.post_types below).
   # Only consulted when the shipping method NAME says nothing recognisable; production data holds
   # rows where the code and the name disagree, and the name wins.

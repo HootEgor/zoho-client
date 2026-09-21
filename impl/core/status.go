@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 	"zohoclient/entity"
+	"zohoclient/internal/config"
 )
 
 // orderSyncStats is what the poller records about its last completed pass, plus the running totals
@@ -61,10 +62,11 @@ func (c *Core) Status() entity.ServiceStatus {
 		Uptime:        formatUptime(uptime),
 		UptimeSeconds: int64(uptime.Seconds()),
 		Features: entity.FeatureStatus{
-			Payments:     c.site.Payments,
-			CustomerSync: c.site.CustomerSync,
-			B2B:          c.site.B2B,
-			SmartSender:  c.smartSender != nil,
+			Payments:      c.site.Payments,
+			PaymentSource: paymentSource(c.site),
+			CustomerSync:  c.site.CustomerSync,
+			B2B:           c.site.B2B,
+			SmartSender:   c.smartSender != nil,
 		},
 		Orders: c.orderStatus(),
 	}
@@ -212,4 +214,13 @@ func formatUptime(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 	}
+}
+
+// paymentSource reports the configured payment source, or "" when payments are off — a source
+// name on a shop that syncs no payments would read as a capability it does not have.
+func paymentSource(site *config.SiteSettings) string {
+	if !site.Payments {
+		return ""
+	}
+	return site.PaymentSource
 }

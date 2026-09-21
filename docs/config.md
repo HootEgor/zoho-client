@@ -115,6 +115,7 @@ Defaults live in `config.DefaultSiteSettings()`, which is also what the tests bu
 | `customer_categories` | see template | `customer_group_id` → Zoho `customer_category` |
 | `total_codes` | identity | logical total → `oc_order_total.code`; **merged**, list only what differs |
 | `features.*` | all `true` | Optional subsystems, below |
+| `payments.source` | `wfsync` | Where payment facts are read from, below |
 | `shipping_code_map` | see template | shipping module code → logical post-type key |
 
 ### Feature flags
@@ -128,6 +129,58 @@ tables that subsystem owns, so a shop that lacks them runs cleanly.
 | `features.customer_sync` | the customer poller does not start; `oc_customer.zoho_id` is not created. |
 | `features.b2b` | no customer group counts as B2B, so no order is marked `[B2B]`; the `/zoho/webhook/b2b` route is not registered. |
 | `smartsender.enabled` | the SmartSender poller and Zoho Functions client are not built. |
+
+### Payment source
+
+`features.payments` decides *whether* payments reach Zoho; `payments.source` decides *from where*
+the payment facts are read. Everything downstream of the read is shared by both sources: the
+logical status vocabulary in `entity/payment-status.go`, the `zoho.payment_statuses` picklist, and
+the `zoho_payment_id` / `zoho_payment_status` columns this service owns on `oc_order`.
+
+Both sources read the **same `wf_payment_*` columns** on `oc_order`. What the source selects is
+the *vocabulary* those columns are written in, and hence how `wf_payment_status` is read:
+
+| Source | Writer | `wf_payment_status` vocabulary | State |
+|---|---|---|---|
+| `wfsync` (default) | the wfsync service, driving Stripe | Stripe/Checkout strings — `requires_capture`, `succeeded`, `canceled`, … | implemented |
+| `tranzzo` | the shop's own OpenCart module, driving Tranzzo | `init` → created, `auth` → held, `capture` → paid, `void` → canceled | inbound implemented; the `oc_tranzzo_queue` write-back is not |
+
+The two vocabularies are disjoint and neither writer's values are valid to the other, so the
+mapping is chosen by configuration rather than sniffed from the value. Getting it wrong is silent
+and looks like a payment failure: an unknown string falls through to `entity.PaymentKeyError` and
+is written to Zoho as the `error` picklist value, so a Tranzzo `auth` read with the Stripe map
+would show a held payment as *Помилка операції*. `TestSiteSettings_PaymentStatusVocabularyFollowsSource`
+pins both directions.
+
+Because the columns are shared, the database layer still guards on `features.payments`: the columns
+are created defensively, selected in `orderColumns()` and scanned in `scanOrderFromRows` for either
+source, and `ProcessPendingPayments` / `ProcessPaymentUpdates` are source-agnostic.
+
+#### The tranzzo exchange
+
+`tranzzo` is the only bi-directional source. Besides reading `wf_payment_*`, it writes back to the
+shop through `oc_tranzzo_queue`, whose cron worker the module runs once a minute:
+
+| When | What goes out |
+|---|---|
+| an order webhook is applied | `{"status": "…", "sum": …, "zoho_id": "…"}` — a cancellation adds `"cancel": true` |
+| a payments webhook lists a record this service did not create | `{"zoho_managed": true, "zoho_id": "…"}`, preceded by a `wf_payment_*` write |
+
+Three things about it are easy to get wrong and are pinned by tests:
+
+- **`payload.sum` is in major units.** Every other amount in this service is cents, including the
+  `wf_payment_amount` read in the other direction.
+- **The status string is matched as text against the module's own admin setting**, not against
+  `zoho.order_status_map`. Nothing links the two but agreement on a phrase, and the live UA
+  picklist does not match the module's shipped defaults.
+- **Only write `wf_payment_*` after a takeover.** Until then the module owns those columns; after
+  it, the module stops writing and reads them instead — on the queue task alone, with no polling
+  in between, which is why the write must precede the task.
+
+An omitted `payments.source` means `wfsync`, so a config file written before this key existed keeps
+its exact behaviour. The resolved value appears in the startup `site settings resolved` line as
+`payment_source=…`, in `GET /zoho/status` as `features.payment_source`, and on the bot's `/status`
+as `payments (<source>)`.
 
 ### Post types
 
@@ -208,3 +261,4 @@ from another shop those ids are the other shop's, and clearing them
 - a `zoho.post_types` missing any of the five logical keys
 - a `zoho.order_status_map` with no entry for `order_statuses.new`
 - a `zoho.payment_statuses` missing any logical payment state, when `features.payments` is on
+- a `payments.source` that is neither `wfsync` nor `tranzzo`, when `features.payments` is on

@@ -101,8 +101,24 @@ See `docs/config.md` for the full key reference.
   `PaymentStatus`, `OrderStatusName`, `OrderStatusIdByName`, `TotalCode`, `AllowedCurrency`.
 - Feature flags (`site.features.payments` / `customer_sync` / `b2b`, plus `smartsender.enabled`)
   make a subsystem inert, not merely idle: with one off the service never creates or reads the
-  columns it owns. `orderColumns()` in `statements.go` drops the `wf_payment_*` group from every
-  order SELECT when payments are off, and `scanOrderFromRows` matches.
+  columns it owns.
+- `site.payments.source` is a second, orthogonal axis: the flag says *whether* payments are synced,
+  the source says *who writes* `oc_order.wf_payment_*` and therefore in what vocabulary they are
+  read — `wfsync` (Stripe strings, the default) or `tranzzo` (the UA shop's own OpenCart module:
+  `init`/`auth`/`capture`/`void`). **Both sources use the same four columns**, so the database
+  layer still guards on `.Payments`; the source only picks the map.
+- `SiteSettings.PaymentStatus()` dispatches on the source. The two vocabularies are disjoint and an
+  unknown value falls through to `entity.PaymentKeyError`, i.e. a live payment written to Zoho as
+  *Помилка операції* — silent and indistinguishable from a real failure. Keep both maps in
+  `entity/payment-status.go` complete; `TestSiteSettings_PaymentStatusVocabularyFollowsSource`
+  pins the split.
+- The tranzzo flow is **bi-directional**. Inbound, `wf_payment_*` is read like any other source.
+  Outbound, `Core.notifyTranzzo` (`impl/core/tranzzo.go`) enqueues a row in `oc_tranzzo_queue`
+  after `UpdateOrder` commits — from *both* write paths, because a cancellation usually arrives as
+  a status-only webhook. The module's cron worker picks it up within a minute. See
+  **Tranzzo queue contract** below. Takeover (`zoho_managed`) fires from the *payment* webhook, not
+  the order one — see `detectZohoPaymentTakeover`, which also writes `wf_payment_*` back once
+  control has passed over.
 - `impl/core/testdata/zoho_order.golden.json` pins the exact Sales Order payload for a fixed order
   under the defaults. Treat a diff there as a production behaviour change, not a test to update.
 - `zoho.order_status_map` runs in both directions and they are NOT symmetric. Outbound,
@@ -219,6 +235,8 @@ docs/                       # API documentation (apiv1.md, config.md)
 ### Important Details
 
 **Shared Database Contract with wfsync (`~/projects/wfsync`)**
+- Applies to a shop with `site.payments.source: wfsync` (shop 1). The UA shop is on `tranzzo` and
+  shares no database with wfsync at all.
 - Both services run in production against the **same OpenCart MySQL database**. wfsync handles Stripe payments + wFirma invoices; zoho-client syncs orders to Zoho CRM.
 - Column ownership on `oc_order`:
   - wfsync **writes**, zoho-client **reads**: `wf_payment_status` VARCHAR(32), `wf_payment_id` VARCHAR(64), `wf_payment_amount` BIGINT (cents), `wf_payment_session` VARCHAR(128). zoho-client (re)creates these defensively in `sql-client.go` so deploy order / a fresh DB never breaks reads — **definitions must stay identical to wfsync's** (`opencart/database/sql-client.go`).
@@ -226,6 +244,60 @@ docs/                       # API documentation (apiv1.md, config.md)
 - **Order status 17 coordination**: wfsync sets `order_status_id = 17` when a Stripe hold is confirmed (`requires_capture`). zoho-client polls statuses {1,5,17} and treats 17 as a sync trigger — at that point `wf_payment_status = "requires_capture"` maps to Zoho "Кошти зарезервовано" (held), which is correct.
 - **Payment status vocabulary**: `entity/payment-status.go` maps every Stripe/wfsync status string wfsync can write onto a *logical* payment state (`entity.PaymentKey*`); `zoho.payment_statuses` in the config then maps those states onto the Zoho Payments picklist. Keep the entity map complete if wfsync's status values change.
 - **Payment status advancement**: a Zoho Payments record is created once (`createZohoPayment`), recording the synced status in `zoho_payment_status`. `ProcessPaymentUpdates()` detects when `wf_payment_status` later advances (e.g. held → paid) and pushes the new status via `ZohoService.UpdatePaymentStatus` — so a captured payment is not left stuck at "held".
+
+**Tranzzo queue contract (UA shop, `site.payments.source: tranzzo`)**
+- `oc_tranzzo_queue` is the *only* way into the shop's payment module — it has no HTTP endpoint
+  (removed in its T-015). We INSERT; we never read the table back.
+- We set `method` (`zoho_order`), `code`, `root_code` (`order_<opencart order id>`) and `payload`.
+  Every other column has a database default that is already what a fresh task needs: `status` `'N'`,
+  `attempt` `0`, `date_insert` `CURRENT_TIMESTAMP`. The worker moves it `N` → `W` → `F`, retrying
+  up to 5 times before `E`.
+- `code` is not in the contract as it was described to us, but the module's dedup index is
+  `(status, method, code)` and `findActiveTask()` matches all three, so `tranzzoEventCode()` fills
+  it. Takeover gets its own code: the module exempts `zoho_managed` from its duplicate check
+  precisely because such an event repeats an already-seen status and sum.
+- `payload.sum` is in **major units** — the module converts with `sumToMinor`. Every other amount
+  in this service is cents. `wf_payment_amount`, read in the other direction, *is* cents.
+- **The status string is matched as text against the module's own admin setting, not against
+  `zoho.order_status_map`.** The two configurations are coupled by nothing but agreeing on a
+  phrase, and the live UA picklist (`Опрацювання замовлення`, `Відмінено`) does not match the
+  module's shipped defaults (`Прийнятий, очікується оплата`, `Отмена заказа`).
+  `TestUAStatusMapCoversTheTranzzoTriggers` is the reminder.
+- A cancellation carries `cancel: true` as well as the status, because the flag overrides the text
+  match. Capture has no such flag and depends entirely on the wording agreeing.
+- `Cancel` follows the status *actually applied* (`newStatusId == site.StatusCanceled`), not the
+  words that arrived: an unresolvable status leaves the order where it was, and the event must not
+  then claim a cancellation the shop did not make.
+- Enqueueing is deliberately non-fatal. The order update is already committed, and returning an
+  error would turn it into a 500 that Zoho retries against an update that already landed.
+- Dry-run does not enqueue: the module acts on these rows with real money.
+- **Takeover** (`zoho_managed`) is raised by `detectZohoPaymentTakeover` in `api-payment.go`: a
+  payments webhook listing a record this service did not create means a manager raised a payment
+  inside Zoho, which is the moment control passes over. `createdHere()` decides ownership by the
+  recorded `zoho_payment_id` *and* by the `Name` this service gives its records
+  (`zohoPaymentName`), the latter covering the window between `CreatePayment` returning an id and
+  `UpdateOrderZohoPayment` storing it. That second check matters because the module latches the
+  flag irreversibly: a missed takeover is recoverable, a false one is not.
+- **After a takeover the write-back reverses**: `writeZohoPaymentState` fills `wf_payment_status`
+  / `_id` / `_amount` from the payment Zoho now drives, *before* enqueueing the task the module
+  reads them on. Never before a takeover — the module owns those columns until then, and two
+  writers on one column is what the latch exists to prevent.
+- Zoho holds **one active payment per Sales Order**: raising a new one cancels the previous, so a
+  correction arrives as two webhooks (the cancellation, then the new payment). `activePayment()`
+  takes the last unsettled record, falling back to the last settled one — a list where everything
+  has settled is itself the answer, the payment really is off.
+- `entity.TranzzoStatusForKey` is the reverse map and is deliberately **not** a bijection: seven
+  logical states collapse onto the module's four words (`in_progress`→`init`, `refunded`→`void`
+  alongside `canceled`, `error`→`init`, which is where the module files a failed attempt itself).
+  An unmapped picklist value writes **nothing**: an empty `wf_payment_status` reads as "no payment"
+  to both sides, so blanking it would erase a state rather than report it.
+- `wf_payment_id` then carries the *Zoho Payments record id* — a payment raised in Zoho has no
+  Tranzzo transaction behind it, and the module only displays the column.
+- The takeover event is sent on **every** qualifying webhook, not once. The module's own UPDATE is
+  guarded by `zoho_managed = 0` and it exempts these events from its duplicate check, so a repeat
+  is free — and it earns its place, because after takeover a queue task is the only moment the
+  module looks at the order at all (`applyZohoPaymentState()` reads `wf_payment_*` exactly there,
+  with no polling in between).
 
 **Money Handling**
 - OpenCart stores prices in cents (int64)

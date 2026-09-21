@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -92,8 +93,9 @@ func NewSQLClient(conf *config.Config, site *config.SiteSettings, log *slog.Logg
 		}
 	}
 
-	// Payment sync columns. A site without wfsync never reads or writes any of them, so nothing
-	// is created there — see orderColumns(), which also drops the wf_* columns from every SELECT.
+	// Payment sync columns. A site that does not sync payments never reads or writes any of them,
+	// so nothing is created there — see orderColumns(), which also drops the wf_* columns from
+	// every SELECT.
 	if site.Payments {
 		if err = sdb.addColumnIfNotExists("order", "zoho_payment_id", "VARCHAR(64) NOT NULL DEFAULT ''"); err != nil {
 			return nil, err
@@ -106,12 +108,17 @@ func NewSQLClient(conf *config.Config, site *config.SiteSettings, log *slog.Logg
 			return nil, err
 		}
 
-		// The wf_* columns are owned and written by the wfsync service (Stripe payment state);
-		// zoho-client only reads them when syncing payments to Zoho. We (re)create them
-		// defensively so that a fresh database, or a deploy that starts zoho-client before
-		// wfsync, does not break order reads with an "unknown column" error. addColumnIfNotExists
-		// is idempotent, so this is a no-op once wfsync has run. Definitions MUST stay in sync
-		// with wfsync (opencart/database/sql-client.go).
+		// The wf_payment_* columns carry the shop's current payment state. Both payment sources
+		// use the same four columns, and which one is configured decides only who writes them and
+		// in what vocabulary:
+		//   wfsync   — the wfsync service writes Stripe state (opencart/database/sql-client.go).
+		//   tranzzo  — the shop's own OpenCart module writes Tranzzo state (init/auth/capture/
+		//              void), until Zoho takes payment control over, after which this service
+		//              writes them and the module only reads them for the order history.
+		// We (re)create them defensively so that a fresh database, or a deploy that starts this
+		// service before the writer, does not break order reads with an "unknown column" error.
+		// addColumnIfNotExists is idempotent, so this is a no-op once the writer has run.
+		// Definitions MUST stay identical on both sides.
 		if err = sdb.addColumnIfNotExists("order", "wf_payment_status", "VARCHAR(32) NOT NULL DEFAULT ''"); err != nil {
 			return nil, err
 		}
@@ -749,6 +756,81 @@ func (s *MySql) SetOrderZohoPaymentStatus(orderId int64, syncedStatus string) er
 		return fmt.Errorf("set zoho_payment_status: %w", err)
 	}
 	return nil
+}
+
+// SetOrderPaymentState writes oc_order.wf_payment_status / _id / _amount.
+//
+// These columns belong to the shop's payment writer, not to this service — the one exception is a
+// tranzzo shop after a zoho_managed takeover, where the module stops writing them (its
+// syncOrderPaymentState returns early once isOrderZohoManaged) and reads them instead. Calling
+// this anywhere else would put two writers on one column.
+//
+// amountMinor is in minor units, as the module writes and reads them.
+func (s *MySql) SetOrderPaymentState(orderId int64, status, paymentId string, amountMinor int64) error {
+	if status == "" {
+		// An empty column means "no payment" to both sides. Writing one would erase the state
+		// rather than report it, so an unmapped status must stop here, not blank the row.
+		return fmt.Errorf("refusing to blank wf_payment_status for order %d", orderId)
+	}
+
+	stmt, err := s.stmtUpdateOrderPaymentState()
+	if err != nil {
+		return err
+	}
+	if _, err = stmt.Exec(status, paymentId, amountMinor, orderId); err != nil {
+		return fmt.Errorf("set payment state for order %d: %w", orderId, err)
+	}
+	return nil
+}
+
+// EnqueueTranzzoOrderEvent inserts one zoho_order task into oc_tranzzo_queue, telling the UA
+// shop's OpenCart module what a Zoho manager did to an order. The module's cron worker picks it up
+// within a minute; we never read the row back, so there is nothing to poll for.
+//
+// The event is rejected here rather than queued when the module would only file it as "no_status":
+// a row that cannot act is still a row its worker claims, retries and journals.
+//
+// Callers are expected to have checked SiteSettings.TranzzoPayments() — this table exists only on
+// a shop running that module.
+func (s *MySql) EnqueueTranzzoOrderEvent(orderId int64, event entity.TranzzoOrderEvent) error {
+	if !event.Valid() {
+		return fmt.Errorf("tranzzo event for order %d carries neither a status nor a flag", orderId)
+	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal tranzzo payload: %w", err)
+	}
+
+	stmt, err := s.stmtInsertTranzzoTask()
+	if err != nil {
+		return err
+	}
+
+	rootCode := entity.TranzzoRootCode(orderId)
+	if _, err = stmt.Exec(entity.TranzzoQueueMethod, tranzzoEventCode(event), rootCode, string(payload)); err != nil {
+		return fmt.Errorf("enqueue tranzzo task for %s: %w", rootCode, err)
+	}
+	return nil
+}
+
+// tranzzoEventCode is the value of the queue's `code` column, which together with method and
+// root_code forms the module's dedup key. It names what the event *is*, so that two pushes of the
+// same kind for one order collapse while genuinely different events do not.
+//
+// Takeover is given its own code deliberately: the module exempts zoho_managed from its own
+// duplicate check because such an event may repeat an already-seen status and sum, with the flag
+// as the only new thing. Folding it in here under a shared code would reintroduce exactly the loss
+// that exemption exists to prevent.
+func tranzzoEventCode(event entity.TranzzoOrderEvent) string {
+	switch {
+	case event.ZohoManaged:
+		return "zoho_managed"
+	case event.Cancel:
+		return "cancel"
+	default:
+		return "status"
+	}
 }
 
 // GetOrderZohoPaymentId returns the Zoho Payments record id stored for an order.

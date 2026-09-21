@@ -299,7 +299,7 @@ func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId strin
 	)
 
 	payment := entity.ZohoPayment{
-		Name:                    fmt.Sprintf("Payment #%d", order.OrderId),
+		Name:                    zohoPaymentName(order.OrderId),
 		Sells:                   entity.ZohoSellsRef{ID: zohoOrderId},
 		Sum:                     round2(float64(order.PaymentAmount) / 100),
 		Currency:                order.Currency,
@@ -336,6 +336,13 @@ func (c *Core) createZohoPayment(order *entity.CheckoutParams, zohoOrderId strin
 	}
 
 	log.With(slog.String("zoho_payment_id", zohoPaymentId)).Info("payment created")
+}
+
+// zohoPaymentName is the Name this service gives the Zoho Payments record it creates for an
+// order. It is also read back the other way, by the payment webhook, to recognise our own record
+// in a list Zoho reports — so the two uses must not drift apart.
+func zohoPaymentName(orderId int64) string {
+	return fmt.Sprintf("Payment #%d", orderId)
 }
 
 // ProcessPaymentUpdates finds orders whose Zoho payment record already exists but whose

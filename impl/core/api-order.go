@@ -172,6 +172,12 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 			}
 		}
 		c.saveOrderVersionToMongo(orderId, orderDetails)
+		// The shop's payment module is told the status even though the basket did not move: a
+		// status is exactly what it acts on, and this path carries every plain status change a
+		// manager makes — including the cancellation that must release a hold. The sum sent is
+		// OpenCart's own total, which this path deliberately left untouched.
+		c.notifyTranzzo(log, orderId,
+			c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, orderParams.Total))
 		log.With(
 			slog.Int("status_from", previousStatusId),
 			slog.Int("status_to", newStatusId),
@@ -232,6 +238,12 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 
 	// Save order version to MongoDB
 	c.saveOrderVersionToMongo(orderId, orderDetails)
+
+	// Tell the shop's payment module, now that the corrected order is committed: it decides what
+	// to charge from the order's own basket, so it has to read the new one. newTotalDisplay is
+	// the figure in the shop's currency, which is what the module's sumToMinor expects.
+	c.notifyTranzzo(log, orderId,
+		c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, newTotalDisplay))
 
 	log.With(
 		slog.String("sub_total", fmtCents(totals.ItemsTotal)),

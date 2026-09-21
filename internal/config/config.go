@@ -81,13 +81,24 @@ type Config struct {
 		// TotalCodes maps a logical total to its oc_order_total.code on this shop.
 		TotalCodes map[string]string `yaml:"total_codes"`
 		Features   struct {
-			// Payments covers the wfsync wf_payment_* columns and the Zoho Payments module.
+			// Payments covers the payment sync into the Zoho Payments module. Where the payment
+			// facts are read from is a separate choice — see Site.Payments.Source.
 			Payments *bool `yaml:"payments"`
 			// CustomerSync covers the oc_customer -> Zoho Contacts upsert loop.
 			CustomerSync *bool `yaml:"customer_sync"`
 			// B2B covers customer_group_id routing and the Zoho Deals/Goods modules.
 			B2B *bool `yaml:"b2b"`
 		} `yaml:"features"`
+		// Payments configures where the payment facts this shop syncs to Zoho come from. It is
+		// read only when Features.Payments is on; the feature flag decides *whether* payments
+		// are synced, this decides *from where*.
+		Payments struct {
+			// Source is "wfsync" (the wf_payment_* columns on oc_order, written by the wfsync
+			// service) or "tranzzo" (a table of the shop's own database, for a shop whose
+			// payments are processed inside OpenCart by Tranzzo). Empty means "wfsync", so an
+			// existing config file keeps its behaviour.
+			Source string `yaml:"source" env-default:""`
+		} `yaml:"payments"`
 		// ShippingCodeMap maps an OpenCart shipping module code to a logical post-type key,
 		// which Zoho.PostTypes then resolves to a picklist value.
 		ShippingCodeMap map[string]string `yaml:"shipping_code_map"`

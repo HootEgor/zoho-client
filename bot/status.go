@@ -60,7 +60,7 @@ func formatStatus(s entity.ServiceStatus) string {
 		name string
 		on   bool
 	}{
-		{"payments", s.Features.Payments},
+		{paymentsLabel(s.Features), s.Features.Payments},
 		{"customer sync", s.Features.CustomerSync},
 		{"b2b", s.Features.B2B},
 		{"smartsender", s.Features.SmartSender},
@@ -124,4 +124,13 @@ func orDash(value string) string {
 		return "—"
 	}
 	return value
+}
+
+// paymentsLabel names the payments feature together with the source it reads from, so one line
+// answers both "is it on" and "where does it read".
+func paymentsLabel(f entity.FeatureStatus) string {
+	if f.PaymentSource == "" {
+		return "payments"
+	}
+	return "payments (" + f.PaymentSource + ")"
 }

@@ -63,6 +63,9 @@ site:
     payments: true
     customer_sync: true
     b2b: true
+  # This shop runs wfsync, so the payment facts are the wf_payment_* columns on oc_order.
+  payments:
+    source: wfsync
   shipping_code_map:
     filterit1.filterit0: inpost_courier
     filterit1.filterit1: inpost_terminal

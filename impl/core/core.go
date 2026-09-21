@@ -24,6 +24,12 @@ type Repository interface {
 
 	// UpdateOrderWithTransaction Transaction-based order update
 	UpdateOrderWithTransaction(data sql.OrderUpdateTransaction) error
+	// EnqueueTranzzoOrderEvent queues one zoho_order task for the UA shop's OpenCart module.
+	// Only ever called on a shop with site.payments.source = tranzzo.
+	EnqueueTranzzoOrderEvent(orderId int64, event entity.TranzzoOrderEvent) error
+	// SetOrderPaymentState writes the wf_payment_* columns. Only ever called on a tranzzo shop
+	// after a takeover, where the shop's module has stopped writing them.
+	SetOrderPaymentState(orderId int64, status, paymentId string, amountMinor int64) error
 
 	GetOrderProductsSummary(orderId int64) ([]sql.OrderProductSummary, error)
 
@@ -243,9 +249,10 @@ func (c *Core) Start() {
 				return
 			default:
 				c.ProcessOrders()
-				// The payment pollers read the wfsync wf_payment_* columns, which a site
-				// without wfsync does not have at all. Both create or update Zoho Payments
-				// records, so dry-run skips them.
+				// The payment pollers read the wf_payment_* columns, which a site that syncs
+				// no payments does not have at all. They are source-agnostic: the status
+				// vocabulary differs per source but SiteSettings.PaymentStatus resolves that.
+				// Both create or update Zoho Payments records, so dry-run skips them.
 				if c.site.Payments && !c.dryRun {
 					c.ProcessPendingPayments()
 					c.ProcessPaymentUpdates()

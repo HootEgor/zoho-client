@@ -58,9 +58,9 @@ func (s *MySql) stmtUpdateOrderZohoId() (*sql.Stmt, error) {
 }
 
 // orderColumns is the SELECT list every oc_order query shares, in the order scanOrderFromRows
-// expects. The wf_payment_* columns are owned by the wfsync service; a site that does not run
-// wfsync (site.features.payments = false) may not have them at all, so they are left out entirely
-// rather than selected and discarded.
+// expects. The wf_payment_* columns are written by whichever payment module the shop runs; a site
+// that syncs no payments (site.features.payments = false) may not have them at all, so they are
+// left out entirely rather than selected and discarded.
 func (s *MySql) orderColumns() string {
 	cols := []string{
 		"order_id",
@@ -279,6 +279,39 @@ func (s *MySql) stmtSelectOrdersPendingPaymentUpdate() (*sql.Stmt, error) {
 // in impl/core (paymentZohoIdError); it is duplicated here because the core package
 // imports this package and the reference cannot go the other way.
 const paymentZohoIdError = "[ERR]"
+
+// stmtUpdateOrderPaymentState writes the wf_payment_* family this service does not normally own.
+// Only reached on a tranzzo shop after a zoho_managed takeover, when the shop's own module has
+// stepped back from the columns and Zoho drives the payment. Definitions and units must match what
+// the module wrote before it stepped back: status one of its four words, amount in minor units.
+func (s *MySql) stmtUpdateOrderPaymentState() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`UPDATE %sorder SET
+			wf_payment_status = ?,
+			wf_payment_id = ?,
+			wf_payment_amount = ?
+		 WHERE order_id = ?`,
+		s.prefix,
+	)
+	return s.prepareStmt("updateOrderPaymentState", query)
+}
+
+// stmtInsertTranzzoTask enqueues one task for the UA shop's OpenCart Tranzzo module.
+//
+// Only method, code, root_code and payload are set: status ('N'), attempt (0) and date_insert
+// (CURRENT_TIMESTAMP) all have database defaults that are already what a fresh task needs, and
+// naming them here would be a second place to keep in step with the module's schema.
+//
+// code is not part of the contract the module documented to us, but its own dedup index is
+// (status, method, code) and findActiveTask() matches on all three — so filling it lets a repeat
+// of the same event be recognised rather than queued twice.
+func (s *MySql) stmtInsertTranzzoTask() (*sql.Stmt, error) {
+	query := fmt.Sprintf(
+		`INSERT INTO %stranzzo_queue (method, code, root_code, payload) VALUES (?, ?, ?, ?)`,
+		s.prefix,
+	)
+	return s.prepareStmt("insertTranzzoTask", query)
+}
 
 func (s *MySql) stmtSelectOrderSimpleFields() (*sql.Stmt, error) {
 	query := fmt.Sprintf(
