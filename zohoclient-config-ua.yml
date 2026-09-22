@@ -76,7 +76,7 @@ site:
   # (below), and payments are still off until the tranzzo flow is implemented. With these off the
   # service never creates or reads the zoho_payment_* or oc_customer.zoho_id columns.
   features:
-    payments: false
+    payments: true
     customer_sync: false
     b2b: false
   # wfsync does not run against this shop: its payments are processed inside OpenCart by Tranzzo.
