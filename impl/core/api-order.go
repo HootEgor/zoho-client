@@ -117,14 +117,21 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// Resolve the new status, but defer the write to the transaction so a TX failure
 	// can't leave the order with a new status and stale items.
 	newStatusId := previousStatusId
+	// A status that arrived but did not resolve is not forwarded to the shop's payment module
+	// either. The module matches the status as text against its own capture/cancel lists, which
+	// are configured independently of zoho.order_status_map, so a phrase missing here but present
+	// there would move money on a status this service could not even place. The order stays where
+	// it was; so does the payment.
+	statusResolved := true
 	if orderDetails.Status != "" {
 		statusId := c.GetStatusIdByName(orderDetails.Status)
 		if statusId > 0 {
 			log = log.With(slog.Int("status_id", statusId))
 			newStatusId = statusId
 		} else {
+			statusResolved = false
 			log.With(slog.String("status", orderDetails.Status)).
-				Warn("unknown status name from Zoho, keeping current")
+				Warn("unknown status name from Zoho, keeping current and not telling the shop")
 		}
 	}
 
@@ -182,8 +189,10 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		// status is exactly what it acts on, and this path carries every plain status change a
 		// manager makes — including the cancellation that must release a hold. The sum sent is
 		// OpenCart's own total, which this path deliberately left untouched.
-		c.notifyTranzzo(log, orderId,
-			c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, orderParams.Total))
+		if statusResolved {
+			c.notifyTranzzo(log, orderId,
+				c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, orderParams.Total))
+		}
 		log.With(
 			slog.Int("status_from", previousStatusId),
 			slog.Int("status_to", newStatusId),
@@ -248,8 +257,10 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// Tell the shop's payment module, now that the corrected order is committed: it decides what
 	// to charge from the order's own basket, so it has to read the new one. newTotalDisplay is
 	// the figure in the shop's currency, which is what the module's sumToMinor expects.
-	c.notifyTranzzo(log, orderId,
-		c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, newTotalDisplay))
+	if statusResolved {
+		c.notifyTranzzo(log, orderId,
+			c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, newTotalDisplay))
+	}
 
 	log.With(
 		slog.String("sub_total", fmtCents(totals.ItemsTotal)),

@@ -101,7 +101,8 @@ site:
   # OpenCart shipping module code -> logical post-type key (resolved via zoho.post_types below).
   # Only consulted when the shipping method NAME says nothing recognisable; production data holds
   # rows where the code and the name disagree, and the name wins.
-  # Valid keys: inpost, inpost_courier, inpost_terminal, dhl_courier, pickup
+  # Valid keys: inpost, inpost_courier, inpost_terminal, dhl_courier, pickup,
+  #             nova_poshta_branch, nova_poshta_courier, nova_poshta_eu, ukrposhta_intl
   shipping_code_map:
     filterit1.filterit0: inpost_courier
     filterit1.filterit1: inpost_terminal
@@ -145,6 +146,10 @@ zoho:
     inpost_terminal: InPost (поштомат)
     dhl_courier: DHL (кур'єр)
     pickup: Самовивіз
+    nova_poshta_branch: Нова Пошта (до відділення)
+    nova_poshta_courier: Нова Пошта (кур'єр)
+    nova_poshta_eu: Нова Пошта (Європа)
+    ukrposhta_intl: Укрпошта (міжнародна)
   # Logical payment state -> Zoho Payments status picklist. Required when site.features.payments
   # is on. The Stripe/wfsync status strings that feed these keys live in entity/payment-status.go.
   payment_statuses:

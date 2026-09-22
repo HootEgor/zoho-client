@@ -89,15 +89,19 @@ func TestUpdateOrder_CancellationCarriesTheFlag(t *testing.T) {
 	repo := tranzzoTestRepo()
 	core := tranzzoCore(repo, false)
 
-	// Name the canceled status as this site's map spells it, whatever that is.
-	canceledName := "Скасовано"
-	site := config.DefaultSiteSettings()
+	// The default map names no canceled status, so give this site one that resolves.
+	cfg := &config.Config{}
+	cfg.Zoho.OrderStatusMap = map[int]string{1: "Нове", 7: "Відмінено"}
+	site, err := cfg.SiteSettings()
+	if err != nil {
+		t.Fatalf("SiteSettings() = %v", err)
+	}
 	site.PaymentSource = config.PaymentSourceTranzzo
 	core.site = site
 
 	update := &entity.ApiOrder{
 		ZohoID:       "739178000059413569",
-		Status:       canceledName,
+		Status:       site.OrderStatusName(site.StatusCanceled),
 		GrandTotal:   468.00,
 		ModifiedTime: "2026-09-07T12:00:00+02:00",
 		OrderedItems: []entity.ApiOrderedItem{
@@ -105,17 +109,41 @@ func TestUpdateOrder_CancellationCarriesTheFlag(t *testing.T) {
 		},
 	}
 
-	// The default map has no name for the canceled status, so this webhook keeps the current
-	// status - and the event must then NOT claim a cancellation.
 	if err := core.UpdateOrder(update); err != nil {
 		t.Fatalf("UpdateOrder() error = %v", err)
 	}
 	if len(repo.events) != 1 {
 		t.Fatalf("enqueued %d tasks, want 1", len(repo.events))
 	}
-	if repo.events[0].Cancel {
-		t.Error("Cancel set although the status did not resolve to the canceled id; " +
-			"the flag must follow the status actually applied, not the words that arrived")
+	if !repo.events[0].Cancel {
+		t.Error("Cancel not set although the status resolved to the canceled id")
+	}
+}
+
+// A status Zoho sent that this shop's map cannot resolve leaves the order where it was, and must
+// not reach the module either: it matches the status as text against its own capture/cancel lists,
+// so a phrase absent from zoho.order_status_map but present there would move money on a status
+// this service could not place.
+func TestUpdateOrder_UnresolvedStatusIsNotForwarded(t *testing.T) {
+	repo := tranzzoTestRepo()
+	core := tranzzoCore(repo, false)
+
+	update := &entity.ApiOrder{
+		ZohoID: "739178000059413569",
+		// Not in the default map. A real one: the UA shop's Zoho carries this picklist value.
+		Status:       "Рахунок виставлено",
+		GrandTotal:   468.00,
+		ModifiedTime: "2026-09-07T12:00:00+02:00",
+		OrderedItems: []entity.ApiOrderedItem{
+			{ZohoID: "Z1", Price: 52.8455, Total: 422.764, Quantity: 8},
+		},
+	}
+
+	if err := core.UpdateOrder(update); err != nil {
+		t.Fatalf("UpdateOrder() error = %v", err)
+	}
+	if len(repo.events) != 0 {
+		t.Errorf("enqueued %d tasks for an unresolved status, want 0", len(repo.events))
 	}
 }
 

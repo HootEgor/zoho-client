@@ -103,6 +103,10 @@ zoho:
     inpost_terminal: InPost (поштомат)
     dhl_courier: DHL (кур'єр)
     pickup: Самовивіз
+    nova_poshta_branch: Нова Пошта (до відділення)
+    nova_poshta_courier: Нова Пошта (кур'єр)
+    nova_poshta_eu: Нова Пошта (Європа)
+    ukrposhta_intl: Укрпошта (міжнародна)
   payment_statuses:
     created: Створено
     in_progress: В процесі

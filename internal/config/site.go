@@ -18,6 +18,15 @@ const (
 	PostKeyInPostTerminal = "inpost_terminal"
 	PostKeyDHLCourier     = "dhl_courier"
 	PostKeyPickup         = "pickup"
+
+	// The UA shop's carriers. Its OpenCart says only "Нова Пошта" for all of them — one module
+	// code (novaposhta.novaposhta), one method name — so only the courier variant can be told
+	// apart, and then only when the name says so. Europe is left to shipping_code_map: it needs a
+	// module code of its own before anything can resolve to it.
+	PostKeyNovaPoshtaBranch  = "nova_poshta_branch"
+	PostKeyNovaPoshtaCourier = "nova_poshta_courier"
+	PostKeyNovaPoshtaEU      = "nova_poshta_eu"
+	PostKeyUkrposhtaIntl     = "ukrposhta_intl"
 )
 
 // Payment sources. A shop's payment facts either come from the wfsync service, which writes the
@@ -166,6 +175,11 @@ func DefaultSiteSettings() *SiteSettings {
 			PostKeyInPostTerminal: "InPost (поштомат)",
 			PostKeyDHLCourier:     "DHL (кур'єр)",
 			PostKeyPickup:         "Самовивіз",
+
+			PostKeyNovaPoshtaBranch:  "Нова Пошта (до відділення)",
+			PostKeyNovaPoshtaCourier: "Нова Пошта (кур'єр)",
+			PostKeyNovaPoshtaEU:      "Нова Пошта (Європа)",
+			PostKeyUkrposhtaIntl:     "Укрпошта (міжнародна)",
 		},
 		paymentStatus: map[string]string{
 			entity.PaymentKeyCreated:    "Створено",
@@ -345,7 +359,10 @@ func (s *SiteSettings) validate() error {
 	}
 	// The keyword rules can produce any of the five keys regardless of the code map, so the
 	// picklist must cover all of them.
-	for _, key := range []string{PostKeyInPost, PostKeyInPostCourier, PostKeyInPostTerminal, PostKeyDHLCourier, PostKeyPickup} {
+	for _, key := range []string{
+		PostKeyInPost, PostKeyInPostCourier, PostKeyInPostTerminal, PostKeyDHLCourier, PostKeyPickup,
+		PostKeyNovaPoshtaBranch, PostKeyNovaPoshtaCourier, PostKeyNovaPoshtaEU, PostKeyUkrposhtaIntl,
+	} {
 		if _, ok := s.postTypes[key]; !ok {
 			return fmt.Errorf("zoho.post_types is missing key %q", key)
 		}
@@ -527,6 +544,18 @@ func postKeyFromMethod(shippingMethod string) string {
 		return PostKeyInPost
 	case strings.Contains(m, "dhl"):
 		return PostKeyDHLCourier
+	case strings.Contains(m, "нова пошта") || strings.Contains(m, "novaposhta") ||
+		strings.Contains(m, "nova poshta"):
+		// The shop names the carrier and nothing else, so the branch is the reading that fits
+		// every order it has placed so far. A courier delivery is only recognisable if the name
+		// ever says so.
+		if isCourier(m) {
+			return PostKeyNovaPoshtaCourier
+		}
+		return PostKeyNovaPoshtaBranch
+	case strings.Contains(m, "укрпошта") || strings.Contains(m, "ukrposhta"):
+		// The picklist has one Укрпошта value and it is the international one.
+		return PostKeyUkrposhtaIntl
 	case strings.Contains(m, "pickup") || strings.Contains(m, "odbiór") || strings.Contains(m, "самовивіз"):
 		return PostKeyPickup
 	}

@@ -35,6 +35,14 @@ func TestPostType(t *testing.T) {
 		{"pickup.pickup", "Odbiór osobisty", site.postTypes[PostKeyPickup]},
 		{"pickup.pickup", "Самовивіз із магазину", site.postTypes[PostKeyPickup]},
 		{"pickup.pickup", "Pickup From Store", site.postTypes[PostKeyPickup]},
+		// The UA shop: one module code and one method name for every Nova Poshta delivery, so
+		// the branch is what they resolve to. A courier delivery only if the name says so.
+		{"novaposhta.novaposhta", "Нова Пошта", site.postTypes[PostKeyNovaPoshtaBranch]},
+		{"novaposhta.novaposhta", "Нова Пошта (кур'єр)", site.postTypes[PostKeyNovaPoshtaCourier]},
+		{"novaposhta.novaposhta", "НОВА ПОШТА", site.postTypes[PostKeyNovaPoshtaBranch]},
+		{"", "Укрпошта", site.postTypes[PostKeyUkrposhtaIntl]},
+		// Nothing names the Europe variant, so nothing resolves to it without a code of its own.
+		{"", "Нова Пошта Європа", site.postTypes[PostKeyNovaPoshtaBranch]},
 		// Unrecognised name falls back to the code
 		{"dhl_country.dhl_country", "shipping", site.postTypes[PostKeyDHLCourier]},
 		{"pickup.pickup", "", site.postTypes[PostKeyPickup]},

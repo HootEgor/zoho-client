@@ -72,9 +72,9 @@ site:
     tax: tax
     total: total
     discount: discount
-  # None of the optional subsystems run here: no B2B pipeline, no customer sync, no SmartSender
-  # (below), and payments are still off until the tranzzo flow is implemented. With these off the
-  # service never creates or reads the zoho_payment_* or oc_customer.zoho_id columns.
+  # No B2B pipeline, no customer sync, no SmartSender (below): with those off the service never
+  # creates or reads the oc_customer.zoho_id column. Payments are on and read from Tranzzo (see
+  # the source below).
   features:
     payments: true
     customer_sync: false
@@ -83,11 +83,13 @@ site:
   # The module writes the SAME wf_payment_* columns, but in its own vocabulary --
   # init | auth | capture | void -- so the source is what tells this service how to read them.
   # Reading them with the Stripe map would write every live payment into Zoho as "Помилка операції".
-  # Flip features.payments to true once the oc_tranzzo_queue write-back lands.
   payments:
     source: tranzzo
-  # Same shipping modules as shop 1 (copied database).
+  # Same shipping modules as shop 1 (copied database), plus the one this shop actually ships with.
+  # The method name wins over this map, and "Нова Пошта" already resolves to the same key through
+  # the keyword rules -- this entry only covers a row whose name is empty.
   shipping_code_map:
+    novaposhta.novaposhta: nova_poshta_branch
     filterit1.filterit0: inpost_courier
     filterit1.filterit1: inpost_terminal
     filterit0.filterit2: inpost
@@ -133,13 +135,23 @@ zoho:
     # site.order_statuses.canceled. Also the module's cancel trigger -- though an outbound
     # cancellation carries cancel:true as well, which overrides the text match entirely.
     7: Відмінено
+    # Not polled, so a manager moving an order here takes it out of the sync's reach -- which is
+    # what it is for. Mapping it also means the phrase is now forwarded to the Tranzzo queue on a
+    # webhook carrying it; the module ignores it as long as its capture list says otherwise.
+    19: Рахунок виставлено
     # INCOMPLETE. Any other status a manager can set in Zoho still needs a line here.
+  # All nine keys are required whatever the shop sells, because the keyword rules can produce any
+  # of them; the five Polish ones are inert here. This shop reaches only the Nova Poshta values.
   post_types:
     inpost: InPost
     inpost_courier: InPost (кур'єр)
     inpost_terminal: InPost (поштомат)
     dhl_courier: DHL (кур'єр)
     pickup: Самовивіз
+    nova_poshta_branch: Нова Пошта (до відділення)
+    nova_poshta_courier: Нова Пошта (кур'єр)
+    nova_poshta_eu: Нова Пошта (Європа)
+    ukrposhta_intl: Укрпошта (міжнародна)
   # Same Payments picklist as shop 1 -- all seven values exist in this Zoho org. All seven must be
   # listed whatever the source: startup validation rejects a partial map, because a missing key
   # resolves to an empty string and Zoho would take the record with no Status at all.
