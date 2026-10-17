@@ -260,3 +260,27 @@ func (c *ClientDetails) ParseTaxId(fieldId, raw string) error {
 	c.TaxId = flat[fieldId]
 	return nil
 }
+
+// minPhoneDigits is the fewest digits a usable phone number carries. A country code alone ("+48")
+// has two or three, which is all a checkout input mask leaves behind when nobody fills it.
+const minPhoneDigits = 7
+
+// UsablePhone returns phone unchanged when it looks like a real number, or "" when it is an
+// input-mask placeholder ("+48 ___ ___ ___"), a partly filled mask, or too short to dial. Zoho
+// types Contacts.Phone as phone and rejects such a value with INVALID_DATA, which fails the whole
+// upsert, so it is better sent empty.
+func UsablePhone(phone string) string {
+	if strings.ContainsRune(phone, '_') {
+		return ""
+	}
+	digits := 0
+	for _, r := range phone {
+		if unicode.IsDigit(r) {
+			digits++
+		}
+	}
+	if digits < minPhoneDigits {
+		return ""
+	}
+	return phone
+}

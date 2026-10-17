@@ -24,6 +24,11 @@ import (
 // This is non-transient: retrying with the same data will always fail.
 var ErrPaymentInvalidData = errors.New("payment invalid data")
 
+// ErrContactInvalidData is returned by CreateContact and UpsertContact when Zoho rejects a field
+// of the contact with code INVALID_DATA — e.g. a Phone that is not a phone number. The data comes
+// from OpenCart unchanged on every attempt, so a retry fails the same way until someone fixes it.
+var ErrContactInvalidData = errors.New("contact invalid data")
+
 // ZohoService manages communication with the Zoho CRM REST API (v8).
 // API docs: https://www.zoho.com/crm/developer/docs/api/v8/
 //
@@ -191,6 +196,11 @@ func (s *ZohoService) upsertClient(contact *entity.ClientDetails, namePlaceholde
 		contact.Email = ""
 	}
 
+	if phone := entity.UsablePhone(contact.Phone); phone != contact.Phone {
+		log.Debug("unusable phone dropped")
+		contact.Phone = phone
+	}
+
 	if contact.Email == "" && contact.Phone == "" {
 		return "", fmt.Errorf("email and phone are empty")
 	}
@@ -272,6 +282,9 @@ func (s *ZohoService) upsertContact(contact entity.Contact, dupFields []string, 
 			}
 		}
 
+		if item.Code == "INVALID_DATA" {
+			return "", fmt.Errorf("%w: zoho error: %s", ErrContactInvalidData, item)
+		}
 		return "", fmt.Errorf("zoho error: %s", item)
 	}
 

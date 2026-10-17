@@ -358,6 +358,14 @@ docs/                       # API documentation (apiv1.md, config.md)
 - `MarkUnsyncedOrders` deliberately does not touch `date_modified` — the poller filters on it, so
   touching it would make the whole history look freshly modified.
 
+**Orders Zoho rejects (`[ERR]`)**
+- A contact Zoho rejects with `INVALID_DATA` (`services.ErrContactInvalidData`) fails identically
+  on every tick, so `ProcessOrders` stamps the order `zoho_id = "[ERR]"` and logs it at error
+  level instead of resending it once a minute. Any other failure stays unmarked and is retried.
+  Fix the data, then clear `zoho_id` (back in the poll queue) or `GET /zoho/push/order/{id}`.
+- Before that, `entity.UsablePhone` drops a phone that is a checkout input mask
+  (`+48 ___ ___ ___`) or has fewer than 7 digits, so such a contact goes out on email alone.
+
 **B2B Orders**
 - Identified by `customer_group_id` via `SiteSettings.IsB2B()` (config `site.b2b_group_ids`)
 - Skipped from Zoho sync but marked with `zoho_id = "[B2B]"`

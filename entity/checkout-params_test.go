@@ -514,3 +514,21 @@ func TestValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestUsablePhone(t *testing.T) {
+	tests := map[string]string{
+		"":                  "",
+		"+48 ___ ___ ___":   "",
+		"+48 123 456 ___":   "",
+		"+48":               "",
+		"+48 12":            "",
+		"+48 123 456 789":   "+48 123 456 789",
+		"+380 67 123 45 67": "+380 67 123 45 67",
+		"0671234567":        "0671234567",
+	}
+	for in, want := range tests {
+		if got := UsablePhone(in); got != want {
+			t.Errorf("UsablePhone(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"zohoclient/entity"
 	"zohoclient/internal/config"
+	"zohoclient/internal/services"
 )
 
 func TestRoundFloat(t *testing.T) {
@@ -271,6 +272,7 @@ func TestZohoOrderExists_Sentinels(t *testing.T) {
 		"":              false,
 		b2bZohoId:       false,
 		skippedZohoId:   false,
+		failedZohoId:    false,
 		"5891234000001": true,
 	}
 	for zohoId, want := range tests {
@@ -325,5 +327,52 @@ func TestPushOrderToZoho_DryRunKeepsExistingId(t *testing.T) {
 	if repo.changeZohoIdCalls != 0 {
 		t.Errorf("ChangeOrderZohoId called %d time(s) in dry run, want 0 (it would have written %q)",
 			repo.changeZohoIdCalls, repo.changedTo)
+	}
+}
+
+// queueRepo serves one order to the poller.
+type queueRepo struct {
+	fakeRepo
+}
+
+func (r *queueRepo) GetNewOrders() ([]*entity.CheckoutParams, error) {
+	return []*entity.CheckoutParams{r.order}, nil
+}
+
+// rejectingZoho rejects every contact the way Zoho rejects a Phone left as an input mask.
+type rejectingZoho struct{ fakeZoho }
+
+func (z *rejectingZoho) CreateContact(*entity.ClientDetails) (string, error) {
+	return "", fmt.Errorf("%w: zoho error: INVALID_DATA Phone", services.ErrContactInvalidData)
+}
+
+// TestProcessOrders_InvalidContactMarksFailed: a contact Zoho rejects as INVALID_DATA fails the
+// same way on every tick, so the order is stamped "[ERR]" rather than resent once a minute.
+func TestProcessOrders_InvalidContactMarksFailed(t *testing.T) {
+	repo := &queueRepo{fakeRepo{order: pushableOrder()}}
+	core := pushTestCore(&repo.fakeRepo, &fakeZoho{})
+	core.repo = repo
+	core.zoho = &rejectingZoho{}
+
+	core.ProcessOrders()
+
+	if repo.changedTo != failedZohoId {
+		t.Errorf("zoho_id = %q, want %q", repo.changedTo, failedZohoId)
+	}
+}
+
+// TestProcessOrders_OtherFailureStaysQueued: any other failure (here a product without a UID) may
+// clear up on its own, so the order stays unmarked and is retried.
+func TestProcessOrders_OtherFailureStaysQueued(t *testing.T) {
+	order := pushableOrder()
+	order.LineItems[0].Uid = ""
+	repo := &queueRepo{fakeRepo{order: order}}
+	core := pushTestCore(&repo.fakeRepo, &fakeZoho{})
+	core.repo = repo
+
+	core.ProcessOrders()
+
+	if repo.changeZohoIdCalls != 0 {
+		t.Errorf("zoho_id written as %q on a retryable failure", repo.changedTo)
 	}
 }

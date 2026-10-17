@@ -31,6 +31,12 @@ const (
 	// never pushed to Zoho. Written once by the -mark-synced maintenance run. Not a real Zoho
 	// record id, so zohoOrderExists rejects it and no push tries to update a record by that name.
 	skippedZohoId = "[SKIP]"
+
+	// failedZohoId is a sentinel written into oc_order.zoho_id when Zoho rejects the order's data
+	// in a way no retry can fix (services.ErrContactInvalidData), so the poller stops resending it
+	// every tick. Clearing zoho_id after the data is corrected puts the order back in the queue,
+	// and a manual push creates it, since zohoOrderExists rejects the sentinel.
+	failedZohoId = "[ERR]"
 )
 
 type Currency struct {
@@ -68,9 +74,10 @@ func (c *Core) PushOrderToZoho(orderId int64) (string, error) {
 
 // zohoOrderExists reports whether a stored zoho_id points at a real Zoho Sales Order rather than
 // a sentinel the sync writes in place of one. "[B2B]" marks an order routed away from
-// Sales_Orders; "[SKIP]" marks pre-existing history that must never be pushed.
+// Sales_Orders; "[SKIP]" marks pre-existing history that must never be pushed; "[ERR]" marks an
+// order Zoho rejected.
 func zohoOrderExists(zohoId string) bool {
-	return zohoId != "" && zohoId != b2bZohoId && zohoId != skippedZohoId
+	return zohoId != "" && zohoId != b2bZohoId && zohoId != skippedZohoId && zohoId != failedZohoId
 }
 
 // MarkExistingOrdersSynced stamps every order that has no zoho_id yet with the "[SKIP]" sentinel,
@@ -272,6 +279,13 @@ func (c *Core) ProcessOrders() {
 		if err != nil {
 			log.With(sl.Err(err)).Error("process order failed")
 			failed++
+			if errors.Is(err, services.ErrContactInvalidData) && !c.dryRun {
+				if markErr := c.repo.ChangeOrderZohoId(order.OrderId, failedZohoId); markErr != nil {
+					log.With(sl.Err(markErr)).Error("mark failed order")
+				} else {
+					log.Error("order marked failed, not retried until zoho_id is cleared")
+				}
+			}
 			continue
 		}
 
