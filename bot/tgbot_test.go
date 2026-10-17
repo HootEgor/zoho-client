@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -147,5 +148,43 @@ func TestSanitize_ReservedCharsComplete(t *testing.T) {
 		if result != "\\"+input {
 			t.Errorf("Character %q should be escaped, got %q, want %q", input, result, "\\"+input)
 		}
+	}
+}
+
+func TestRedact(t *testing.T) {
+	const token = "123456:ABC-secret"
+	tests := []struct {
+		name     string
+		token    string
+		err      error
+		expected string
+	}{
+		{
+			name:     "token in request url",
+			token:    token,
+			err:      errors.New(`failed to execute POST request to getUpdates: Post "https://api.telegram.org/bot` + token + `/getUpdates": context deadline exceeded`),
+			expected: `failed to execute POST request to getUpdates: Post "https://api.telegram.org/bot***/getUpdates": context deadline exceeded`,
+		},
+		{
+			name:     "no token in error",
+			token:    token,
+			err:      errors.New("unable to getUpdates: Bad Gateway"),
+			expected: "unable to getUpdates: Bad Gateway",
+		},
+		{
+			name:     "empty token keeps error",
+			token:    "",
+			err:      errors.New("boom"),
+			expected: "boom",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bot := &TgBot{token: tt.token}
+			if got := bot.redact(tt.err); got != tt.expected {
+				t.Errorf("redact() = %q, want %q", got, tt.expected)
+			}
+		})
 	}
 }

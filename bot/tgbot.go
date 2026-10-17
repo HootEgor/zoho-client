@@ -2,7 +2,6 @@ package bot
 
 import (
 	"fmt"
-	"log"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 type TgBot struct {
 	log         *slog.Logger
 	api         *tgbotapi.Bot
+	token       string
 	updater     *ext.Updater
 	botUsername string
 	adminIds    []int64
@@ -75,6 +75,7 @@ func NewTgBot(botName, apiKey string, adminIdsStr string, log *slog.Logger) (*Tg
 		return nil, fmt.Errorf("creating api instance: %v", err)
 	}
 	tgBot.api = api
+	tgBot.token = apiKey
 
 	return tgBot, nil
 }
@@ -82,12 +83,18 @@ func NewTgBot(botName, apiKey string, adminIdsStr string, log *slog.Logger) (*Tg
 func (t *TgBot) Start() error {
 	dispatcher := ext.NewDispatcher(&ext.DispatcherOpts{
 		Error: func(b *tgbotapi.Bot, ctx *ext.Context, err error) ext.DispatcherAction {
-			log.Println("an error occurred while handling update:", err.Error())
+			t.log.Warn("handling update", t.errAttr(err))
 			return ext.DispatcherActionNoop
 		},
 		MaxRoutines: ext.DefaultMaxRoutines,
 	})
-	t.updater = ext.NewUpdater(dispatcher, nil)
+	t.updater = ext.NewUpdater(dispatcher, &ext.UpdaterOpts{
+		// The default handler prints the request URL, which carries the bot token.
+		UnhandledErrFunc: func(err error) {
+			t.log.Warn("get updates", t.errAttr(err))
+			time.Sleep(time.Second)
+		},
+	})
 
 	dispatcher.AddHandler(handlers.NewCommand("level", t.level))
 	dispatcher.AddHandler(handlers.NewCommand("status", t.status))
@@ -230,13 +237,13 @@ func (t *TgBot) plainResponse(chatId int64, text string) {
 		if err != nil {
 			t.log.With(
 				slog.Int64("id", chatId),
-			).Warn("sending message", sl.Err(err))
-			_, _ = t.api.SendMessage(chatId, err.Error(), &tgbotapi.SendMessageOpts{})
+			).Warn("sending message", t.errAttr(err))
+			_, _ = t.api.SendMessage(chatId, t.redact(err), &tgbotapi.SendMessageOpts{})
 			_, err = t.api.SendMessage(chatId, text, &tgbotapi.SendMessageOpts{})
 			if err != nil {
 				t.log.With(
 					slog.Int64("id", chatId),
-				).Error("sending safe message", sl.Err(err))
+				).Error("sending safe message", t.errAttr(err))
 			}
 		}
 	} else {
@@ -244,6 +251,18 @@ func (t *TgBot) plainResponse(chatId int64, text string) {
 			slog.Int64("id", chatId),
 		).Debug("empty message")
 	}
+}
+
+// redact returns the error text with the bot token masked: transport errors quote the request URL.
+func (t *TgBot) redact(err error) string {
+	if t.token == "" {
+		return err.Error()
+	}
+	return strings.ReplaceAll(err.Error(), t.token, "***")
+}
+
+func (t *TgBot) errAttr(err error) slog.Attr {
+	return slog.String("error", t.redact(err))
 }
 
 func Sanitize(input string) string {
