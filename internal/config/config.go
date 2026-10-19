@@ -123,6 +123,10 @@ type Config struct {
 		// Also used in reverse to translate an inbound webhook status back to an OpenCart id.
 		OrderStatusMap    map[int]string `yaml:"order_status_map"`
 		OrderStatusB2BMap map[int]string `yaml:"order_status_b2b_map"`
+		// OrderStatusAliases are extra Zoho Status names resolved to an OpenCart order_status_id on
+		// inbound webhooks only, for when Zoho has more statuses than the shop and several of them
+		// have to land on one id (order_status_map holds one name per id).
+		OrderStatusAliases map[string]int `yaml:"order_status_aliases"`
 		// PostTypes maps a logical post-type key to the Zoho Post_type picklist value.
 		PostTypes map[string]string `yaml:"post_types"`
 		// PaymentStatuses maps a logical payment state to the Zoho Payments status picklist.

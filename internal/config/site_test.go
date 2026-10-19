@@ -181,6 +181,20 @@ func TestSiteSettings_ValidationErrors(t *testing.T) {
 			wantErr: "order_status_map has no entry",
 		},
 		{
+			name: "status alias repeats a name of the status map",
+			mutate: func(c *Config) {
+				c.Zoho.OrderStatusAliases = map[string]int{"Перевірка та збір": 3}
+			},
+			wantErr: "repeats zoho.order_status_map",
+		},
+		{
+			name: "status alias without a positive id",
+			mutate: func(c *Config) {
+				c.Zoho.OrderStatusAliases = map[string]int{"Отримано": 0}
+			},
+			wantErr: "must be a positive order_status_id",
+		},
+		{
 			name: "unknown timezone",
 			mutate: func(c *Config) {
 				c.Site.TimeZone = "Mars/Olympus"
@@ -384,5 +398,30 @@ func TestSiteSettings_PaymentStatusVocabularyFollowsSource(t *testing.T) {
 				t.Errorf("PaymentStatus(%q) on %s = %q, want %q", tt.status, tt.source, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestOrderStatusAliases checks that an alias resolves inbound, lands on an id the map already
+// names, and stays out of the outbound direction.
+func TestOrderStatusAliases(t *testing.T) {
+	c := &Config{}
+	c.Zoho.OrderStatusAliases = map[string]int{"Очікує відправки": 5, "Отримано": 3}
+
+	s, err := c.SiteSettings()
+	if err != nil {
+		t.Fatalf("SiteSettings() error = %v", err)
+	}
+	for name, want := range map[string]int{
+		"Перевірка та збір": 5,
+		"Очікує відправки":  5,
+		"Отримано":          3,
+		"Не існує":          -1,
+	} {
+		if got := s.OrderStatusIdByName(name); got != want {
+			t.Errorf("OrderStatusIdByName(%q) = %d, want %d", name, got, want)
+		}
+	}
+	if got := s.OrderStatusName(5); got != "Перевірка та збір" {
+		t.Errorf("OrderStatusName(5) = %q, want the map's name, not the alias", got)
 	}
 }

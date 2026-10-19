@@ -89,10 +89,22 @@ zoho:
   terms: Standard terms apply.
   chunk_size: 200
   b2b_pipeline: B2B
+  # Used in reverse for inbound webhooks: every Status a manager can set in Zoho needs a name here
+  # or in order_status_aliases, or the webhook is logged as "unknown status name" and the order
+  # keeps its status. Ids are this shop's oc_order_status (2026-10-19).
   order_status_map:
     1: Нове
-    17: Оплачено, формування ТТН
+    2: Опрацювання замовлення
+    3: Відправлено
     5: Перевірка та збір
+    7: Відмінено
+    17: Оплачено, формування ТТН
+    19: Рахунок виставлено
+    20: ТТН сформовано
+  # Zoho statuses with no OpenCart status of their own, folded into the nearest one.
+  order_status_aliases:
+    Отримано: 3
+    Очікує відправки: 5
   order_status_b2b_map:
     1: Нове замовлення
     17: Оплачено формування ТТН

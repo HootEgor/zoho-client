@@ -212,6 +212,7 @@ fixed in `entity/zoho-order.go`.
 | `b2b_pipeline` | `B2B` | Deals pipeline name |
 | `order_status_map` | see template | `order_status_id` → Zoho `Status` name, **and its reverse** for inbound webhooks |
 | `order_status_b2b_map` | see template | the same for the Deals pipeline |
+| `order_status_aliases` | none | extra Zoho `Status` name → `order_status_id`, **inbound only** |
 | `post_types` | see template | logical post-type key → `Post_type` picklist |
 | `payment_statuses` | see template | logical payment state → Payments status picklist |
 
@@ -226,6 +227,11 @@ fixed in `entity/zoho-order.go`.
 Because of that, do not trim the map to just the new-order status: that would leave inbound
 webhooks unable to resolve any other status, and they would be logged as
 `unknown status name from Zoho, keeping current`.
+
+The map holds one name per id, so a Zoho status with no OpenCart status of its own (PL: *Отримано*,
+*Очікує відправки*) goes into `order_status_aliases`, pointing at the id it should land on. An
+alias is consulted only when the map has no such name, never outbound, and must not repeat a name
+the map already has — startup rejects that.
 
 The Stripe/wfsync status strings that feed `payment_statuses` are a contract with wfsync, not a
 per-site setting, and live in `entity/payment-status.go`.

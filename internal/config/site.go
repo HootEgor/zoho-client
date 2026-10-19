@@ -92,8 +92,10 @@ type SiteSettings struct {
 
 	orderStatus    map[int]string
 	orderStatusB2B map[int]string
-	postTypes      map[string]string
-	paymentStatus  map[string]string
+	// orderStatusAlias is inbound-only: Zoho Status name → OpenCart id, consulted after orderStatus.
+	orderStatusAlias map[string]int
+	postTypes        map[string]string
+	paymentStatus    map[string]string
 }
 
 // DefaultSiteSettings returns the settings the service behaved by before any of this was
@@ -304,6 +306,9 @@ func (c *Config) SiteSettings() (*SiteSettings, error) {
 	if z.OrderStatusB2BMap != nil {
 		s.orderStatusB2B = z.OrderStatusB2BMap
 	}
+	if z.OrderStatusAliases != nil {
+		s.orderStatusAlias = z.OrderStatusAliases
+	}
 	if z.PostTypes != nil {
 		s.postTypes = z.PostTypes
 	}
@@ -349,6 +354,21 @@ func (s *SiteSettings) validate() error {
 	}
 	if _, ok := s.orderStatus[s.StatusNew]; !ok {
 		return fmt.Errorf("zoho.order_status_map has no entry for site.order_statuses.new (%d)", s.StatusNew)
+	}
+	// An alias that repeats a name of order_status_map is either redundant or contradicts it; the map
+	// would win silently, so the alias's id would never be used.
+	for name, id := range s.orderStatusAlias {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("zoho.order_status_aliases has an empty name")
+		}
+		if id <= 0 {
+			return fmt.Errorf("zoho.order_status_aliases[%q] = %d, must be a positive order_status_id", name, id)
+		}
+		for mapped, mappedName := range s.orderStatus {
+			if mappedName == name {
+				return fmt.Errorf("zoho.order_status_aliases[%q] repeats zoho.order_status_map[%d]", name, mapped)
+			}
+		}
 	}
 	// Every code a shipping module can produce must land on a post type this Zoho org knows,
 	// otherwise the Post_type field silently stays empty for those orders.
@@ -465,13 +485,19 @@ func (s *SiteSettings) OrderStatusB2BName(statusId int) string {
 }
 
 // OrderStatusIdByName is the reverse of OrderStatusName, used to translate a status arriving on a
-// Zoho webhook back into an OpenCart order_status_id. Returns -1 when the name is unknown.
+// Zoho webhook back into an OpenCart order_status_id. Names not in the map fall back to
+// zoho.order_status_aliases. Returns -1 when the name is unknown.
 // Iteration order over the map is random, so ties are broken by taking the lowest id — a
 // deterministic answer beats an arbitrary one when a shop maps two ids to one picklist value.
 func (s *SiteSettings) OrderStatusIdByName(statusName string) int {
 	found := -1
 	for id, name := range s.orderStatus {
 		if name == statusName && (found == -1 || id < found) {
+			found = id
+		}
+	}
+	if found == -1 {
+		if id, ok := s.orderStatusAlias[statusName]; ok {
 			found = id
 		}
 	}

@@ -133,3 +133,39 @@ func TestUAStatusMapCoversTheTranzzoTriggers(t *testing.T) {
 		}
 	}
 }
+
+// TestPLStatusMapCoversTheZohoPicklist resolves every Sales Order Status the Zoho org sends to the
+// PL shop (seen in its log, 2026-05…10) to that shop's oc_order_status ids. A name missing here is
+// logged as "unknown status name from Zoho" and the order silently keeps its status.
+func TestPLStatusMapCoversTheZohoPicklist(t *testing.T) {
+	path := filepath.Join("..", "..", "zohoclient-config.yml")
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("zohoclient-config.yml not present")
+	}
+
+	c := &Config{}
+	if err := readForTest(path, c); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	site, err := c.SiteSettings()
+	if err != nil {
+		t.Fatalf("SiteSettings() = %v", err)
+	}
+
+	for status, want := range map[string]int{
+		"Нове": 1,
+		"Опрацювання замовлення":   2,
+		"Рахунок виставлено":       19,
+		"Оплачено, формування ТТН": 17,
+		"Перевірка та збір":        5,
+		"ТТН сформовано":           20,
+		"Очікує відправки":         5,
+		"Відправлено":              3,
+		"Отримано":                 3,
+		"Відмінено":                site.StatusCanceled,
+	} {
+		if got := site.OrderStatusIdByName(status); got != want {
+			t.Errorf("OrderStatusIdByName(%q) = %d, want %d", status, got, want)
+		}
+	}
+}
