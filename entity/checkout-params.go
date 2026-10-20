@@ -94,7 +94,15 @@ func (c *CheckoutParams) TaxRate() float64 {
 // rate carried on a line item (its tax/price is the catalogue rate, unaffected by shipping or
 // by any order-level reduction). Only when no line carries a usable rate does it fall back to
 // the rate implied by tax_value over sub_total.
+//
+// An order with no VAT in its totals (tax_value 0) is VAT-free whatever its lines say: the
+// admin order editor leaves the catalogue tax on order_product while totalling a non-EU order
+// without VAT (orders 17977, 17978). Taking the line rate there would read the whole total as
+// gross and turn its "VAT" into a phantom discount in Zoho.
 func (c *CheckoutParams) VatRate() float64 {
+	if c.TaxValue <= 0 {
+		return 0
+	}
 	if r := c.nominalTaxRate(); r > 0 {
 		return r
 	}

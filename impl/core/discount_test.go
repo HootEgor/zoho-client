@@ -261,6 +261,37 @@ func TestBuildZohoOrder_UntaxedShipping_Order16953(t *testing.T) {
 	}
 }
 
+// Order 17978, created in the admin order editor for a Norwegian customer: the line keeps the
+// 23% catalogue tax, but the totals carry no VAT. Read at 23%, the 42.06 total went to Zoho as
+// gross, with a phantom 18.70% discount and 7.86 of VAT that was never charged.
+func TestBuildZohoOrder_AdminVatFree_Order17978(t *testing.T) {
+	core := newTestCore()
+	oc := &entity.CheckoutParams{
+		OrderId: 17978, Currency: "PLN",
+		SubTotal: 42.06, TaxValue: 0, TaxTitle: "VAT (23%)", Total: 42.06,
+		ClientDetails: minimalClient(),
+		LineItems: []*entity.LineItem{
+			{Name: "Delivery", ZohoId: "Z1", Price: 42.06, Qty: 1, Tax: 9.6738, Total: 42.06},
+		},
+	}
+
+	zo, _ := core.buildZohoOrder(oc, "c1")
+	assertDiscountPWireFormat(t, zo)
+
+	if zo.VAT != 0 {
+		t.Errorf("VAT = %v, want 0", zo.VAT)
+	}
+	if gap := taxHealthGap(oc); gap != 0 {
+		t.Errorf("taxHealthGap = %.4f, want 0", gap)
+	}
+	if got := zo.OrderedItems[0].DiscountP; got != 0 {
+		t.Errorf("line DiscountP = %v, want 0", got)
+	}
+	if grand := zohoRecomputedGrand(zo); !approx(grand, oc.Total, 0.01) {
+		t.Errorf("Zoho grand total = %.4f, want %.4f", grand, oc.Total)
+	}
+}
+
 // Order 17103 as it reached Zoho on 2026-07-31: a 21% Spanish order with a 10% coupon and DHL
 // shipping. Before the fix the shipping VAT was squeezed into the products and the lines went out
 // at 10.79%, so a 24.39 polish showed as 21.76 instead of 21.95.

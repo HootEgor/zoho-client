@@ -102,6 +102,21 @@ func TestVatRateIgnoresReductions(t *testing.T) {
 	}
 }
 
+// Order 17978: created in the admin editor for a Norwegian customer. The line keeps the 23%
+// catalogue tax, but the totals carry no VAT, so the order is VAT-free.
+func TestVatRateZeroTaxValue(t *testing.T) {
+	c := &CheckoutParams{
+		SubTotal: 42.06, TaxValue: 0, Total: 42.06,
+		LineItems: []*LineItem{{Price: 42.06, Tax: 9.6738, Qty: 1, Total: 42.06}},
+	}
+	if got := c.VatRate(); got != 0 {
+		t.Errorf("VatRate() = %v, want 0", got)
+	}
+	if got := c.LawfulTax(); got != 0 {
+		t.Errorf("LawfulTax() = %v, want 0", got)
+	}
+}
+
 // LawfulTax is the VAT contained in what the customer was actually charged. It must equal
 // order_total.tax on a correctly configured shop, and expose the gap where it is not.
 func TestLawfulTax(t *testing.T) {
