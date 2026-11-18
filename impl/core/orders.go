@@ -185,7 +185,23 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 			// second one would duplicate the order and orphan the record the reverse webhook,
 			// the payment link and zoho_modified_time all point at.
 			zohoId = existingZohoId
-			zohoModifiedTime, err = c.zoho.UpdateOrder(zohoOrder, existingZohoId)
+			// Zoho owns the status once the order exists; re-stamping "new" would undo a manager's
+			// move, and the webhook would then carry it back into OpenCart.
+			zohoOrder.Status = ""
+			// The rows the order holds now are replaced, not added to. Without their ids the
+			// update cannot remove them, so it does not go ahead.
+			current, err := c.zoho.GetOrder(existingZohoId)
+			if err != nil {
+				return "", fmt.Errorf("read Zoho order before update: %w", err)
+			}
+			staleRows := make([]string, 0, len(current.OrderedItems))
+			for _, row := range current.OrderedItems {
+				if row.ID == "" {
+					return "", fmt.Errorf("zoho order %s has a subform row without an id", existingZohoId)
+				}
+				staleRows = append(staleRows, row.ID)
+			}
+			zohoModifiedTime, err = c.zoho.UpdateOrder(zohoOrder, existingZohoId, staleRows)
 			if err != nil {
 				return "", fmt.Errorf("update Zoho order: %w", err)
 			}

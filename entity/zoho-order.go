@@ -4,23 +4,24 @@ package entity
 // JSON field names map to Zoho CRM Sales_Orders module API names.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/modules/sales-orders.html
 type ZohoOrder struct {
-	ContactName        ContactName     `json:"Contact_Name"`
-	OrderedItems       []OrderedItem   `json:"Ordered_Items"`
-	Discount           float64         `json:"GetDiscount"`
-	DiscountP          float64         `json:"DiscountP"`
-	CouponTitle        string          `json:"Promocode"`
-	CouponValue        float64         `json:"Promocode_discount"`
-	Description        string          `json:"Description"`
-	CustomerNo         string          `json:"Customer_No"`
-	ShippingState      string          `json:"Shipping_State"`
-	Tax                float64         `json:"Tax"`
-	VAT                float64         `json:"VAT"`
-	GrandTotal         float64         `json:"Grand_Total"`
-	SubTotal           float64         `json:"Sub_Total"`
-	Currency           string          `json:"Currency"`
-	BillingCountry     string          `json:"Billing_Country"`
-	Carrier            string          `json:"Carrier"`
-	Status             string          `json:"Status"`
+	ContactName    ContactName   `json:"Contact_Name"`
+	OrderedItems   []OrderedItem `json:"Ordered_Items"`
+	Discount       float64       `json:"GetDiscount"`
+	DiscountP      float64       `json:"DiscountP"`
+	CouponTitle    string        `json:"Promocode"`
+	CouponValue    float64       `json:"Promocode_discount"`
+	Description    string        `json:"Description"`
+	CustomerNo     string        `json:"Customer_No"`
+	ShippingState  string        `json:"Shipping_State"`
+	Tax            float64       `json:"Tax"`
+	VAT            float64       `json:"VAT"`
+	GrandTotal     float64       `json:"Grand_Total"`
+	SubTotal       float64       `json:"Sub_Total"`
+	Currency       string        `json:"Currency"`
+	BillingCountry string        `json:"Billing_Country"`
+	Carrier        string        `json:"Carrier"`
+	// Status is left empty on an update: Zoho owns the status once the order exists there.
+	Status             string          `json:"Status,omitempty"`
 	SalesCommission    float64         `json:"Sales_Commission"`
 	DueDate            string          `json:"Due_Date"`
 	BillingStreet      string          `json:"Billing_Street"`

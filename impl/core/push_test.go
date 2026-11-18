@@ -1,8 +1,10 @@
 package core
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"testing"
 	"time"
 	"zohoclient/entity"
@@ -39,7 +41,20 @@ type fakeZoho struct {
 	createOrderCalls   int
 	updateOrderCalls   int
 	updatedID          string
+	updatedOrder       entity.ZohoOrder
+	staleRows          []string
 	createPaymentCalls int
+
+	// currentRows is what GetOrder reports the Sales Order holding; getOrderErr fails the read.
+	currentRows []entity.ZohoOrderedItemRow
+	getOrderErr error
+}
+
+func (f *fakeZoho) GetOrder(id string) (*entity.ZohoOrderRecord, error) {
+	if f.getOrderErr != nil {
+		return nil, f.getOrderErr
+	}
+	return &entity.ZohoOrderRecord{ID: id, OrderedItems: f.currentRows}, nil
 }
 
 func (f *fakeZoho) CreateContact(*entity.ClientDetails) (string, error) { return "contact-1", nil }
@@ -49,9 +64,11 @@ func (f *fakeZoho) CreateOrder(entity.ZohoOrder) (string, string, error) {
 	return "NEW-ZOHO-ID", "2026-07-14T10:00:00+02:00", nil
 }
 
-func (f *fakeZoho) UpdateOrder(_ entity.ZohoOrder, id string) (string, error) {
+func (f *fakeZoho) UpdateOrder(order entity.ZohoOrder, id string, staleRows []string) (string, error) {
 	f.updateOrderCalls++
 	f.updatedID = id
+	f.updatedOrder = order
+	f.staleRows = staleRows
 	return "2026-07-14T11:00:00+02:00", nil
 }
 
@@ -155,5 +172,68 @@ func TestZohoOrderExists(t *testing.T) {
 		if got := zohoOrderExists(id); got != want {
 			t.Errorf("zohoOrderExists(%q) = %v, want %v", id, got, want)
 		}
+	}
+}
+
+// Re-pushing order 18313 left its Sales Order with the old rows and the new ones side by side:
+// Zoho appends every row sent without an id. The update must delete the rows the order holds in
+// the same request, and leave the status, which Zoho owns by then, alone.
+func TestPushOrderToZoho_UpdateReplacesRowsAndKeepsStatus(t *testing.T) {
+	tests := []struct {
+		name        string
+		currentRows []entity.ZohoOrderedItemRow
+		getOrderErr error
+		wantUpdate  bool
+		wantStale   []string
+	}{
+		{
+			name:        "old rows deleted",
+			currentRows: []entity.ZohoOrderedItemRow{{ID: "R1"}, {ID: "R2"}},
+			wantUpdate:  true,
+			wantStale:   []string{"R1", "R2"},
+		},
+		{
+			name:       "empty subform",
+			wantUpdate: true,
+			wantStale:  []string{},
+		},
+		{
+			name:        "read fails: no update",
+			getOrderErr: fmt.Errorf("zoho unavailable"),
+		},
+		{
+			name:        "row without id: no update",
+			currentRows: []entity.ZohoOrderedItemRow{{ID: "R1"}, {}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeRepo{zohoId: "739178000073293380", order: pushableOrder()}
+			zoho := &fakeZoho{currentRows: tt.currentRows, getOrderErr: tt.getOrderErr}
+			core := pushTestCore(repo, zoho)
+
+			_, err := core.PushOrderToZoho(16939)
+			if !tt.wantUpdate {
+				if err == nil {
+					t.Error("PushOrderToZoho() succeeded, want an error")
+				}
+				if zoho.updateOrderCalls != 0 {
+					t.Errorf("UpdateOrder called %d time(s) without knowing the rows to replace", zoho.updateOrderCalls)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PushOrderToZoho() error = %v", err)
+			}
+			if !reflect.DeepEqual(zoho.staleRows, tt.wantStale) {
+				t.Errorf("rows deleted = %v, want %v", zoho.staleRows, tt.wantStale)
+			}
+			if zoho.updatedOrder.Status != "" {
+				t.Errorf("Status = %q sent on an update, want it left to Zoho", zoho.updatedOrder.Status)
+			}
+			if len(zoho.updatedOrder.OrderedItems) == 0 {
+				t.Error("update sent no rows")
+			}
+		})
 	}
 }

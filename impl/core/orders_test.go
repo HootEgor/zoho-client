@@ -293,7 +293,7 @@ func (z *dryRunZoho) CreateOrder(entity.ZohoOrder) (string, string, error) {
 	return "", "", fmt.Errorf("CreateOrder must not be called in dry run")
 }
 
-func (z *dryRunZoho) UpdateOrder(entity.ZohoOrder, string) (string, error) {
+func (z *dryRunZoho) UpdateOrder(entity.ZohoOrder, string, []string) (string, error) {
 	return "", fmt.Errorf("UpdateOrder must not be called in dry run")
 }
 

@@ -124,7 +124,8 @@ See `docs/config.md` for the full key reference.
 - `zoho.order_status_map` runs in both directions and they are NOT symmetric. Outbound,
   `buildZohoOrder` always stamps `NewOrderStatusName()` (the `order_statuses.new` entry) — Zoho
   owns the status after that, so deriving it from the OpenCart status would let a re-push overwrite
-  a status a Zoho user had moved on. Inbound, `OrderStatusIdByName` resolves through the whole map,
+  a status a Zoho user had moved on. For the same reason the update path (re-push of an order that
+  has a `zoho_id`) clears `Status` before sending; `ZohoOrder.Status` is `omitempty`. Inbound, `OrderStatusIdByName` resolves through the whole map,
   so every status a Zoho user can set needs an entry. Do not trim the map.
 
 ## Code Architecture
@@ -482,7 +483,12 @@ need different values here; the paths below assume the default.
   unknown `zoho_id` answers `200` (nothing to file it under), and dry-run still records, because
   Mongo is this service's own store rather than a write to Zoho or the shop.
 - `POST /zoho/webhook/b2b` - B2B portal webhook; the route exists only when `site.features.b2b` is on
-- `GET /zoho/push/order/{id}` - push one order to Zoho on demand
+- `GET /zoho/push/order/{id}` - push one order to Zoho on demand. For an order that already has a
+  `zoho_id` it updates the Sales Order in place: `processOrder` reads the current subform rows
+  (`GetOrder`) and `ZohoService.UpdateOrder` deletes them (`"_delete": null`) in the same PUT that
+  sends the new ones. Zoho *appends* every row sent without an id, so without that the order counts
+  twice in Zoho, and the following webhook doubles it in OpenCart (order 18313, T5f598ec6). If the
+  rows cannot be read, the update does not go ahead.
 
 **Authentication Flow:**
 1. Client sends request with `Authorization: Bearer <token>` header

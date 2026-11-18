@@ -463,7 +463,12 @@ func (s *ZohoService) AddItemsToOrderB2B(_ string, items []*entity.Good) (string
 // UpdateOrder updates an existing Sales Order record by its Zoho record ID, returning the
 // record's new Modified_Time so the caller can suppress the echo webhook this write triggers.
 // Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-specific-record.html
-func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) (string, error) {
+//
+// Zoho appends every subform row that arrives without an id, so the new Ordered_Items alone would
+// sit next to the old ones and the order would count twice. staleRowIDs, the rows the order holds
+// now, go into the same request with "_delete": null, so the replacement is a single write.
+// Ref: https://www.zoho.com/crm/developer/docs/api/v8/update-subforms.html
+func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string, staleRowIDs []string) (string, error) {
 	log := s.log.With(
 		slog.String("id", id),
 		slog.String("subject", orderData.Subject),
@@ -471,9 +476,15 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) (string
 		slog.Float64("coupon", orderData.CouponValue),
 		slog.Float64("sub_total", orderData.SubTotal),
 		slog.Float64("total", orderData.GrandTotal),
+		slog.Int("rows_replaced", len(staleRowIDs)),
 	)
 
-	item, err := s.writeRecord(http.MethodPut, records(orderData), "Sales_Orders", id)
+	payload, err := replacingRows(orderData, staleRowIDs)
+	if err != nil {
+		return "", err
+	}
+
+	item, err := s.writeRecord(http.MethodPut, records(payload), "Sales_Orders", id)
 	if err != nil {
 		return "", err
 	}
@@ -492,6 +503,27 @@ func (s *ZohoService) UpdateOrder(orderData entity.ZohoOrder, id string) (string
 	log.Debug("order updated successfully")
 
 	return details.ModifiedTime, nil
+}
+
+// replacingRows returns the Sales Order as a JSON object whose Ordered_Items also delete each of
+// staleRowIDs.
+func replacingRows(orderData entity.ZohoOrder, staleRowIDs []string) (map[string]any, error) {
+	raw, err := json.Marshal(orderData)
+	if err != nil {
+		return nil, fmt.Errorf("marshal order: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var fields map[string]any
+	if err = dec.Decode(&fields); err != nil {
+		return nil, fmt.Errorf("decode order: %w", err)
+	}
+	rows, _ := fields["Ordered_Items"].([]any)
+	for _, rowID := range staleRowIDs {
+		rows = append(rows, map[string]any{"id": rowID, "_delete": nil})
+	}
+	fields["Ordered_Items"] = rows
+	return fields, nil
 }
 
 // GetOrder reads a Sales Order back from Zoho, including its Ordered_Items subform rows with

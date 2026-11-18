@@ -68,7 +68,9 @@ type Zoho interface {
 	CreateOrder(orderData entity.ZohoOrder) (id string, modifiedTime string, err error)
 	CreateB2BOrder(orderData entity.ZohoOrderB2B) (string, error)
 	AddItemsToOrderB2B(orderID string, items []*entity.Good) (string, error)
-	UpdateOrder(orderData entity.ZohoOrder, id string) (modifiedTime string, err error)
+	// UpdateOrder overwrites a Sales Order. staleRowIDs are the subform rows it already holds; they
+	// are deleted in the same request, since rows sent without an id are appended, not replaced.
+	UpdateOrder(orderData entity.ZohoOrder, id string, staleRowIDs []string) (modifiedTime string, err error)
 	GetOrder(orderID string) (*entity.ZohoOrderRecord, error)
 	UpdateOrderItemRows(orderID string, rows []entity.OrderedItemPatch) (modifiedTime string, err error)
 	CreatePayment(payment entity.ZohoPayment) (string, error)
