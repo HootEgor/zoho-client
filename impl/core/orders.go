@@ -102,6 +102,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 	log := c.log.With(
 		slog.Int64("order_id", order.OrderId),
 		slog.String("currency", order.Currency),
+		slog.Float64("currency_value", order.ConversionRate()),
 		slog.String("tax", order.TaxTitle),
 		slog.Float64("total", round2(order.Total)),
 		slog.Float64("tax_value", round2(order.TaxValue)),
@@ -159,6 +160,7 @@ func (c *Core) processOrder(order *entity.CheckoutParams, existingZohoId string,
 	isUpdate := zohoOrderExists(existingZohoId)
 	if !isB2B {
 		zohoOrder, chunkedItems := c.buildZohoOrder(order, contactID)
+		log = log.With(slog.Float64("grand_total", zohoOrder.GrandTotal))
 
 		if len(chunkedItems) > 0 {
 			c.log.With(
@@ -232,7 +234,6 @@ func (c *Core) reportDryRunOrder(log *slog.Logger, order entity.ZohoOrder) {
 	log = log.With(
 		slog.String("subject", order.Subject),
 		slog.Int("items", len(order.OrderedItems)),
-		slog.Float64("grand_total", order.GrandTotal),
 		slog.Float64("sub_total", order.SubTotal),
 		slog.Float64("vat", order.VAT),
 		slog.String("status", order.Status),
@@ -576,6 +577,10 @@ func taxHealthGap(oc *entity.CheckoutParams) float64 {
 // buildZohoOrder constructs a ZohoOrder from CheckoutParams. Returns the order and any
 // additional item chunks that exceed ChunkSize (100 items) for subsequent API calls.
 func (c *Core) buildZohoOrder(oc *entity.CheckoutParams, contactID string) (entity.ZohoOrder, [][]*entity.OrderedItem) {
+	// OpenCart stores the amounts in the base currency; Zoho gets them in the order's own, which
+	// is the currency the Sales Order is labelled with.
+	oc = oc.InOrderCurrency()
+
 	// Every reduction OpenCart grants at the moment of sale (coupon + discount) lowers the VAT
 	// base, so all of them reach Zoho as a single PRE-tax per-line discount. Nothing is left to
 	// apply after tax, which is why the order-level Adjustment stays zero.

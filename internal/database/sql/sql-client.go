@@ -882,11 +882,10 @@ type OrderProductData struct {
 
 // OrderUpdateTransaction encapsulates all data needed for a complete order update within a transaction
 type OrderUpdateTransaction struct {
-	OrderID       int64
-	Items         []OrderProductData
-	CurrencyValue float64
-	OrderTotal    int64
-	Totals        OrderTotalsData
+	OrderID    int64
+	Items      []OrderProductData
+	OrderTotal int64 // in cents, base currency like every other amount here
+	Totals     OrderTotalsData
 	// NewStatusID, when > 0, updates oc_order.order_status_id atomically with the
 	// rest of the transaction. The order_history row uses this status. Leave at 0
 	// to keep the existing status.
@@ -979,7 +978,7 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 
 	// Step 3: Update order.total (and optionally order_status_id) in the order table.
 	now := time.Now()
-	totalFloat := (float64(data.OrderTotal) / 100) / data.CurrencyValue
+	totalFloat := float64(data.OrderTotal) / 100
 
 	effectiveStatusId := orderStatusId
 	if data.NewStatusID > 0 && data.NewStatusID != orderStatusId {

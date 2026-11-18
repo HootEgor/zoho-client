@@ -67,7 +67,8 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		return fmt.Errorf("order lookup failed after %d attempts: %w", maxRetries, err)
 	}
 
-	currencyValue := orderParams.CurrencyValue
+	// Zoho holds the order in the currency it was placed in; OpenCart stores the base currency.
+	currencyRate := orderParams.ConversionRate()
 
 	// order_id known from here on — add it to the base log so every downstream
 	// message (errors, diff, suppression) is correlated.
@@ -142,6 +143,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// (split discounts, free gifts). Without merging, each line would become a separate
 	// order_product row pointing at the same product_id.
 	mergedItems := mergeItemsByZohoID(orderDetails.OrderedItems)
+	baseItems, baseGrandTotal := inBaseCurrency(mergedItems, orderDetails.GrandTotal, currencyRate)
 
 	// Zoho pings us on every status change, and the subform is usually untouched. Rewriting the
 	// items and totals on such a webhook would restate figures nobody changed — and on an order
@@ -155,9 +157,11 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		// same lines (a manager editing DiscountP or List_Price, a workflow reapplying a discount
 		// rule) passes as "unchanged" here. Neither side will ever reconcile that, so the order
 		// silently ends up worth two different amounts in two systems. Report it.
-		if diff, diverged := totalsDiverged(orderParams.Total, orderDetails.GrandTotal); diverged {
+		// Compared in the order's currency, the one both the tolerance and Zoho's figure are in.
+		ocTotal := orderParams.Total * currencyRate
+		if diff, diverged := totalsDiverged(ocTotal, orderDetails.GrandTotal); diverged {
 			log.With(
-				slog.Float64("oc_total", round2(orderParams.Total)),
+				slog.Float64("oc_total", round2(ocTotal)),
 				slog.Float64("zoho_total", round2(orderDetails.GrandTotal)),
 				slog.Float64("diff", round2(diff)),
 				slog.String("currency", orderParams.Currency),
@@ -201,14 +205,13 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Reconstruct OpenCart's order_total rows and per-line product data from the payload.
-	totals := c.computeReverseTotals(mergedItems, orderDetails.GrandTotal, orderParams)
+	totals := c.computeReverseTotals(baseItems, baseGrandTotal, orderParams)
 
 	// Execute entire update in a single transaction
 	txData := sql.OrderUpdateTransaction{
-		OrderID:       orderId,
-		Items:         totals.Products,
-		CurrencyValue: currencyValue,
-		OrderTotal:    totals.Total,
+		OrderID:    orderId,
+		Items:      totals.Products,
+		OrderTotal: totals.Total,
 		Totals: sql.OrderTotalsData{
 			SubTotal: totals.ItemsTotal,
 			Tax:      totals.Tax,
@@ -226,7 +229,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	// item replacement, no total rewrite, and no zoho_modified_time to hide the next webhook.
 	if c.dryRun {
 		c.reportDryRunUpdate(log, previousItems, mergedItems, previousStatusId, newStatusId,
-			previousTotal, currencyValue, orderParams.Currency, totals)
+			previousTotal, currencyRate, orderParams.Currency, totals)
 		return nil
 	}
 
@@ -246,20 +249,20 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 	}
 
 	// Audit what the webhook actually changed.
-	newTotalDisplay := (float64(totals.Total) / 100) / currencyValue
+	newTotal := float64(totals.Total) / 100
 	logOrderDiff(log, previousItems, mergedItems, c.shippingItemZohoId,
 		previousStatusId, newStatusId,
-		previousTotal, newTotalDisplay, orderParams.Currency, false)
+		previousTotal*currencyRate, newTotal*currencyRate, orderParams.Currency, false)
 
 	// Save order version to MongoDB
 	c.saveOrderVersionToMongo(orderId, orderDetails)
 
 	// Tell the shop's payment module, now that the corrected order is committed: it decides what
-	// to charge from the order's own basket, so it has to read the new one. newTotalDisplay is
-	// the figure in the shop's currency, which is what the module's sumToMinor expects.
+	// to charge from the order's own basket, so it has to read the new one. newTotal is the
+	// figure in the shop's currency, which is what the module's sumToMinor expects.
 	if statusResolved {
 		c.notifyTranzzo(log, orderId,
-			c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, newTotalDisplay))
+			c.tranzzoOrderEvent(newStatusId, orderDetails.Status, orderDetails.ZohoID, newTotal))
 	}
 
 	log.With(
@@ -284,14 +287,14 @@ func (c *Core) reportDryRunUpdate(
 	previousItems []sql.OrderProductSummary,
 	incoming []entity.ApiOrderedItem,
 	previousStatusId, newStatusId int,
-	previousTotal, currencyValue float64,
+	previousTotal, currencyRate float64,
 	currency string,
 	totals reverseTotals,
 ) {
-	newTotalDisplay := (float64(totals.Total) / 100) / currencyValue
+	newTotal := float64(totals.Total) / 100
 	logOrderDiff(log, previousItems, incoming, c.shippingItemZohoId,
 		previousStatusId, newStatusId,
-		previousTotal, newTotalDisplay, currency, true)
+		previousTotal*currencyRate, newTotal*currencyRate, currency, true)
 
 	log.With(
 		slog.String("sub_total", fmtCents(totals.ItemsTotal)),
@@ -388,7 +391,10 @@ func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFlo
 	// non-positive result means there was no reduction, and any remainder folds into tax so the
 	// rows stay exact.
 	reduction := itemsTotal + shipping + taxTotal - grandTotal
-	if reduction <= 1 {
+	// Rounding slack: the payload is in cents of the order's currency, and one of those is
+	// several base cents when the order was placed in a stronger currency (1 EUR cent ≈ 4 grosz).
+	slack := max(int64(math.Ceil(1/oc.ConversionRate())), 1)
+	if reduction <= slack {
 		reduction = 0
 		taxTotal = grandTotal - itemsTotal - shipping
 	}
@@ -404,6 +410,22 @@ func (c *Core) computeReverseTotals(items []entity.ApiOrderedItem, grandTotalFlo
 		Coupon:     coupon,
 		Total:      grandTotal,
 	}
+}
+
+// inBaseCurrency converts the amounts of a Zoho payload, which are in the order's currency, into
+// the shop's base currency OpenCart stores — the inverse of CheckoutParams.InOrderCurrency. rate is
+// oc_order.currency_value. A base-currency order (rate 1) comes back untouched.
+func inBaseCurrency(items []entity.ApiOrderedItem, grandTotal, rate float64) ([]entity.ApiOrderedItem, float64) {
+	if rate == 1 {
+		return items, grandTotal
+	}
+	converted := make([]entity.ApiOrderedItem, len(items))
+	for i, it := range items {
+		it.Price /= rate
+		it.Total /= rate
+		converted[i] = it
+	}
+	return converted, grandTotal / rate
 }
 
 // itemsUnchanged reports whether the Zoho subform still matches the products OpenCart holds:

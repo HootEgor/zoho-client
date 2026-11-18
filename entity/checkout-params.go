@@ -85,6 +85,48 @@ func (c *CheckoutParams) Validate(allowedCurrency func(string) bool) error {
 	return nil
 }
 
+// ConversionRate returns oc_order.currency_value: units of the order's currency per unit of the
+// shop's base currency, in which OpenCart stores every amount. A missing or non-positive value
+// reads as 1, i.e. no conversion.
+func (c *CheckoutParams) ConversionRate() float64 {
+	if c.CurrencyValue <= 0 {
+		return 1
+	}
+	return c.CurrencyValue
+}
+
+// InOrderCurrency returns the order with every amount converted from the base currency into the
+// currency the customer was charged in — the figures Zoho has to hold, since the Sales Order is
+// labelled with that currency and the payment link is raised from it. An order in the base
+// currency is returned unchanged, not copied, so its arithmetic stays exactly as it was.
+// PaymentAmount is not converted: the payment side writes it in the charged currency already.
+func (c *CheckoutParams) InOrderCurrency() *CheckoutParams {
+	r := c.ConversionRate()
+	if r == 1 {
+		return c
+	}
+	cp := *c
+	cp.Total *= r
+	cp.SubTotal *= r
+	cp.Shipping *= r
+	cp.Coupon *= r
+	cp.TaxValue *= r
+	cp.Discount *= r
+	cp.LineItems = make([]*LineItem, len(c.LineItems))
+	for i, li := range c.LineItems {
+		if li == nil {
+			continue
+		}
+		item := *li
+		item.Price *= r
+		item.Tax *= r
+		item.Total *= r
+		item.MasterPrice *= r
+		cp.LineItems[i] = &item
+	}
+	return &cp
+}
+
 // TaxRate returns the order's VAT rate as a percentage (e.g. 23.0). Returns 0 if not applicable.
 func (c *CheckoutParams) TaxRate() float64 {
 	return c.VatRate() * 100

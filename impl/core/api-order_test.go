@@ -106,6 +106,7 @@ type webhookRepo struct {
 	statusCalls   int
 	txCalls       int
 	modifiedCalls int
+	lastTx        sql.OrderUpdateTransaction
 }
 
 func (r *webhookRepo) OrderSearchByZohoId(string) (int64, *entity.CheckoutParams, error) {
@@ -129,8 +130,9 @@ func (r *webhookRepo) ChangeOrderStatus(int64, int64, string) error {
 	return nil
 }
 
-func (r *webhookRepo) UpdateOrderWithTransaction(sql.OrderUpdateTransaction) error {
+func (r *webhookRepo) UpdateOrderWithTransaction(tx sql.OrderUpdateTransaction) error {
 	r.txCalls++
+	r.lastTx = tx
 	return nil
 }
 

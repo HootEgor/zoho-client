@@ -302,7 +302,15 @@ docs/                       # API documentation (apiv1.md, config.md)
 **Money Handling**
 - OpenCart stores prices in cents (int64)
 - Conversion: `float64(value) / 100.0` (see `roundInt()`)
-- Currency conversion applied: `value * currencyValue`
+- OpenCart stores every amount in the shop's **base** currency (PLN on shop 1);
+  `oc_order.currency_value` is order-currency units per base unit. Zoho holds the order in the
+  currency it was placed in, so the conversion happens at both boundaries and only there:
+  `buildZohoOrder` starts with `CheckoutParams.InOrderCurrency()` (× rate), and `UpdateOrder`
+  passes the payload through `inBaseCurrency` (÷ rate) before `computeReverseTotals`. Everything
+  in between — and everything written to MySQL — is base currency, so
+  `UpdateOrderWithTransaction` must not divide again. The status-only divergence check compares
+  in the order currency. A base-currency order (rate 1) skips both conversions, keeping the
+  payload byte-identical (`TestBuildZohoOrder_PLNPayloadUnchanged`).
 
 **Tax Calculation**
 - OpenCart module 'OrderPRO' has defective tax logic
