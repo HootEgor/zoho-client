@@ -136,6 +136,11 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 	}
 
+	note := c.declineNote(previousStatusId, newStatusId, orderDetails.Reason())
+	if note != "" {
+		log = log.With(slog.String("decline_reason", orderDetails.Reason()))
+	}
+
 	// The order's VAT rate (decimal, e.g. 0.23 for 23% VAT).
 	taxRate := orderParams.VatRate()
 
@@ -178,7 +183,11 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		}
 
 		if newStatusId != previousStatusId {
-			if err := c.repo.ChangeOrderStatus(orderId, int64(newStatusId), "Updated via API"); err != nil {
+			comment := "Updated via API"
+			if note != "" {
+				comment += "\n" + note
+			}
+			if err := c.repo.ChangeOrderStatus(orderId, int64(newStatusId), comment); err != nil {
 				log.With(sl.Err(err)).Error("failed to update order status")
 				return fmt.Errorf("failed to update order status: %w", err)
 			}
@@ -222,6 +231,7 @@ func (c *Core) UpdateOrder(orderDetails *entity.ApiOrder) error {
 		},
 		NewStatusID:   int64(newStatusId),
 		StatusComment: "Updated via API",
+		Note:          note,
 	}
 
 	// Dry run stops here: the reverse totals are computed and reported so the arithmetic can be
@@ -664,4 +674,18 @@ func logOrderDiff(
 	}
 
 	log.With(attrs...).Info(outcome)
+}
+
+// declineNotePrefix starts the oc_order_history line the shop's mail sender reads the reason of a
+// cancellation from (letter 3). Changing it breaks that sender.
+const declineNotePrefix = "Причина відмови: "
+
+// declineNote returns the history line carrying the manager's decline reason, or "" when there is
+// none to record. It is written only on the transition into the canceled status: a later webhook
+// for an order that is already canceled would otherwise repeat the line on every edit.
+func (c *Core) declineNote(previousStatusId, newStatusId int, reason string) string {
+	if reason == "" || newStatusId != c.site.StatusCanceled || previousStatusId == newStatusId {
+		return ""
+	}
+	return declineNotePrefix + reason
 }

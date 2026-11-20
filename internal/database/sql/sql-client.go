@@ -891,6 +891,9 @@ type OrderUpdateTransaction struct {
 	// to keep the existing status.
 	NewStatusID   int64
 	StatusComment string
+	// Note, when set, is appended to the order_history comment on a line of its own, so a reader
+	// can match it without the totals text that precedes it.
+	Note string
 }
 
 // OrderTotalsData contains all order_total entries to be updated
@@ -1035,6 +1038,9 @@ func (s *MySql) UpdateOrderWithTransaction(data OrderUpdateTransaction) error {
 	comment := fmt.Sprintf("Order updated from zoho, total = %.2f", totalFloat)
 	if data.StatusComment != "" {
 		comment = data.StatusComment + ". " + comment
+	}
+	if data.Note != "" {
+		comment += "\n" + data.Note
 	}
 	_, err = tx.Exec(historyQuery, data.OrderID, effectiveStatusId, comment, now)
 	if err != nil {

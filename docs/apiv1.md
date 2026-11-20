@@ -338,6 +338,21 @@ includes B2B orders, which are marked and skipped rather than synced.
   }
   ```
 
+#### Order Webhook
+
+- **Endpoint:** `POST /zoho/webhook/order`
+- **Sent by:** the Zoho Deluge function `SendDataToZohoClient` (workflow rule of the same name on
+  `Sales_Orders`, on edit).
+- **Request body (`data`):** `zoho_id` (Sales Order id, string or number), `status` (Zoho Status,
+  resolved through `zoho.order_status_map` / `order_status_aliases`), `grand_total`, `coupon`,
+  `ordered_items[]` (`zoho_id`, `price`, `total`, `quantity`, `is_shipping`), `modified_time`,
+  `decline_reason` (optional).
+- **`decline_reason`:** the `Sales_Orders.DeclineReason` picklist value. When the webhook moves the
+  order into `site.order_statuses.canceled`, the `oc_order_history` row gets a line
+  `Причина відмови: <value>` — the shop's mail sender reads it for the cancellation letter. It is
+  ignored on any other status, on an order that was already canceled, and when it is empty, `null`
+  or `-None-`.
+
 #### Payments Webhook
 
 - **Endpoint:** `/zoho/webhook/payment`

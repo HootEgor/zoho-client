@@ -1,11 +1,15 @@
 package core
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 	"zohoclient/entity"
+	"zohoclient/internal/config"
 	"zohoclient/internal/database/sql"
 )
 
@@ -107,6 +111,8 @@ type webhookRepo struct {
 	txCalls       int
 	modifiedCalls int
 	lastTx        sql.OrderUpdateTransaction
+	lastStatusId  int64
+	lastComment   string
 }
 
 func (r *webhookRepo) OrderSearchByZohoId(string) (int64, *entity.CheckoutParams, error) {
@@ -125,8 +131,10 @@ func (r *webhookRepo) GetOrderProductsSummary(int64) ([]sql.OrderProductSummary,
 	return r.items, nil
 }
 
-func (r *webhookRepo) ChangeOrderStatus(int64, int64, string) error {
+func (r *webhookRepo) ChangeOrderStatus(_ int64, statusId int64, comment string) error {
 	r.statusCalls++
+	r.lastStatusId = statusId
+	r.lastComment = comment
 	return nil
 }
 
@@ -292,5 +300,135 @@ func TestUpdateOrder_NotFoundStillFailsWhenLive(t *testing.T) {
 	if repo.searchCalls != 5 {
 		t.Errorf("OrderSearchByZohoId called %d time(s), want 5 — the write race is real when "+
 			"zoho_id is being recorded", repo.searchCalls)
+	}
+}
+
+// TestUpdateOrder_PLStatusesAndDeclineReason covers the PL trigger matrix (T9360ed54) on the inbound
+// side: «Доукомплектація» lands on an order_status_id of its own, and a cancellation carries the
+// manager's DeclineReason into oc_order_history on a line the shop's mail sender matches. The id 28
+// stands in for the shop's real one; the production mapping is pinned by
+// TestPLStatusMapCoversTheZohoPicklist.
+func TestUpdateOrder_PLStatusesAndDeclineReason(t *testing.T) {
+	const restock = 28
+	cfg := &config.Config{}
+	cfg.Zoho.OrderStatusMap = map[int]string{
+		1: "Нове", 3: "Відправлено", 5: "Перевірка та збір", 7: "Відмінено", restock: "Доукомплектація",
+	}
+	site, err := cfg.SiteSettings()
+	if err != nil {
+		t.Fatalf("SiteSettings() = %v", err)
+	}
+
+	unchanged := []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 52.8455, Total: 422.764, Quantity: 8}}
+	changed := []entity.ApiOrderedItem{{ZohoID: "Z1", Price: 52.8455, Total: 475.61, Quantity: 9}}
+
+	tests := []struct {
+		name       string
+		fromStatus int
+		status     string
+		reason     string
+		items      []entity.ApiOrderedItem
+		wantStatus int64  // 0: no status write expected
+		wantNote   string // on the status-only path: the whole comment; on the tx path: Note
+		wantTx     bool
+	}{
+		{
+			name: "restock gets its own status id", fromStatus: 5, status: "Доукомплектація",
+			items: unchanged, wantStatus: restock, wantNote: "Updated via API",
+		},
+		{
+			name: "reason on a non-cancel status is not recorded", fromStatus: 5, status: "Доукомплектація",
+			reason: "немає товару", items: unchanged, wantStatus: restock, wantNote: "Updated via API",
+		},
+		{
+			name: "cancel with reason", fromStatus: 5, status: "Відмінено", reason: "немає товару",
+			items: unchanged, wantStatus: 7, wantNote: "Updated via API\nПричина відмови: немає товару",
+		},
+		{
+			name: "cancel from restock with reason", fromStatus: restock, status: "Відмінено",
+			reason: "неможливість доставки", items: unchanged, wantStatus: 7,
+			wantNote: "Updated via API\nПричина відмови: неможливість доставки",
+		},
+		{
+			name: "cancel without reason as before", fromStatus: 5, status: "Відмінено",
+			items: unchanged, wantStatus: 7, wantNote: "Updated via API",
+		},
+		{
+			name: "unset picklist is no reason", fromStatus: 5, status: "Відмінено", reason: "-None-",
+			items: unchanged, wantStatus: 7, wantNote: "Updated via API",
+		},
+		{
+			name: "already canceled: nothing written, reason not repeated", fromStatus: 7,
+			status: "Відмінено", reason: "немає товару", items: unchanged,
+		},
+		{
+			name: "existing status unchanged", fromStatus: 5, status: "Відправлено",
+			items: unchanged, wantStatus: 3, wantNote: "Updated via API",
+		},
+		{
+			name: "cancel with reason and changed items goes through the transaction", fromStatus: 5,
+			status: "Відмінено", reason: "очевидна помилка в ціні", items: changed,
+			wantStatus: 7, wantNote: "Причина відмови: очевидна помилка в ціні", wantTx: true,
+		},
+		{
+			name: "changed items without a cancel carry no note", fromStatus: 5,
+			status: "Доукомплектація", items: changed, wantStatus: restock, wantTx: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := webhookTestRepo()
+			repo.order.StatusId = tt.fromStatus
+			core := webhookTestCore(repo, false)
+			core.site = site
+			var logs bytes.Buffer
+			core.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+			err := core.UpdateOrder(&entity.ApiOrder{
+				ZohoID:        "739178000059413569",
+				Status:        tt.status,
+				DeclineReason: tt.reason,
+				GrandTotal:    468.00,
+				OrderedItems:  tt.items,
+			})
+			if err != nil {
+				t.Fatalf("UpdateOrder() error = %v", err)
+			}
+			if strings.Contains(logs.String(), "unknown status name") {
+				t.Errorf("status %q logged as unknown:\n%s", tt.status, logs.String())
+			}
+
+			if tt.wantTx {
+				if repo.txCalls != 1 || repo.statusCalls != 0 {
+					t.Fatalf("tx=%d status=%d, want the transaction path only", repo.txCalls, repo.statusCalls)
+				}
+				if repo.lastTx.NewStatusID != tt.wantStatus {
+					t.Errorf("NewStatusID = %d, want %d", repo.lastTx.NewStatusID, tt.wantStatus)
+				}
+				if repo.lastTx.Note != tt.wantNote {
+					t.Errorf("Note = %q, want %q", repo.lastTx.Note, tt.wantNote)
+				}
+				return
+			}
+			if repo.txCalls != 0 {
+				t.Fatalf("UpdateOrderWithTransaction called %d time(s), want the status-only path", repo.txCalls)
+			}
+			if tt.wantStatus == 0 {
+				if repo.statusCalls != 0 {
+					t.Errorf("ChangeOrderStatus called %d time(s), want 0", repo.statusCalls)
+				}
+				return
+			}
+			if repo.statusCalls != 1 {
+				t.Fatalf("ChangeOrderStatus called %d time(s), want 1", repo.statusCalls)
+			}
+			if repo.lastStatusId != tt.wantStatus {
+				t.Errorf("order_status_id = %d, want %d", repo.lastStatusId, tt.wantStatus)
+			}
+			if repo.lastComment != tt.wantNote {
+				t.Errorf("history comment = %q, want %q", repo.lastComment, tt.wantNote)
+			}
+		})
 	}
 }

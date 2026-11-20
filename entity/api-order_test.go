@@ -53,3 +53,30 @@ func TestApiOrderUnmarshal_MissingAndBadZohoID(t *testing.T) {
 		t.Error("an object zoho_id should be rejected")
 	}
 }
+
+// The Deluge function sends DeclineReason as it reads it from the record: a picklist value, null
+// when the field was never touched, or "-None-" once it has been cleared.
+func TestApiOrder_DeclineReason(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"value", `{"zoho_id":"1","decline_reason":"немає товару"}`, "немає товару"},
+		{"absent", `{"zoho_id":"1"}`, ""},
+		{"null", `{"zoho_id":"1","decline_reason":null}`, ""},
+		{"none", `{"zoho_id":"1","decline_reason":"-None-"}`, ""},
+		{"padded", `{"zoho_id":"1","decline_reason":" інше "}`, "інше"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var o ApiOrder
+			if err := json.Unmarshal([]byte(tt.body), &o); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if got := o.Reason(); got != tt.want {
+				t.Errorf("Reason() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

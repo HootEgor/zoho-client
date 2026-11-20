@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"zohoclient/internal/lib/validate"
 )
 
@@ -18,6 +19,19 @@ type ApiOrder struct {
 	// triggered this webhook (RFC3339). Used to suppress echo webhooks caused
 	// by our own writes — see impl/core/api-order.go.
 	ModifiedTime string `json:"modified_time"`
+	// DeclineReason is Zoho's Sales_Orders.DeclineReason picklist value, filled by a manager who
+	// cancels the order. The shop's mail sender reads it back from oc_order_history.
+	DeclineReason string `json:"decline_reason"`
+}
+
+// Reason returns DeclineReason, or "" when the picklist is unset. Zoho reports an unset picklist
+// as "-None-" rather than an empty value.
+func (o *ApiOrder) Reason() string {
+	r := strings.TrimSpace(o.DeclineReason)
+	if r == "-None-" {
+		return ""
+	}
+	return r
 }
 
 type ApiOrderedItem struct {
