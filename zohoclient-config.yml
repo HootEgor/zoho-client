@@ -101,6 +101,9 @@ zoho:
     17: Оплачено, формування ТТН
     19: Рахунок виставлено
     20: ТТН сформовано
+    # Entering it sends the customer letter 4 «Нова пропозиція» (T9360ed54); its own id so the
+    # shop's mail sender can tell it from every other status. Added to oc_order_status 2026-11-20.
+    28: Доукомплектація
   # Zoho statuses with no OpenCart status of their own, folded into the nearest one.
   order_status_aliases:
     Отримано: 3

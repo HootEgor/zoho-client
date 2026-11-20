@@ -162,6 +162,7 @@ func TestPLStatusMapCoversTheZohoPicklist(t *testing.T) {
 		"Очікує відправки":         5,
 		"Відправлено":              3,
 		"Отримано":                 3,
+		"Доукомплектація":          28,
 		"Відмінено":                site.StatusCanceled,
 	} {
 		if got := site.OrderStatusIdByName(status); got != want {
